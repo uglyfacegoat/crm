@@ -1,0 +1,49 @@
+services:
+  crm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_MODE: required
+      AUTH_THROTTLE_SECRET: ${AUTH_THROTTLE_SECRET:?Set AUTH_THROTTLE_SECRET}
+      DATABASE_URL: postgresql://${CRM_DB_USER:?Set CRM_DB_USER}:${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}@database:5432/${CRM_DB_NAME:?Set CRM_DB_NAME}
+      DOCUMENT_STORAGE_ROOT: /app/storage
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "0.0.0.0:${CRM_APP_PORT:-3000}:3000"
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/system/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - crm_document_storage:/app/storage
+
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${CRM_DB_USER:?Set CRM_DB_USER}
+      POSTGRES_PASSWORD: ${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}
+      POSTGRES_DB: ${CRM_DB_NAME:?Set CRM_DB_NAME}
+    ports:
+      - "127.0.0.1:${CRM_DB_PORT:?Set CRM_DB_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - crm_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  crm_postgres_data:
+  crm_document_storage:

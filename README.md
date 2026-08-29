@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CRM сервисной компании
 
-## Getting Started
+Рабочий прототип CRM для управления клиентами, объектами, заказами, мастерами, выездами и документами.
 
-First, run the development server:
+Подробный статус и порядок разработки находятся в [CRM_ROADMAP.md](./CRM_ROADMAP.md).
+
+## Локальный запуск
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Откройте [http://localhost:3000](http://localhost:3000) в браузере.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Запуск всей CRM в Docker
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Для рабочего локального стенда приложение и PostgreSQL запускаются одним production Compose-стеком. Создайте `.env.local` из `.env.example`, задайте безопасные значения и выполните:
 
-## Learn More
+```bash
+npm run docker:deploy
+```
 
-To learn more about Next.js, take a look at the following resources:
+Команда собирает Next.js в standalone-образ, запускает миграции до старта приложения, пересоздаёт изменившийся контейнер и ждёт зелёных healthcheck приложения и базы. Повторяйте эту же команду после изменений кода — Docker использует кэш неизменившихся слоёв.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- CRM: [http://localhost:3000](http://localhost:3000)
+- Статус контейнеров: `docker compose --env-file .env.local ps`
+- Логи CRM: `npm run docker:logs`
+- Остановка без удаления данных: `npm run docker:down`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`AUTH_COOKIE_SECURE=false` допустим только для доверенного локального HTTP-стенда. Перед публикацией в интернет необходимо включить HTTPS, поставить reverse proxy и установить `AUTH_COOKIE_SECURE=true`. PostgreSQL наружу доступен только через `127.0.0.1`, а само приложение внутри контейнера работает от непривилегированного пользователя.
 
-## Deploy on Vercel
+## Локальная база данных
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Бэкенд развивается как модульный монолит внутри Next.js на TypeScript с PostgreSQL. Это сохраняет одну типовую систему и один deployment-контур; отдельный Go/Python-сервис имеет смысл выделять только для доказанно тяжёлой интеграционной нагрузки.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Создайте `.env.local` из `.env.example`, замените демонстрационный пароль и выполните:
+
+```bash
+npm run db:up
+npm run db:migrate
+```
+
+Остановить локальный Compose-стек можно командой `npm run db:down`. Данные остаются в именованном Docker volume.
+
+## Авторизация
+
+Для обычной работы над интерфейсом используется явный `AUTH_MODE=preview`: данные демонстрационные, а серверные операции записи не выполняются.
+
+Чтобы проверить реальную авторизацию, клиентский CRUD и основной поток заказов:
+
+1. Установите в `.env.local` `AUTH_MODE=required` и замените `AUTH_THROTTLE_SECRET` длинной случайной строкой.
+2. Запустите `npm run db:up` и `npm run db:migrate`.
+3. Заполните переменные `AUTH_BOOTSTRAP_*` и один раз выполните `npm run auth:create-admin`.
+4. Запустите CRM и войдите созданным e-mail/телефоном и паролем.
+
+Команда bootstrap создаёт новую организацию и администратора транзакционно и отказывается повторно использовать существующий login. Пароль хранится только как scrypt-хеш; session-токен хранится в БД только в виде SHA-256.
+
+При запущенной CRM в `AUTH_MODE=required` полный браузерный поток можно проверить переменными `AUTH_CHECK_BASE_URL`, `AUTH_CHECK_IDENTITY`, `AUTH_CHECK_PASSWORD` и командой `npm run auth:check`. Проверка создаёт клиента, объект, контакт и заказ, меняет статус, добавляет прямой расход, одиночный выезд и годовую серию, проверяет автосохранение и календарь, затем завершает сессию. Если отдельные `AUTH_CHECK_*` не заданы, локальная проверка использует bootstrap-учётную запись из `.env.local`.
+
+## Проверки
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm test
+npm run build
+```
+
+При запущенном dev-сервере можно проверить 44 ключевых сочетания маршрутов, окон и viewport от 280 px до 4K:
+
+```bash
+npm run visual:check
+```
+
+В `AUTH_MODE=preview` интерфейс использует типизированные демонстрационные данные. В `AUTH_MODE=required` клиенты, контакты, объекты, заказы, выезды, серии и календарь читаются и записываются в PostgreSQL с серверной валидацией, tenant-проверками, audit log, idempotency, optimistic concurrency и ограничением пересечений расписания. Остальные продуктовые разделы пока работают как интерактивные UI-прототипы.

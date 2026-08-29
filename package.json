@@ -1,17 +1,38 @@
 {
   "name": "crm",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "auth:create-admin": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/create-admin.ts",
+    "auth:create-member": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/create-member.ts",
+    "auth:check": "node --env-file-if-exists=.env.local scripts/auth-flow-check.mjs",
+    "charts:check": "node --env-file-if-exists=.env.local scripts/chart-check.mjs",
+    "db:down": "docker compose --env-file .env.local down",
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "db:up": "docker compose --env-file .env.local up -d --wait database",
+    "docker:deploy": "docker compose --env-file .env.local up -d --build --wait",
+    "docker:logs": "docker compose --env-file .env.local logs -f crm",
+    "docker:down": "docker compose --env-file .env.local down",
     "start": "next start",
-    "lint": "eslint"
+    "test": "node --test src/lib/visits/*.test.ts src/server/analytics/*.test.ts src/server/domain/*.test.ts src/server/auth/*.test.ts src/server/chat/*.test.ts src/server/clients/*.test.ts src/server/documents/*.test.ts src/server/masters/*.test.ts src/server/orders/*.test.ts src/server/tasks/*.test.ts src/server/visits/*.test.ts",
+    "lint": "eslint",
+    "visual:check": "node scripts/visual-check.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/geologica": "^5.3.0",
+    "@fontsource-variable/onest": "^5.3.0",
+    "lucide-react": "^1.34.0",
     "next": "16.3.2",
+    "postgres": "^3.4.9",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-is": "^19.2.8",
+    "recharts": "^3.10.1",
+    "server-only": "^0.0.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,6 +42,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
+    "playwright-core": "^1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -1,0 +1,85 @@
+"use client";
+
+import { Plus, Trash2 } from "lucide-react";
+import { useActionState, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createOrderAction, type CreateOrderState } from "@/app/(workspace)/orders/actions";
+import { Dialog } from "@/components/ui/dialog";
+import { formatMoneyMinor } from "@/lib/format";
+import { calculateServiceLineTotalMinor, parseMoneyToMinorUnits, parseQuantityToMilliunits } from "@/server/orders/money";
+import type { OrderCreationOptions } from "@/server/orders/types";
+import { OrderField, OrderFormFooter, OrderFormStatus, orderInputClass, OrderPicker, orderTextareaClass } from "./order-form-parts";
+
+type ServiceDraft = { id: string; name: string; quantity: string; unitPrice: string; note: string };
+type ExpenseDraft = { id: string; category: string; amount: string; occurredOn: string; note: string };
+const initialCreateOrderState: CreateOrderState = { status: "idle", message: null, fieldErrors: {}, orderId: null };
+
+function lineTotal(service: ServiceDraft) {
+  try {
+    return Number(calculateServiceLineTotalMinor(parseMoneyToMinorUnits(service.unitPrice), parseQuantityToMilliunits(service.quantity)));
+  } catch {
+    return 0;
+  }
+}
+
+function CreateOrderForm({ requestKey, options, onComplete }: { requestKey: string; options: OrderCreationOptions; onComplete: () => void }) {
+  const [state, action, pending] = useActionState(createOrderAction, initialCreateOrderState);
+  const [clientId, setClientId] = useState("");
+  const [objectId, setObjectId] = useState("");
+  const [contactId, setContactId] = useState("");
+  const [masterId, setMasterId] = useState("");
+  const [services, setServices] = useState<ServiceDraft[]>([{ id: "service-1", name: "", quantity: "1", unitPrice: "", note: "" }]);
+  const [expenses, setExpenses] = useState<ExpenseDraft[]>([]);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (state.status !== "success" || !state.orderId) return;
+    router.push(`/orders/${state.orderId}`);
+    router.refresh();
+    const timeout = window.setTimeout(onComplete, 500);
+    return () => window.clearTimeout(timeout);
+  }, [onComplete, router, state.orderId, state.status]);
+
+  const objects = useMemo(() => options.objects.filter((object) => object.clientId === clientId), [clientId, options.objects]);
+  const contacts = useMemo(() => options.contacts.filter((contact) => contact.clientId === clientId), [clientId, options.contacts]);
+  const totalMinor = services.reduce((total, service) => total + lineTotal(service), 0);
+  const ready = Boolean(clientId && objectId && contactId && services.length && services.every((service) => service.name.trim().length >= 2 && service.quantity.trim() && service.unitPrice.trim()));
+
+  function chooseClient(value: string) {
+    setClientId(value);
+    setObjectId("");
+    const primary = options.contacts.find((contact) => contact.clientId === value && contact.isPrimary);
+    setContactId(primary?.id ?? "");
+  }
+
+  function updateService(id: string, changes: Partial<ServiceDraft>) {
+    setServices((current) => current.map((service) => service.id === id ? { ...service, ...changes } : service));
+  }
+
+  function updateExpense(id: string, changes: Partial<ExpenseDraft>) {
+    setExpenses((current) => current.map((expense) => expense.id === id ? { ...expense, ...changes } : expense));
+  }
+
+  const serializedServices = services.map((service) => ({ name: service.name, quantity: service.quantity, unitPrice: service.unitPrice, note: service.note }));
+  const serializedExpenses = expenses.map((expense) => ({ category: expense.category, amount: expense.amount, occurredOn: expense.occurredOn, note: expense.note }));
+
+  return <form action={action} className="flex flex-1 flex-col"><input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="clientId" value={clientId} /><input type="hidden" name="objectId" value={objectId} /><input type="hidden" name="contactId" value={contactId} /><input type="hidden" name="assignedMasterId" value={masterId} /><input type="hidden" name="services" value={JSON.stringify(serializedServices)} /><input type="hidden" name="expenses" value={JSON.stringify(serializedExpenses)} />
+    <div className="flex-1 space-y-7 p-5 sm:p-7">
+      {options.clients.length === 0 ? <div className="rounded-[13px] border border-[#efc85d]/20 bg-[#efc85d]/[0.05] p-4 text-xs leading-5 text-[#d6bd77]">Сначала создайте клиента, контакт и объект. Заказ без этих связей не сохраняется.</div> : null}
+      <fieldset className="space-y-4"><legend className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#667077]">Заказчик и объект</legend><OrderPicker label="Клиент" required value={clientId} onChange={chooseClient} options={options.clients.map((client) => ({ value: client.id, label: client.name }))} placeholder="Выберите клиента" errors={state.fieldErrors.clientId} /><OrderPicker label="Объект" required value={objectId} onChange={setObjectId} disabled={!clientId} options={objects.map((object) => ({ value: object.id, label: object.name, detail: object.address }))} placeholder={clientId ? "Выберите объект" : "Сначала выберите клиента"} errors={state.fieldErrors.objectId} /><OrderPicker label="Контакт" required value={contactId} onChange={setContactId} disabled={!clientId} options={contacts.map((contact) => ({ value: contact.id, label: contact.name, detail: contact.phone }))} placeholder={clientId ? "Выберите контакт" : "Сначала выберите клиента"} errors={state.fieldErrors.contactId} /></fieldset>
+
+      <fieldset><div className="flex items-center justify-between gap-3"><legend className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#667077]">Состав заказа</legend><button type="button" onClick={() => setServices((current) => [...current, { id: crypto.randomUUID(), name: "", quantity: "1", unitPrice: "", note: "" }])} className="focus-ring flex h-9 items-center gap-1.5 rounded-[10px] border border-white/[0.08] px-3 text-[10px] text-[#aeb6ba] hover:bg-white/[0.04]"><Plus className="size-3.5" />Услуга</button></div><div className="mt-4 space-y-3">{services.map((service, index) => <div key={service.id} className="rounded-[14px] border border-white/[0.07] bg-black/10 p-3.5"><div className="flex items-center justify-between gap-3"><span className="text-[10px] text-[#687279]">Услуга {index + 1}</span>{services.length > 1 ? <button type="button" onClick={() => setServices((current) => current.filter((candidate) => candidate.id !== service.id))} aria-label={`Удалить услугу ${index + 1}`} className="focus-ring grid size-8 place-items-center rounded-lg text-[#687279] hover:bg-[#ef646a]/10 hover:text-[#ef7a80]"><Trash2 className="size-3.5" /></button> : null}</div><div className="mt-2 grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_9rem]"><OrderField label="Название" required><input aria-label={`Название услуги ${index + 1}`} value={service.name} onChange={(event) => updateService(service.id, { name: event.target.value })} maxLength={200} placeholder="Дератизация" className={orderInputClass} /></OrderField><OrderField label="Количество" required><input aria-label={`Количество услуги ${index + 1}`} value={service.quantity} onChange={(event) => updateService(service.id, { quantity: event.target.value })} inputMode="decimal" placeholder="1" className={orderInputClass} /></OrderField><OrderField label="Цена, ₽" required><input aria-label={`Цена услуги ${index + 1}`} value={service.unitPrice} onChange={(event) => updateService(service.id, { unitPrice: event.target.value })} inputMode="decimal" placeholder="25 000" className={orderInputClass} /></OrderField></div><input aria-label={`Примечание к услуге ${index + 1}`} value={service.note} onChange={(event) => updateService(service.id, { note: event.target.value })} maxLength={1000} placeholder="Примечание к услуге" className={`${orderInputClass} mt-3 h-10 text-xs`} /></div>)}</div><div className="mt-4 flex items-center justify-between border-t border-white/[0.06] pt-4"><span className="text-xs text-[#7a848a]">Итого по услугам</span><strong className="font-display text-sm text-white">{formatMoneyMinor(totalMinor)}</strong></div>{state.fieldErrors.services?.length ? <p className="mt-2 text-[10px] text-[#ef8a8f]">{state.fieldErrors.services[0]}</p> : null}</fieldset>
+
+      <fieldset><div className="flex items-center justify-between gap-3"><legend className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#667077]">Прямые расходы</legend><button type="button" onClick={() => setExpenses((current) => [...current, { id: crypto.randomUUID(), category: "", amount: "", occurredOn: "", note: "" }])} className="focus-ring flex h-9 items-center gap-1.5 rounded-[10px] border border-white/[0.08] px-3 text-[10px] text-[#aeb6ba] hover:bg-white/[0.04]"><Plus className="size-3.5" />Расход</button></div>{expenses.length ? <div className="mt-4 space-y-3">{expenses.map((expense, index) => <div key={expense.id} className="rounded-[14px] border border-white/[0.07] bg-black/10 p-3.5"><div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_9rem_auto]"><OrderField label="Категория" required><input aria-label={`Категория расхода ${index + 1}`} value={expense.category} onChange={(event) => updateExpense(expense.id, { category: event.target.value })} placeholder="Топливо" className={orderInputClass} /></OrderField><OrderField label="Сумма, ₽" required><input aria-label={`Сумма расхода ${index + 1}`} value={expense.amount} onChange={(event) => updateExpense(expense.id, { amount: event.target.value })} inputMode="decimal" className={orderInputClass} /></OrderField><OrderField label="Дата" required><input aria-label={`Дата расхода ${index + 1}`} value={expense.occurredOn} onChange={(event) => updateExpense(expense.id, { occurredOn: event.target.value })} type="date" className={orderInputClass} /></OrderField><button type="button" onClick={() => setExpenses((current) => current.filter((candidate) => candidate.id !== expense.id))} aria-label={`Удалить расход ${index + 1}`} className="focus-ring mt-5 grid size-10 place-items-center rounded-[10px] text-[#687279] hover:bg-[#ef646a]/10 hover:text-[#ef7a80]"><Trash2 className="size-3.5" /></button></div><input aria-label={`Примечание к расходу ${index + 1}`} value={expense.note} onChange={(event) => updateExpense(expense.id, { note: event.target.value })} placeholder="Комментарий" className={`${orderInputClass} mt-3 h-10 text-xs`} /></div>)}</div> : <p className="mt-3 text-xs leading-5 text-[#626c72]">Топливо, материалы и другие расходы можно внести сейчас или добавить позже в карточке.</p>}</fieldset>
+
+      <fieldset className="space-y-4"><legend className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#667077]">Исполнитель</legend><OrderPicker label="Мастер" value={masterId} onChange={setMasterId} options={[{ value: "", label: "Не назначен" }, ...options.masters.map((master) => ({ value: master.id, label: master.name, detail: master.phone }))]} placeholder="Не назначен" errors={state.fieldErrors.assignedMasterId} /><OrderField label="Выплата мастеру, ₽" required={Boolean(masterId)} errors={state.fieldErrors.masterPayment}><input name="masterPayment" disabled={!masterId} required={Boolean(masterId)} inputMode="decimal" placeholder="4 000" className={orderInputClass} /></OrderField><OrderField label="Внутренняя заметка" errors={state.fieldErrors.notes}><textarea name="notes" maxLength={4000} placeholder="Условия заказа, особенности объекта, что проверить…" className={orderTextareaClass} /></OrderField></fieldset>
+      <OrderFormStatus state={state} />
+    </div><OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={onComplete} submitLabel="Создать заказ" disabled={!ready || options.clients.length === 0} />
+  </form>;
+}
+
+export function CreateOrderButton({ options }: { options: OrderCreationOptions }) {
+  const [requestKey, setRequestKey] = useState<string | null>(null);
+  const close = useCallback(() => setRequestKey(null), []);
+  return <><button onClick={() => setRequestKey(crypto.randomUUID())} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#101308]"><Plus className="size-4" />Новый заказ</button><Dialog open={requestKey !== null} onClose={close} title="Новый заказ" description="Клиентские связи, состав, выплаты и расходы сохраняются одной транзакцией.">{requestKey ? <CreateOrderForm requestKey={requestKey} options={options} onComplete={close} /> : null}</Dialog></>;
+}
