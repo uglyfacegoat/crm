@@ -6,6 +6,7 @@ import { useActionState, useCallback, useEffect, useMemo, useState } from "react
 import { uploadDocumentAction, type DocumentUploadState } from "@/app/(workspace)/documents/actions";
 import { OrderField, OrderFormFooter, OrderFormStatus, OrderPicker, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
 import { Dialog } from "@/components/ui/dialog";
+import { clientCrypto as crypto } from "@/lib/client-id";
 import { documentCategoryLabels, type DocumentCategory, type DocumentUploadOptions } from "@/server/documents/types";
 
 const initialState: DocumentUploadState = { status: "idle", message: null, fieldErrors: {} };

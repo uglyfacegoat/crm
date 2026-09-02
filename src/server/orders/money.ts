@@ -38,3 +38,8 @@ export function minorUnitsToSafeNumber(value: bigint | string | number) {
   if (!Number.isSafeInteger(converted)) throw new RangeError("Monetary value exceeds the supported UI range.");
   return converted;
 }
+
+export function minimumRecordedOrderTotalMinor(invoicedTotalMinor: bigint, paidTotalMinor: bigint) {
+  if (invoicedTotalMinor < 0n || paidTotalMinor < 0n) throw new RangeError("Recorded financial totals cannot be negative.");
+  return invoicedTotalMinor > paidTotalMinor ? invoicedTotalMinor : paidTotalMinor;
+}

@@ -16,7 +16,14 @@ const previewMember: AuthenticatedMember = {
   displayName: "Иван Петров",
   email: "preview@crm.local",
   role: "admin",
+  masterId: null,
 };
+
+export async function requireOfficeSession() {
+  const session = await requireSession();
+  if (session.role === "master") redirect("/my-visits");
+  return session;
+}
 
 export async function setSessionCookie(session: SessionCookie) {
   const cookieStore = await cookies();

@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { formatMoney } from "@/lib/format";
-import type { Order } from "@/lib/mock-data";
+import { formatMoneyMinor, formatShortDate } from "@/lib/format";
+import type { OrderListItem } from "@/server/orders/types";
 import { StatusBadge } from "@/components/ui/status-badge";
 
-export function RecentOrders({ orders }: { orders: Order[] }) {
+export function RecentOrders({ orders }: { orders: OrderListItem[] }) {
   return (
     <section className="surface-panel animate-rise" style={{ animationDelay: "360ms" }}>
       <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-4 sm:px-6 2xl:py-5">
@@ -29,9 +29,9 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
               <tr key={order.id} className="group transition-colors hover:bg-white/[0.025]">
                 <td className="px-6 py-4"><Link href={`/orders/${order.id}`} className="focus-ring rounded text-xs font-semibold text-white hover:text-[var(--accent)]">№{order.number}</Link></td>
                 <td className="px-4 py-3.5"><p className="max-w-32 truncate text-xs font-medium text-[#dfe3df]">{order.client}</p><p className="mt-1 max-w-32 truncate text-[9px] text-[#6f787e]">{order.object}</p></td>
-                <td className="px-4 py-3.5 text-[10px] text-[#90999e]">{order.createdAt.split("-").reverse().join(".")}</td>
+                <td className="px-4 py-3.5 text-[10px] text-[#90999e]">{formatShortDate(order.createdAt)}</td>
                 <td className="px-4 py-3.5"><StatusBadge status={order.status} /></td>
-                <td className="px-6 py-3.5 text-right font-display text-[10px] font-medium text-white">{formatMoney(order.amount)}</td>
+                <td className="px-6 py-3.5 text-right font-display text-[10px] font-medium text-white">{formatMoneyMinor(order.agreedTotalMinor)}</td>
               </tr>
             ))}
           </tbody>
@@ -49,11 +49,12 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
                 <p className="mt-2 truncate text-sm font-medium text-[#dfe3df]">{order.client}</p>
                 <p className="mt-1 truncate text-xs text-[#6f787e]">{order.object} · {order.master ?? "Мастер не назначен"}</p>
               </div>
-              <span className="shrink-0 font-display text-[11px] font-medium text-white">{formatMoney(order.amount)}</span>
+              <span className="shrink-0 font-display text-[11px] font-medium text-white">{formatMoneyMinor(order.agreedTotalMinor)}</span>
             </div>
           </Link>
         ))}
       </div>
+      {!orders.length ? <p className="px-5 py-10 text-center text-xs text-[#69737a]">Заказов пока нет</p> : null}
     </section>
   );
 }

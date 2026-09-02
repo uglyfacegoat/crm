@@ -20,6 +20,7 @@ const sessionRowSchema = z.object({
   display_name: z.string(),
   email: z.string().email(),
   role: z.enum(organizationRoles),
+  master_id: z.string().uuid().nullable(),
 });
 
 export type CredentialRecord = z.infer<typeof credentialRowSchema>;
@@ -123,7 +124,8 @@ export async function findSessionByTokenHash(tokenHash: string) {
       sessions.member_id,
       members.display_name,
       members.email,
-      members.role
+      members.role,
+      members.master_id
     FROM auth_sessions sessions
     JOIN organization_members members
       ON members.organization_id = sessions.organization_id

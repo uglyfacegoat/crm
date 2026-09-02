@@ -10,7 +10,7 @@ import { getAnalyticsSnapshot } from "@/server/analytics/repository";
 import { getPreviewAnalytics } from "@/server/analytics/preview";
 import { analyticsRanges, type AnalyticsMetric, type AnalyticsRange } from "@/server/analytics/types";
 import { getAuthMode } from "@/server/auth/config";
-import { requireSession } from "@/server/auth/session";
+import { requireOfficeSession } from "@/server/auth/session";
 
 export const metadata: Metadata = { title: "Аналитика" };
 
@@ -32,14 +32,14 @@ function formatDateOnly(value: string) {
 }
 
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
-  const member = await requireSession();
+  const member = await requireOfficeSession();
   const range = parseRange((await searchParams).range);
   const analytics = getAuthMode() === "preview" ? getPreviewAnalytics(range) : await getAnalyticsSnapshot(member, range);
   const periodLabel = `${formatDateOnly(analytics.range.startDate)} — ${formatDateOnly(analytics.range.endDate)}`;
 
   return <div><PageHeading eyebrow="Управленческий контур" title="Аналитика" description="Фактические показатели PostgreSQL: заказы, деньги, выезды, клиенты, услуги и загрузка мастеров." action={<div className="flex gap-2"><span className="soft-button flex h-11 items-center gap-2 rounded-xl px-3 text-xs text-[#929ba0]"><CalendarRange className="size-4" />{periodLabel}</span><a href={`/api/v1/analytics/export?range=${range}`} download className="focus-ring soft-button grid size-11 place-items-center rounded-xl text-[var(--accent)]" aria-label="Экспортировать аналитику в CSV" title="Скачать полный отчёт CSV"><Download className="size-4" /></a></div>} />
 
-    <div className="mt-5 flex flex-col gap-3 border-b border-white/[0.06] pb-3 sm:flex-row sm:items-end sm:justify-between"><nav aria-label="Разделы аналитики" className="flex gap-1 overflow-x-auto">{["Обзор", "Продажи", "Выезды", "Клиенты", "Мастера", "Финансы"].map((tab, index) => <button key={tab} disabled={index !== 0} title={index !== 0 ? "Детализация появится после базового отчёта" : undefined} className={`focus-ring h-10 shrink-0 border-b-2 px-3 text-xs ${index === 0 ? "border-[var(--accent)] text-[var(--accent)]" : "cursor-not-allowed border-transparent text-[#626c72]"}`}>{tab}</button>)}</nav><div className="flex gap-1 rounded-xl border border-white/[0.07] p-1">{analyticsRanges.map((days) => <Link key={days} href={`/analytics?range=${days}`} className={`focus-ring rounded-lg px-3 py-2 text-[10px] ${range === days ? "bg-[var(--accent)] font-semibold text-[#111509]" : "text-[#7b858b] hover:text-white"}`}>{days === 365 ? "1 год" : `${days} дней`}</Link>)}</div></div>
+    <div className="mt-5 flex flex-col gap-3 border-b border-white/[0.06] pb-3 sm:flex-row sm:items-end sm:justify-between"><nav aria-label="Разделы аналитики" className="flex gap-1 overflow-x-auto">{[["Обзор", `/analytics?range=${range}`], ["Продажи", "/orders"], ["Выезды", "/calendar"], ["Клиенты", "/clients"], ["Мастера", "/masters"], ["Финансы", "/finance"]].map(([tab, href], index) => <Link key={tab} href={href} className={`focus-ring flex h-10 shrink-0 items-center border-b-2 px-3 text-xs ${index === 0 ? "border-[var(--accent)] text-[var(--accent)]" : "border-transparent text-[#737d83] hover:border-white/[0.16] hover:text-white"}`}>{tab}</Link>)}</nav><div className="flex gap-1 rounded-xl border border-white/[0.07] p-1">{analyticsRanges.map((days) => <Link key={days} href={`/analytics?range=${days}`} className={`focus-ring rounded-lg px-3 py-2 text-[10px] ${range === days ? "bg-[var(--accent)] font-semibold text-[#111509]" : "text-[#7b858b] hover:text-white"}`}>{days === 365 ? "1 год" : `${days} дней`}</Link>)}</div></div>
 
     <section aria-label="Ключевые показатели" className="mt-5 grid gap-3 min-[460px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">{analytics.metrics.map((metric) => <SummaryCard key={metric.id} label={metric.label} value={formatMetric(metric)} change={metric.change} tone={metric.tone} />)}</section>
 

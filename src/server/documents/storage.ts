@@ -29,6 +29,19 @@ export function createDocumentStorageKey(organizationId: string, documentId: str
   return `${organizationId}/${documentId}/v1.${extension}`;
 }
 
+export function createDocumentVersionStorageKey(organizationId: string, documentId: string, versionNumber: number, extension: string) {
+  if (!Number.isSafeInteger(versionNumber) || versionNumber < 1) throw new TypeError("Document version number must be a positive integer.");
+  return `${organizationId}/${documentId}/v${versionNumber}.${extension}`;
+}
+
+export function createDocumentTemplateStorageKey(organizationId: string, templateId: string, extension: string) {
+  return `${organizationId}/${templateId}/v1.${extension}`;
+}
+
+export function createChatAttachmentStorageKey(organizationId: string, messageId: string, extension: string) {
+  return `${organizationId}/${messageId}/v1.${extension}`;
+}
+
 export async function writeDocumentFile(storageKey: string, buffer: Buffer) {
   const absolutePath = resolveStorageKey(storageKey);
   await mkdir(dirname(absolutePath), { recursive: true, mode: 0o700 });

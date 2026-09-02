@@ -7,6 +7,7 @@ import {
   createClientContactAction, createClientObjectAction, updateClientAction, type ClientMutationState,
 } from "@/app/(workspace)/clients/actions";
 import { Dialog } from "@/components/ui/dialog";
+import { clientCrypto as crypto } from "@/lib/client-id";
 import type { ClientDetail } from "@/server/clients/types";
 
 const initialState: ClientMutationState = { status: "idle", message: null, fieldErrors: {} };

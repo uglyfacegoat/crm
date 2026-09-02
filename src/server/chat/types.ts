@@ -10,6 +10,15 @@ export type ChatChannel = {
   lastMessage: string | null;
   lastMessageAt: string | null;
   lastAuthor: string | null;
+  version: number;
+};
+
+export type ChatAttachment = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  extension: "pdf" | "jpg" | "png" | "webp" | "docx" | "xlsx";
+  sizeBytes: number;
 };
 
 export type ChatMessage = {
@@ -17,9 +26,11 @@ export type ChatMessage = {
   body: string;
   createdAt: string;
   editedAt: string | null;
-  authorId: string;
+  authorId: string | null;
   authorName: string;
-  authorRole: OrganizationRole;
+  authorRole: OrganizationRole | null;
+  kind: "user" | "system";
+  attachment: ChatAttachment | null;
   mine: boolean;
 };
 
@@ -45,4 +56,23 @@ export type ChatWorkspaceData = {
   messages: ChatMessage[];
   members: ChatMember[];
   memberOptions: ChatMemberOption[];
+};
+
+export type ChatAttachmentDownload = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
+};
+
+export type ChatAttachmentUpload = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  extension: ChatAttachment["extension"];
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
 };

@@ -45,3 +45,4 @@ ALTER TABLE service_visits
 
 CREATE INDEX service_visit_series_order_idx
   ON service_visit_series (organization_id, order_id, starts_on DESC);
+

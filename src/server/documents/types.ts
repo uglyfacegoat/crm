@@ -11,6 +11,20 @@ export const documentCategoryLabels: Record<DocumentCategory, string> = {
   other: "Прочее",
 };
 
+export type DocumentVersionListItem = {
+  id: string;
+  versionNumber: number;
+  filename: string;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  sha256: string;
+  changeNote: string | null;
+  uploadedAt: string;
+  uploadedBy: string;
+  current: boolean;
+};
+
 export type DocumentListItem = {
   id: string;
   title: string;
@@ -32,9 +46,11 @@ export type DocumentListItem = {
   sizeBytes: number;
   sha256: string;
   versionNumber: number;
+  recordVersion: number;
   uploadedAt: string;
   uploadedBy: string;
   favorite: boolean;
+  versions: DocumentVersionListItem[];
 };
 
 export type DocumentOrderOption = {
@@ -59,9 +75,26 @@ export type DocumentUploadOptions = {
 
 export type DocumentDownload = {
   id: string;
+  documentId: string;
   filename: string;
   mimeType: string;
   sizeBytes: number;
   sha256: string;
   storageKey: string;
+};
+
+export type DocumentExportFile = DocumentDownload & {
+  clientId: string;
+  clientName: string;
+  objectId: string;
+  objectName: string;
+  orderNumber: string;
+  category: DocumentCategory;
+};
+
+export type DocumentVersionUploadTarget = {
+  documentId: string;
+  orderId: string;
+  recordVersion: number;
+  versionNumber: number;
 };

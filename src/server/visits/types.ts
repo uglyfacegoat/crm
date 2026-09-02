@@ -24,10 +24,15 @@ export type ServiceVisit = {
   timezone: string;
   statusCode: VisitStatus;
   status: VisitDisplayStatus;
+  copyable: boolean;
   assignedMasterId: string | null;
   master: string | null;
   masterPhone: string | null;
   cancellationReason: string | null;
   notes: string | null;
+  completionNotes: string | null;
+  completionDocumentId: string | null;
+  completionDocumentTitle: string | null;
+  completedAt: string | null;
   version: number;
 };

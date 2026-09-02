@@ -1,51 +1,141 @@
 import { CircleAlert, ClipboardCheck, Coins, Route } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/metric-card";
-import { DashboardCalendar } from "@/components/dashboard/dashboard-calendar";
+import { DashboardCalendar, type DashboardVisit } from "@/components/dashboard/dashboard-calendar";
 import { FinancialSummary } from "@/components/dashboard/financial-summary";
 import { RecentOrders } from "@/components/dashboard/recent-orders";
 import { TeamOnlineCard, UpdatedCard } from "@/components/dashboard/dashboard-status-cards";
 import { TaskList } from "@/components/dashboard/task-list";
 import { TodayVisits } from "@/components/dashboard/today-visits";
-import { orders, visits, workTasks } from "@/lib/mock-data";
+import { formatMoneyMinor } from "@/lib/format";
+import { getAuthMode } from "@/server/auth/config";
+import { hasPermission } from "@/server/auth/permissions";
+import { requireOfficeSession } from "@/server/auth/session";
+import { listMasters } from "@/server/masters/repository";
+import { getPreviewMasters } from "@/server/masters/preview";
+import { getPreviewOrders } from "@/server/orders/preview";
+import { listOrders } from "@/server/orders/repository";
+import type { OrderListItem } from "@/server/orders/types";
+import { getPreviewTasks } from "@/server/tasks/preview";
+import { listTasks } from "@/server/tasks/repository";
+import { getPreviewVisits } from "@/server/visits/preview";
+import { listVisits } from "@/server/visits/repository";
+import type { ServiceVisit, VisitStatus } from "@/server/visits/types";
 
-const metrics = [
-  { label: "Выезды сегодня", value: "12", change: "+20% к вчера", icon: Route, tone: "yellow" as const, bars: [28, 42, 34, 66, 53, 82, 74] },
-  { label: "Активные заказы", value: "47", change: "+12% за неделю", icon: ClipboardCheck, tone: "violet" as const, bars: [22, 48, 36, 70, 54, 88, 76] },
-  { label: "Выручка за месяц", value: "1,25 млн ₽", change: "+18% к прошлому", icon: Coins, tone: "mint" as const, bars: [34, 28, 58, 44, 73, 68, 91] },
-  { label: "Просрочено", value: "5", change: "Требуют внимания", icon: CircleAlert, tone: "red" as const, bars: [72, 45, 65, 32, 56, 42, 28] },
-];
-
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const member = await requireOfficeSession();
+  const preview = getAuthMode() === "preview";
+  const now = new Date();
+  const [dashboardOrders, dashboardVisits, dashboardTasks, dashboardMasters] = preview
+    ? [getPreviewOrders(), getPreviewVisits(), getPreviewTasks(), getPreviewMasters()]
+    : await Promise.all([
+      listOrders(member),
+      listVisits(
+      member,
+      new Date(now.getTime() - 7 * 86_400_000).toISOString(),
+      new Date(now.getTime() + 21 * 86_400_000).toISOString(),
+      ),
+      listTasks(member),
+      listMasters(member),
+    ]);
+  const calendarVisits = dashboardVisits.map(toDashboardVisit);
+  const dashboardTimeZone = dashboardVisits[0]?.timezone ?? dashboardTasks.timeZone;
+  const initialCalendarDate = localDateKey(now, dashboardTimeZone);
+  const upcomingVisits = calendarVisits.filter((visit) => visit.date >= initialCalendarDate).slice(0, 5);
+  const visibleTasks = dashboardTasks.tasks.filter((task) => task.column === "overdue" || task.column === "today").slice(0, 4);
+  const activeOrders = dashboardOrders.filter((order) => order.status !== "Выполнен" && order.status !== "Отменён");
+  const currentMonth = initialCalendarDate.slice(0, 7);
+  const currentMonthOrders = dashboardOrders.filter((order) => localDateKey(new Date(order.createdAt), dashboardTimeZone).startsWith(currentMonth));
+  const currentMonthAgreed = currentMonthOrders.filter((order) => order.status !== "Отменён").reduce((sum, order) => sum + order.agreedTotalMinor, 0);
+  const overdueCount = dashboardOrders.filter((order) => order.status === "Просрочен").length + dashboardTasks.tasks.filter((task) => task.column === "overdue").length;
+  const dailyVisitBars = countsByDate(calendarVisits.map((visit) => visit.date), initialCalendarDate);
+  const dailyOrderBars = countsByDate(dashboardOrders.map((order) => localDateKey(new Date(order.createdAt), dashboardTimeZone)), initialCalendarDate);
+  const metrics = [
+    { label: "Выезды сегодня", value: String(calendarVisits.filter((visit) => visit.date === initialCalendarDate).length), change: "По актуальному расписанию", icon: Route, tone: "yellow" as const, bars: dailyVisitBars },
+    { label: "Активные заказы", value: String(activeOrders.length), change: `${dashboardOrders.length} заказов всего`, icon: ClipboardCheck, tone: "violet" as const, bars: dailyOrderBars },
+    { label: "Согласовано за месяц", value: formatMoneyMinor(currentMonthAgreed), change: `${currentMonthOrders.length} новых заказов`, icon: Coins, tone: "mint" as const, bars: dailyOrderBars },
+    { label: "Требуют внимания", value: String(overdueCount), change: `${dashboardTasks.tasks.filter((task) => task.column === "overdue").length} просроченных задач`, icon: CircleAlert, tone: "red" as const, bars: dailyVisitBars },
+  ];
+  const activeMasters = dashboardMasters.filter((master) => master.active);
+  const mastersOnVisits = activeMasters.filter((master) => master.todayVisitCount > 0).length;
   return (
     <div className="rounded-[clamp(1rem,0.75rem+0.45vw,1.4rem)] border border-white/[0.07] bg-[#0a0f12]/55 p-[clamp(0.75rem,0.4rem+0.8vw,1.5rem)] shadow-[0_30px_90px_rgba(0,0,0,0.16)]">
       <header className="animate-rise mb-[clamp(1rem,0.75rem+0.6vw,1.5rem)] flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-end min-[640px]:justify-between">
         <div>
-          <p className="eyebrow mb-2">Рабочий день · 25 августа</p>
-          <h1 className="display-title whitespace-nowrap text-white max-[359px]:text-[1.35rem]">Доброе утро, Иван! <span aria-hidden="true">👋</span></h1>
-          <p className="mt-2 text-[clamp(0.78rem,0.74rem+0.1vw,0.9rem)] text-[var(--muted)]">У вас 4 встречи и 7 задач на сегодня.</p>
+          <p className="eyebrow mb-2">Рабочий день · {formatDashboardDate(now, dashboardTimeZone)}</p>
+          <h1 className="display-title whitespace-nowrap text-white max-[359px]:text-[1.35rem]">Доброе утро, {member.displayName.split(" ")[0]}!</h1>
+          <p className="mt-2 text-[clamp(0.78rem,0.74rem+0.1vw,0.9rem)] text-[var(--muted)]">Сегодня {calendarVisits.filter((visit) => visit.date === initialCalendarDate).length} выездов и {visibleTasks.length} актуальных задач.</p>
         </div>
         <div className="hidden items-center gap-2 min-[640px]:flex">
-          <span className="soft-button rounded-full px-3 py-2 text-[11px] text-[#8d969b]"><span className="mr-2 inline-block size-1.5 rounded-full bg-[var(--success)] shadow-[0_0_10px_var(--success)]" />4 мастера на линии</span>
+          <span className="soft-button rounded-full px-3 py-2 text-[11px] text-[#8d969b]"><span className="mr-2 inline-block size-1.5 rounded-full bg-[var(--success)] shadow-[0_0_10px_var(--success)]" />{mastersOnVisits} мастеров на выездах</span>
           <span className="soft-button rounded-full px-3 py-2 text-[11px] text-[#8d969b]">Обновлено сейчас</span>
         </div>
       </header>
 
       <section aria-label="Основные показатели" className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(7.5rem,0.58fr)_minmax(7.5rem,0.58fr)] 2xl:gap-3">
         {metrics.map((metric, index) => <MetricCard key={metric.label} {...metric} delay={`${80 + index * 45}ms`} />)}
-        <TeamOnlineCard />
+        <TeamOnlineCard active={mastersOnVisits} total={activeMasters.length} />
         <UpdatedCard />
       </section>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        <TodayVisits visits={visits} />
-        <TaskList tasks={workTasks} />
+        <TodayVisits visits={upcomingVisits} dateLabel={formatDashboardDate(now, dashboardTimeZone)} />
+        <TaskList tasks={visibleTasks} canWrite={!preview && hasPermission(member.role, "tasks.write")} />
       </div>
 
       <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-[1.05fr_0.92fr_1fr]">
-        <RecentOrders orders={orders.slice(0, 5)} />
-        <DashboardCalendar visits={visits} />
-        <FinancialSummary />
+        <RecentOrders orders={dashboardOrders.slice(0, 5)} />
+        <DashboardCalendar visits={calendarVisits} initialDate={initialCalendarDate} />
+        <FinancialSummary orders={currentMonthOrders} />
       </div>
     </div>
   );
+}
+
+function formatDashboardDate(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat("ru-RU", { timeZone, day: "numeric", month: "long" }).format(date);
+}
+
+function countsByDate(dateKeys: string[], endDate: string) {
+  const end = new Date(`${endDate}T00:00:00Z`);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(end.getTime() - (6 - index) * 86_400_000).toISOString().slice(0, 10);
+    return dateKeys.filter((value) => value === date).length;
+  });
+}
+
+const visitColors: Record<VisitStatus, DashboardVisit["color"]> = {
+  planned: "yellow",
+  confirmed: "mint",
+  in_progress: "violet",
+  completed: "lime",
+  cancelled: "violet",
+};
+
+function localDateKey(date: Date, timeZone: string) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function toDashboardVisit(visit: ServiceVisit): DashboardVisit {
+  const scheduledStart = new Date(visit.scheduledStartAt);
+  return {
+    id: visit.id,
+    orderId: visit.orderId,
+    orderNumber: visit.orderNumber,
+    date: localDateKey(scheduledStart, visit.timezone),
+    time: new Intl.DateTimeFormat("ru-RU", {
+      timeZone: visit.timezone,
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(scheduledStart),
+    client: visit.client,
+    address: visit.address,
+    master: visit.master ?? "Мастер не назначен",
+    color: visitColors[visit.statusCode],
+  };
 }

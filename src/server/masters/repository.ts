@@ -7,7 +7,8 @@ import { getDatabase } from "@/server/database";
 import { minorUnitsToSafeNumber } from "@/server/orders/money";
 import type { CreateMasterInput, UpdateMasterInput } from "./schemas";
 import { getMasterStatus } from "./status";
-import type { MasterListItem, MasterVisitSummary } from "./types";
+import { visitStatusLabels } from "@/server/visits/types";
+import type { MasterDetail, MasterListItem, MasterVisitSummary } from "./types";
 
 const masterRowSchema = z.object({
   id: z.string().uuid(),
@@ -34,6 +35,17 @@ const visitRowSchema = z.object({
   scheduled_start_at: z.coerce.date(),
   timezone: z.string(),
 });
+const detailVisitRowSchema = visitRowSchema.omit({ assigned_master_id: true }).extend({
+  object_name_snapshot: z.string(),
+  status: z.enum(["planned", "confirmed", "in_progress", "completed", "cancelled"]),
+});
+const masterStatsRowSchema = z.object({
+  total_visits: z.coerce.number().int().nonnegative(),
+  completed_visits: z.coerce.number().int().nonnegative(),
+  upcoming_visits: z.coerce.number().int().nonnegative(),
+  total_orders: z.coerce.number().int().nonnegative(),
+});
+const masterEarningsRowSchema = z.object({ accrued_minor: z.union([z.string(), z.number(), z.bigint()]), paid_minor: z.union([z.string(), z.number(), z.bigint()]) });
 
 export class MasterConflictError extends Error {
   constructor() { super("A master with this phone already exists."); this.name = "MasterConflictError"; }
@@ -122,6 +134,90 @@ export async function listMasters(member: AuthenticatedMember): Promise<MasterLi
       todayVisits,
     };
   });
+}
+
+export async function getMasterDetail(member: AuthenticatedMember, masterId: string): Promise<MasterDetail> {
+  requirePermission(member, "masters.read");
+  const parsedMasterId = z.string().uuid().parse(masterId);
+  const sql = getDatabase();
+  const canReadFinance = hasPermission(member.role, "finance.read");
+  const [masterRows, todayVisitRows, recentVisitRows, statsRows, earningsRows] = await Promise.all([
+    sql`SELECT id, full_name, phone, messenger, service_region, service_zone, base_payment_minor,
+      daily_capacity, skills, notes, active, version
+      FROM masters WHERE organization_id = ${member.organizationId} AND id = ${parsedMasterId}`,
+    sql`SELECT service_visits.id, service_visits.assigned_master_id, service_visits.order_id,
+      orders.order_number, service_visits.client_name_snapshot, service_visits.object_address_snapshot,
+      service_visits.scheduled_start_at, organizations.timezone
+      FROM service_visits
+      JOIN organizations ON organizations.id = service_visits.organization_id
+      JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
+      WHERE service_visits.organization_id = ${member.organizationId}
+        AND service_visits.assigned_master_id = ${parsedMasterId}
+        AND service_visits.status NOT IN ('cancelled', 'completed')
+        AND (service_visits.scheduled_start_at AT TIME ZONE organizations.timezone)::date = (now() AT TIME ZONE organizations.timezone)::date
+      ORDER BY service_visits.scheduled_start_at`,
+    sql`SELECT service_visits.id, service_visits.order_id, orders.order_number,
+      service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
+      service_visits.scheduled_start_at, organizations.timezone, service_visits.status
+      FROM service_visits
+      JOIN organizations ON organizations.id = service_visits.organization_id
+      JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
+      WHERE service_visits.organization_id = ${member.organizationId} AND service_visits.assigned_master_id = ${parsedMasterId}
+      ORDER BY service_visits.scheduled_start_at DESC LIMIT 30`,
+    sql`SELECT count(*)::integer AS total_visits,
+      count(*) FILTER (WHERE status = 'completed')::integer AS completed_visits,
+      count(*) FILTER (WHERE scheduled_start_at >= now() AND status NOT IN ('completed', 'cancelled'))::integer AS upcoming_visits,
+      count(DISTINCT order_id)::integer AS total_orders
+      FROM service_visits WHERE organization_id = ${member.organizationId} AND assigned_master_id = ${parsedMasterId}`,
+    canReadFinance ? sql`SELECT coalesce(sum(master_payment_snapshot_minor), 0) AS accrued_minor,
+      coalesce(sum(master_paid_total_minor), 0) AS paid_minor
+      FROM orders WHERE organization_id = ${member.organizationId} AND assigned_master_id = ${parsedMasterId}` : Promise.resolve([]),
+  ]);
+  if (!masterRows.length) throw new MasterNotFoundError();
+  const row = masterRowSchema.parse(masterRows[0]);
+  const todayVisits = groupVisits(todayVisitRows).get(row.id) ?? [];
+  const status = getMasterStatus(row.active, todayVisits.length, row.daily_capacity);
+  const stats = masterStatsRowSchema.parse(statsRows[0]);
+  const earnings = canReadFinance ? masterEarningsRowSchema.parse(earningsRows[0]) : null;
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    phone: row.phone,
+    messenger: row.messenger,
+    serviceRegion: row.service_region,
+    serviceZone: row.service_zone,
+    ...(canReadFinance ? { basePaymentMinor: row.base_payment_minor === null ? null : minorUnitsToSafeNumber(row.base_payment_minor) } : {}),
+    dailyCapacity: row.daily_capacity,
+    skills: row.skills,
+    notes: row.notes,
+    active: row.active,
+    version: row.version,
+    todayVisitCount: todayVisits.length,
+    loadPercent: Math.round((todayVisits.length / row.daily_capacity) * 100),
+    statusCode: status.code,
+    statusLabel: status.label,
+    todayVisits,
+    totalVisits: stats.total_visits,
+    completedVisits: stats.completed_visits,
+    upcomingVisits: stats.upcoming_visits,
+    totalOrders: stats.total_orders,
+    ...(earnings ? { accruedMinor: minorUnitsToSafeNumber(earnings.accrued_minor), paidMinor: minorUnitsToSafeNumber(earnings.paid_minor) } : {}),
+    recentVisits: recentVisitRows.map((value) => {
+      const visit = detailVisitRowSchema.parse(value);
+      return {
+        id: visit.id,
+        orderId: visit.order_id,
+        orderNumber: String(visit.order_number),
+        clientName: visit.client_name_snapshot,
+        objectName: visit.object_name_snapshot,
+        objectAddress: visit.object_address_snapshot,
+        scheduledStartAt: visit.scheduled_start_at.toISOString(),
+        timezone: visit.timezone,
+        statusCode: visit.status,
+        status: visitStatusLabels[visit.status],
+      };
+    }),
+  };
 }
 
 export async function createMaster(member: AuthenticatedMember, input: CreateMasterInput) {

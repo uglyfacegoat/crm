@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { parseMoneyToMinorUnits, parseQuantityToMilliunits } from "./money";
-import { orderStatuses } from "./types";
+import { parseMoneyToMinorUnits, parseQuantityToMilliunits } from "./money.ts";
+import { orderStatuses } from "./types.ts";
 
 const optionalUuid = z.union([z.literal(""), z.string().uuid()]).transform((value) => value || null);
 const optionalText = (maximum: number) => z.string().trim().max(maximum).optional().transform((value) => value || null);
@@ -69,6 +69,7 @@ export const updateOrderSchema = z.object({
   assignedMasterId: optionalUuid,
   masterPayment: z.union([z.literal(""), money]).transform((value) => value || null),
   notes: optionalText(4_000),
+  services: z.array(orderServiceInputSchema).min(1, "Добавьте хотя бы одну услугу").max(100),
 }).superRefine((value, context) => {
   if (value.status === "cancelled" && (!value.statusReason || value.statusReason.length < 3)) {
     context.addIssue({ code: "custom", path: ["statusReason"], message: "Укажите причину отмены" });
@@ -90,8 +91,26 @@ export const addOrderExpenseSchema = z.object({
   note: optionalText(1_000),
 });
 
+const uniqueUuidList = (maximum: number) => z.array(z.string().uuid()).max(maximum).refine(
+  (values) => new Set(values).size === values.length,
+  "Один элемент выбран несколько раз",
+);
+
+export const copyOrderSchema = z.object({
+  idempotencyKey: z.string().uuid(),
+  sourceOrderId: z.string().uuid(),
+  expectedVersion: z.coerce.number().int().positive(),
+  copyDate: z.iso.date("Укажите дату новой копии"),
+  serviceIds: uniqueUuidList(100).min(1, "Выберите хотя бы одну услугу"),
+  expenseIds: uniqueUuidList(100),
+  visitIds: uniqueUuidList(100),
+  copyMaster: z.boolean(),
+  copyNotes: z.boolean(),
+});
+
 export const orderIdSchema = z.string().uuid();
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type AddOrderExpenseInput = z.infer<typeof addOrderExpenseSchema>;
+export type CopyOrderInput = z.infer<typeof copyOrderSchema>;

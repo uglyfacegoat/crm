@@ -2,18 +2,21 @@ import type { AuthenticatedMember, OrganizationRole } from "./types";
 
 export const permissions = [
   "clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write",
-  "documents.read", "documents.write", "masters.read", "masters.write", "finance.read", "settings.write",
+  "documents.read", "documents.write", "masters.read", "masters.write", "finance.read", "finance.write", "settings.write",
   "tasks.read", "tasks.write",
+  "contracts.read", "contracts.write",
   "chat.read", "chat.write", "chat.manage",
+  "document_templates.read", "document_templates.write",
+  "sites.read", "sites.write",
 ] as const;
 export type Permission = (typeof permissions)[number];
 
 const grants: Record<OrganizationRole, ReadonlySet<Permission>> = {
   admin: new Set(permissions),
-  dispatcher: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write", "documents.read", "documents.write", "masters.read", "tasks.read", "tasks.write", "chat.read", "chat.write", "chat.manage"]),
-  manager: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "documents.read", "documents.write", "masters.read", "finance.read", "tasks.read", "tasks.write", "chat.read", "chat.write", "chat.manage"]),
-  accountant: new Set(["clients.read", "orders.read", "documents.read", "documents.write", "finance.read", "tasks.read", "chat.read", "chat.write"]),
-  master: new Set(["orders.read", "visits.read", "visits.write"]),
+  dispatcher: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write", "documents.read", "documents.write", "masters.read", "tasks.read", "tasks.write", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read"]),
+  manager: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "documents.read", "documents.write", "masters.read", "finance.read", "tasks.read", "tasks.write", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read"]),
+  accountant: new Set(["clients.read", "orders.read", "documents.read", "documents.write", "finance.read", "finance.write", "tasks.read", "contracts.read", "chat.read", "chat.write", "sites.read"]),
+  master: new Set(["visits.read", "visits.write", "document_templates.read"]),
 };
 
 export class AuthorizationError extends Error {

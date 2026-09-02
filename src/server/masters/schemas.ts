@@ -2,6 +2,8 @@ import { z } from "zod";
 import { isValidContactPhone } from "../clients/phone.ts";
 import { parseMoneyToMinorUnits } from "../orders/money.ts";
 
+export const masterIdSchema = z.string().uuid();
+
 const contactPhone = z.string().trim().min(7, "Введите телефон").max(40)
   .refine(isValidContactPhone, "Телефон должен содержать от 10 до 15 цифр");
 const optionalText = (maximum: number) => z.string().trim().max(maximum).transform((value) => value || null);
@@ -35,7 +37,7 @@ export const createMasterSchema = z.object({
 });
 
 export const updateMasterSchema = z.object({
-  masterId: z.string().uuid(),
+  masterId: masterIdSchema,
   expectedVersion: z.coerce.number().int().positive(),
   ...masterFields,
   active: z.boolean(),

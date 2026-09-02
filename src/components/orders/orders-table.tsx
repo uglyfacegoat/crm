@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, ClipboardList, Filter, Grid2X2, List, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatMoneyMinor, formatShortDate } from "@/lib/format";
@@ -11,6 +12,7 @@ import { WorkspaceStatCard } from "@/components/ui/workspace-stat-card";
 const statusOptions: Array<OrderDisplayStatus | "Все"> = ["Все", "Новый", "В работе", "На согласовании", "Запланирован", "Выполнен", "Просрочен", "Отменён"];
 
 export function OrdersTable({ orders }: { orders: OrderListItem[] }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<OrderDisplayStatus | "Все">("Все");
   const [view, setView] = useState<"list" | "grid">("list");
@@ -65,7 +67,7 @@ export function OrdersTable({ orders }: { orders: OrderListItem[] }) {
           </thead>
           <tbody className="divide-y divide-white/[0.05]">
             {filteredOrders.map((order) => (
-              <tr key={order.id} className="group transition-colors hover:bg-white/[0.025]">
+              <tr key={order.id} role="link" tabIndex={0} aria-label={`Открыть заказ ${order.number}`} onClick={() => router.push(`/orders/${order.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/orders/${order.id}`); } }} className="group cursor-pointer transition-colors hover:bg-white/[0.035] focus-visible:bg-white/[0.035] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] focus-visible:outline-offset-[-2px]">
                 <td className="px-5 py-4"><Link href={`/orders/${order.id}`} className="focus-ring rounded font-display text-[11px] font-semibold text-white transition-colors hover:text-[var(--accent)]">{order.number}</Link></td>
                 <td className="px-4 py-4 text-xs font-medium text-[#dfe3df]">{order.client}</td>
                 <td className="px-4 py-4"><p className="text-xs text-[#a6aeb2]">{order.object}</p><p className="mt-1 text-[10px] text-[#697278]">{order.address}</p></td>

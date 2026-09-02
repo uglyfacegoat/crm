@@ -9,6 +9,7 @@ export type AuthenticatedMember = {
   displayName: string;
   email: string;
   role: OrganizationRole;
+  masterId: string | null;
 };
 
 export type SessionCookie = { token: string; expiresAt: Date };

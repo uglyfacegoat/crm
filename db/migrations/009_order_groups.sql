@@ -33,3 +33,4 @@ CREATE TABLE order_group_members (
 
 CREATE INDEX order_group_members_group_idx
   ON order_group_members (organization_id, group_id, created_at);
+

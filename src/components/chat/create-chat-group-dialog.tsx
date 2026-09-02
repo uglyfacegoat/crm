@@ -7,6 +7,7 @@ import { createChatChannelAction, type ChatMutationState } from "@/app/(workspac
 import { OrderField, OrderFormFooter, OrderFormStatus, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
+import { clientCrypto as crypto } from "@/lib/client-id";
 import type { ChatMemberOption } from "@/server/chat/types";
 
 const initialState: ChatMutationState = { status: "idle", message: null, fieldErrors: {}, entityId: null };

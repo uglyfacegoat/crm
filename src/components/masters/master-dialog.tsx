@@ -10,6 +10,7 @@ import {
 } from "@/app/(workspace)/masters/actions";
 import { OrderField, OrderFormFooter, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
 import { Dialog } from "@/components/ui/dialog";
+import { clientCrypto as crypto } from "@/lib/client-id";
 import type { MasterListItem } from "@/server/masters/types";
 
 const initialState: MasterMutationState = { status: "idle", message: null, fieldErrors: {} };
@@ -73,7 +74,7 @@ export function EditMasterButton({ master, onOpen }: { master: MasterListItem; o
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   return <>
-    <button type="button" aria-label={`Изменить ${master.fullName}`} onClick={() => { setOpen(true); onOpen?.(); }} className="focus-ring grid size-9 shrink-0 place-items-center rounded-[11px] border border-white/[0.07] text-[#737d83] hover:bg-white/[0.04] hover:text-white"><UserRoundPen className="size-4" /></button>
+    <button type="button" aria-label={`Редактировать мастера ${master.fullName}`} onClick={() => { setOpen(true); onOpen?.(); }} className="focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[12px] border border-white/[0.08] px-3 text-xs text-[#aeb6ba] hover:bg-white/[0.04] hover:text-white"><UserRoundPen className="size-4" />Редактировать</button>
     <Dialog open={open} onClose={close} title={master.fullName} description="Изменения справочника не переписывают исторические данные уже созданных заказов.">{open ? <MasterForm master={master} onComplete={close} /> : null}</Dialog>
   </>;
 }

@@ -84,6 +84,7 @@ export function getPreviewOrderDetail(orderId: string): OrderDetail | null {
     assignedMasterId: source.master ? `master-${Math.max(1, orders.findIndex((order) => order.master === source.master) + 1)}` : null,
     masterPhone: source.masterPhone,
     masterPaymentMinor,
+    masterPaidTotalMinor: source.status === "Выполнен" ? (masterPaymentMinor ?? 0) : 0,
     directExpensesMinor,
     projectedOperatingContributionMinor: source.amount * 100 - (masterPaymentMinor ?? 0) - directExpensesMinor,
     realizedOperatingContributionMinor: (source.status === "Выполнен" ? source.amount * 100 : 0) - (masterPaymentMinor ?? 0) - directExpensesMinor,

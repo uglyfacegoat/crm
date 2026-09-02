@@ -7,17 +7,24 @@ import {
   addOrderExpense,
   createOrder,
   OrderNotFoundError,
+  OrderMasterFinancialsLockedError,
   OrderReferenceError,
+  OrderTotalBelowRecordedFinancialsError,
   OrderVersionConflictError,
   updateOrder,
 } from "@/server/orders/repository";
+import {
+  copyOrder,
+  OrderCopyScheduleConflictError,
+  OrderCopySelectionError,
+} from "@/server/orders/copy-repository";
 import {
   linkOrders,
   OrderRelationClientMismatchError,
   OrderRelationNotFoundError,
 } from "@/server/orders/relations-repository";
 import { linkOrderSchema } from "@/server/orders/relation-schemas";
-import { addOrderExpenseSchema, createOrderSchema, updateOrderSchema } from "@/server/orders/schemas";
+import { addOrderExpenseSchema, copyOrderSchema, createOrderSchema, updateOrderSchema } from "@/server/orders/schemas";
 
 export type CreateOrderState = {
   status: "idle" | "success" | "error";
@@ -31,6 +38,8 @@ export type OrderMutationState = {
   message: string | null;
   fieldErrors: Record<string, string[]>;
 };
+
+export type CopyOrderState = CreateOrderState;
 
 const previewMutationState: OrderMutationState = {
   status: "error",
@@ -106,6 +115,7 @@ export async function updateOrderAction(_previous: OrderMutationState, formData:
     assignedMasterId: formData.get("assignedMasterId"),
     masterPayment: formData.get("masterPayment") ?? "",
     notes: formData.get("notes"),
+    services: parseJsonField(formData.get("services")),
   });
   if (!parsed.success) return { status: "error", message: "Проверьте обязательные поля.", fieldErrors: fieldErrors(parsed.error) };
   try {
@@ -118,6 +128,8 @@ export async function updateOrderAction(_previous: OrderMutationState, formData:
     if (error instanceof OrderVersionConflictError) return { status: "error", message: "Заказ уже изменил другой сотрудник. Закройте окно, обновите страницу и повторите.", fieldErrors: {} };
     if (error instanceof OrderNotFoundError) return { status: "error", message: "Заказ больше не существует или недоступен.", fieldErrors: {} };
     if (error instanceof OrderReferenceError) return { status: "error", message: referenceMessage(error), fieldErrors: { assignedMasterId: [referenceMessage(error)] } };
+    if (error instanceof OrderTotalBelowRecordedFinancialsError) return { status: "error", message: `Итог заказа не может быть ниже уже выставленной или оплаченной суммы: ${(Number(error.minimumTotalMinor) / 100).toLocaleString("ru-RU")} ₽.`, fieldErrors: { services: ["Увеличьте итог по услугам"] } };
+    if (error instanceof OrderMasterFinancialsLockedError) return { status: "error", message: `По заказу уже выплачено мастеру ${(Number(error.paidMinor) / 100).toLocaleString("ru-RU")} ₽. Нельзя сменить мастера или уменьшить начисление ниже этой суммы.`, fieldErrors: { masterPayment: ["Сначала сторнируйте ошибочную выплату в разделе «Финансы»"] } };
     logUnexpected("orders.update", member.memberId, error);
     return { status: "error", message: "Не удалось обновить заказ. Изменения не сохранены.", fieldErrors: {} };
   }
@@ -145,6 +157,51 @@ export async function addOrderExpenseAction(_previous: OrderMutationState, formD
     if (error instanceof OrderNotFoundError) return { status: "error", message: "Заказ больше не существует или недоступен.", fieldErrors: {} };
     logUnexpected("order_expenses.create", member.memberId, error);
     return { status: "error", message: "Не удалось добавить расход. Изменения не сохранены.", fieldErrors: {} };
+  }
+}
+
+export async function copyOrderAction(_previous: CopyOrderState, formData: FormData): Promise<CopyOrderState> {
+  if (getAuthMode() === "preview") return { ...previewMutationState, orderId: null };
+  const member = await requireSession();
+  const parsed = copyOrderSchema.safeParse({
+    idempotencyKey: formData.get("idempotencyKey"),
+    sourceOrderId: formData.get("sourceOrderId"),
+    expectedVersion: formData.get("expectedVersion"),
+    copyDate: formData.get("copyDate"),
+    serviceIds: parseJsonField(formData.get("serviceIds")),
+    expenseIds: parseJsonField(formData.get("expenseIds")),
+    visitIds: parseJsonField(formData.get("visitIds")),
+    copyMaster: formData.get("copyMaster") === "true",
+    copyNotes: formData.get("copyNotes") === "true",
+  });
+  if (!parsed.success) {
+    return { status: "error", message: "Проверьте состав копии и новую дату.", fieldErrors: fieldErrors(parsed.error), orderId: null };
+  }
+  try {
+    const orderId = await copyOrder(member, parsed.data);
+    revalidatePath("/");
+    revalidatePath("/orders");
+    revalidatePath(`/orders/${parsed.data.sourceOrderId}`);
+    revalidatePath(`/orders/${orderId}`);
+    return { status: "success", message: "Копия создана. Открываем новый заказ…", fieldErrors: {}, orderId };
+  } catch (error) {
+    if (error instanceof OrderVersionConflictError) {
+      return { status: "error", message: "Заказ уже изменил другой сотрудник. Обновите карточку и повторите.", fieldErrors: {}, orderId: null };
+    }
+    if (error instanceof OrderNotFoundError) {
+      return { status: "error", message: "Исходный заказ больше не существует или недоступен.", fieldErrors: {}, orderId: null };
+    }
+    if (error instanceof OrderReferenceError) {
+      return { status: "error", message: referenceMessage(error), fieldErrors: {}, orderId: null };
+    }
+    if (error instanceof OrderCopySelectionError) {
+      return { status: "error", message: error.message, fieldErrors: {}, orderId: null };
+    }
+    if (error instanceof OrderCopyScheduleConflictError) {
+      return { status: "error", message: "У одного из выбранных мастеров уже есть выезд в новое время. Смените дату или копируйте без мастеров.", fieldErrors: {}, orderId: null };
+    }
+    logUnexpected("orders.copy", member.memberId, error);
+    return { status: "error", message: "Не удалось создать копию. Исходный заказ не изменён.", fieldErrors: {}, orderId: null };
   }
 }
 

@@ -13,6 +13,7 @@ export type TaskCard = {
   dueAt: string | null;
   assignee: string;
   assignedMemberId: string | null;
+  assigneeName: string | null;
   column: TaskColumn;
   priority: TaskPriority;
   source: "manual" | "visit_reminder";
@@ -20,8 +21,36 @@ export type TaskCard = {
   version: number;
 };
 
+export type CompletedTaskCard = TaskCard & {
+  completedAt: string;
+};
+
+export type TaskAssigneeOption = {
+  id: string;
+  displayName: string;
+  role: "admin" | "dispatcher" | "manager" | "accountant" | "master";
+};
+
+export type TaskHistoryEvent = {
+  id: string;
+  eventType: "created" | "updated" | "rescheduled" | "reassigned" | "completed" | "cancelled";
+  actorName: string | null;
+  beforeState: Record<string, unknown> | null;
+  afterState: Record<string, unknown> | null;
+  reason: string | null;
+  createdAt: string;
+};
+
+export type TaskHistoryFeed = {
+  events: TaskHistoryEvent[];
+  truncated: boolean;
+};
+
 export type TaskSnapshot = {
   tasks: TaskCard[];
+  completedTasks: CompletedTaskCard[];
+  assigneeOptions: TaskAssigneeOption[];
+  timeZone: string;
   currentMemberId: string;
   completedLast30Days: number;
 };

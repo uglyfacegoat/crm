@@ -60,6 +60,7 @@ export async function resolveSession(token: string): Promise<AuthenticatedMember
     displayName: session.display_name,
     email: session.email,
     role: session.role,
+    masterId: session.master_id,
   };
 }
 

@@ -15,5 +15,12 @@ export const sendChatMessageSchema = z.object({
 
 export const chatChannelIdSchema = z.string().uuid();
 
+export const updateChatChannelMembersSchema = z.object({
+  channelId: z.string().uuid(),
+  expectedVersion: z.coerce.number().int().positive(),
+  memberIds: z.array(z.string().uuid()).max(100).transform((memberIds) => [...new Set(memberIds)]),
+});
+
 export type CreateChatChannelInput = z.infer<typeof createChatChannelSchema>;
 export type SendChatMessageInput = z.infer<typeof sendChatMessageSchema>;
+export type UpdateChatChannelMembersInput = z.infer<typeof updateChatChannelMembersSchema>;

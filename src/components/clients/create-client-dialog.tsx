@@ -5,6 +5,7 @@ import { useActionState, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClientAction, type CreateClientState } from "@/app/(workspace)/clients/actions";
 import { Dialog } from "@/components/ui/dialog";
+import { clientCrypto as crypto } from "@/lib/client-id";
 
 const initialCreateClientState: CreateClientState = { status: "idle", message: null, fieldErrors: {}, clientId: null };
 function FieldError({ errors }: { errors?: string[] }) { return errors?.length ? <span className="text-[10px] text-[#ef8a8f]">{errors[0]}</span> : null; }

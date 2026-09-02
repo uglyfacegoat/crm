@@ -1,5 +1,6 @@
 services:
   crm:
+    image: crm-app:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -27,6 +28,52 @@ services:
     volumes:
       - crm_document_storage:/app/storage
 
+  reminder-worker:
+    image: crm-app:local
+    pull_policy: never
+    entrypoint: ["node", "scripts/reminder-worker.mjs"]
+    environment:
+      DATABASE_URL: postgresql://${CRM_DB_USER:?Set CRM_DB_USER}:${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}@database:5432/${CRM_DB_NAME:?Set CRM_DB_NAME}
+      REMINDER_WORKER_INTERVAL_MS: ${REMINDER_WORKER_INTERVAL_MS:-60000}
+    depends_on:
+      crm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "scripts/reminder-worker.mjs", "--healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 4
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  backup-worker:
+    image: crm-app:local
+    pull_policy: never
+    entrypoint: ["node", "scripts/backup-worker.mjs"]
+    environment:
+      BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
+      BACKUP_RETRY_INTERVAL_MS: ${BACKUP_RETRY_INTERVAL_MS:-900000}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_ROOT: /app/backups
+      BACKUP_WORKER_POLL_MS: ${BACKUP_WORKER_POLL_MS:-60000}
+      DATABASE_URL: postgresql://${CRM_DB_USER:?Set CRM_DB_USER}:${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}@database:5432/${CRM_DB_NAME:?Set CRM_DB_NAME}
+      DOCUMENT_STORAGE_ROOT: /app/storage
+    depends_on:
+      crm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "scripts/backup-worker.mjs", "--healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 90s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - crm_document_storage:/app/storage:ro
+      - crm_backups:/app/backups
+
   database:
     image: postgres:17-alpine
     environment:
@@ -47,3 +94,4 @@ services:
 volumes:
   crm_postgres_data:
   crm_document_storage:
+  crm_backups:

@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "CRM — Сервисная компания",
+    default: "CRM — рабочее пространство",
     template: "%s · CRM",
   },
   description: "Управление заказами, клиентами, выездами и документами",

@@ -30,3 +30,19 @@ export type MasterListItem = {
   statusLabel: string;
   todayVisits: MasterVisitSummary[];
 };
+
+export type MasterDetailVisit = MasterVisitSummary & {
+  objectName: string;
+  statusCode: "planned" | "confirmed" | "in_progress" | "completed" | "cancelled";
+  status: string;
+};
+
+export type MasterDetail = MasterListItem & {
+  totalVisits: number;
+  completedVisits: number;
+  upcomingVisits: number;
+  totalOrders: number;
+  accruedMinor?: number;
+  paidMinor?: number;
+  recentVisits: MasterDetailVisit[];
+};

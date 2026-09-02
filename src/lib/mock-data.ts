@@ -27,6 +27,7 @@ export type Order = {
 export type Visit = {
   id: string;
   orderId: string;
+  date: string;
   time: string;
   client: string;
   address: string;
@@ -161,11 +162,11 @@ export const orders: Order[] = [
 ];
 
 export const visits: Visit[] = [
-  { id: "visit-1", orderId: "ord-1248", time: "09:00", client: "ООО «Домжилсервис»", address: "ул. Ленина, 15", master: "Алексей Смирнов", status: "Запланирован", color: "yellow" },
-  { id: "visit-2", orderId: "ord-1247", time: "11:30", client: "ТСЖ «Пруды»", address: "ул. Озёрная, 8", master: "Дмитрий Кузнецов", status: "Подтверждён", color: "mint" },
-  { id: "visit-3", orderId: "ord-1246", time: "13:00", client: "ООО «Вектор»", address: "ул. Мира, 21", master: "Сергей Волков", status: "В работе", color: "violet" },
-  { id: "visit-4", orderId: "ord-1245", time: "15:30", client: "ИП Иванов И.И.", address: "ул. Садовая, 3", master: "Алексей Смирнов", status: "Запланирован", color: "lime" },
-  { id: "visit-5", orderId: "ord-1244", time: "17:00", client: "ООО «Орион»", address: "ул. Тверская, 7", master: "Дмитрий Кузнецов", status: "В работе", color: "violet" },
+  { id: "visit-1", orderId: "ord-1248", date: "2026-08-25", time: "09:00", client: "ООО «Домжилсервис»", address: "ул. Ленина, 15", master: "Алексей Смирнов", status: "Запланирован", color: "yellow" },
+  { id: "visit-2", orderId: "ord-1247", date: "2026-08-26", time: "11:30", client: "ТСЖ «Пруды»", address: "ул. Озёрная, 8", master: "Дмитрий Кузнецов", status: "Подтверждён", color: "mint" },
+  { id: "visit-3", orderId: "ord-1246", date: "2026-08-27", time: "13:00", client: "ООО «Вектор»", address: "ул. Мира, 21", master: "Сергей Волков", status: "В работе", color: "violet" },
+  { id: "visit-4", orderId: "ord-1245", date: "2026-08-28", time: "15:30", client: "ИП Иванов И.И.", address: "ул. Садовая, 3", master: "Алексей Смирнов", status: "Запланирован", color: "lime" },
+  { id: "visit-5", orderId: "ord-1244", date: "2026-08-29", time: "17:00", client: "ООО «Орион»", address: "ул. Тверская, 7", master: "Дмитрий Кузнецов", status: "В работе", color: "violet" },
 ];
 
 export const workTasks: WorkTask[] = [

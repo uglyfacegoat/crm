@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ClientDetailWorkspace } from "@/components/clients/client-detail-workspace";
 import { clients } from "@/lib/mock-data";
 import { getAuthMode } from "@/server/auth/config";
-import { requireSession } from "@/server/auth/session";
+import { requireOfficeSession } from "@/server/auth/session";
 import { ClientNotFoundError, getClientDetail } from "@/server/clients/repository";
 import { clientIdSchema } from "@/server/clients/schemas";
 import type { ClientDetail } from "@/server/clients/types";
@@ -31,7 +31,7 @@ function previewClientDetail(clientId: string): ClientDetail | null {
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const member = await requireSession();
+  const member = await requireOfficeSession();
   if (getAuthMode() === "preview") {
     const client = previewClientDetail(id);
     if (!client) notFound();

@@ -57,6 +57,7 @@ export type OrderDetail = OrderListItem & {
   assignedMasterId: string | null;
   masterPhone: string | null;
   masterPaymentMinor: number | null;
+  masterPaidTotalMinor: number;
   directExpensesMinor: number;
   projectedOperatingContributionMinor: number;
   realizedOperatingContributionMinor: number;

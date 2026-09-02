@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createOrderAction, type CreateOrderState } from "@/app/(workspace)/orders/actions";
 import { Dialog } from "@/components/ui/dialog";
 import { formatMoneyMinor } from "@/lib/format";
+import { clientCrypto as crypto } from "@/lib/client-id";
 import { calculateServiceLineTotalMinor, parseMoneyToMinorUnits, parseQuantityToMilliunits } from "@/server/orders/money";
 import type { OrderCreationOptions } from "@/server/orders/types";
 import { OrderField, OrderFormFooter, OrderFormStatus, orderInputClass, OrderPicker, orderTextareaClass } from "./order-form-parts";

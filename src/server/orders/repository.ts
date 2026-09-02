@@ -8,6 +8,7 @@ import {
   calculateServiceLineTotalMinor,
   formatQuantityForDatabase,
   minorUnitsToSafeNumber,
+  minimumRecordedOrderTotalMinor,
   parseMoneyToMinorUnits,
   parseQuantityToMilliunits,
 } from "./money";
@@ -43,6 +44,7 @@ const orderDetailRowSchema = orderListRowSchema.extend({
   assigned_master_id: uuidSchema.nullable(),
   master_phone_snapshot: z.string().nullable(),
   master_payment_snapshot_minor: nullableMinorUnitsSchema,
+  master_paid_total_minor: minorUnitsSchema,
   notes: z.string().nullable(),
   version: z.number().int().positive(),
 });
@@ -78,6 +80,20 @@ export class OrderReferenceError extends Error {
   constructor(readonly field: "client" | "object" | "contact" | "master") {
     super(`The selected ${field} is unavailable.`);
     this.name = "OrderReferenceError";
+  }
+}
+
+export class OrderTotalBelowRecordedFinancialsError extends Error {
+  constructor(readonly minimumTotalMinor: bigint) {
+    super("Order total cannot be lower than invoiced or paid amounts.");
+    this.name = "OrderTotalBelowRecordedFinancialsError";
+  }
+}
+
+export class OrderMasterFinancialsLockedError extends Error {
+  constructor(readonly paidMinor: bigint) {
+    super("Master assignment and accrued payment cannot invalidate posted payouts.");
+    this.name = "OrderMasterFinancialsLockedError";
   }
 }
 
@@ -124,6 +140,34 @@ export async function listOrders(member: AuthenticatedMember): Promise<OrderList
   return rows.map(mapListRow);
 }
 
+export async function listOrdersWithoutActiveVisit(member: AuthenticatedMember): Promise<OrderListItem[]> {
+  requireOrderRead(member);
+  const sql = getDatabase();
+  const rows = await sql`
+    SELECT orders.id, orders.order_number, orders.client_name_snapshot, orders.object_name_snapshot,
+      orders.object_address_snapshot, orders.agreed_total_minor, orders.created_at, orders.status,
+      orders.master_name_snapshot, coalesce(services.service_summary, 'Услуги не указаны') AS service_summary
+    FROM orders
+    LEFT JOIN LATERAL (
+      SELECT string_agg(order_services.service_name_snapshot, ', ' ORDER BY order_services.position) AS service_summary
+      FROM order_services
+      WHERE order_services.organization_id = orders.organization_id AND order_services.order_id = orders.id
+    ) services ON true
+    WHERE orders.organization_id = ${member.organizationId}
+      AND orders.status NOT IN ('completed', 'cancelled')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM service_visits
+        WHERE service_visits.organization_id = orders.organization_id
+          AND service_visits.order_id = orders.id
+          AND service_visits.status NOT IN ('completed', 'cancelled')
+      )
+    ORDER BY orders.created_at DESC
+    LIMIT 100
+  `;
+  return rows.map(mapListRow);
+}
+
 export async function listOrderCreationOptions(member: AuthenticatedMember): Promise<OrderCreationOptions> {
   requirePermission(member, "orders.write");
   const sql = getDatabase();
@@ -150,7 +194,7 @@ export async function getOrderDetail(member: AuthenticatedMember, orderId: strin
       orders.contact_name_snapshot, orders.contact_phone_snapshot, orders.status, orders.status_reason,
       orders.currency, orders.agreed_total_minor, orders.invoiced_total_minor, orders.paid_total_minor,
       orders.assigned_master_id, orders.master_name_snapshot, orders.master_phone_snapshot,
-      orders.master_payment_snapshot_minor, orders.notes, orders.version, orders.created_at,
+      orders.master_payment_snapshot_minor, orders.master_paid_total_minor, orders.notes, orders.version, orders.created_at,
       coalesce(services.service_summary, 'Услуги не указаны') AS service_summary
       FROM orders
       LEFT JOIN LATERAL (
@@ -189,6 +233,7 @@ export async function getOrderDetail(member: AuthenticatedMember, orderId: strin
     assignedMasterId: order.assigned_master_id,
     masterPhone: order.master_phone_snapshot,
     masterPaymentMinor: order.master_payment_snapshot_minor,
+    masterPaidTotalMinor: order.master_paid_total_minor,
     directExpensesMinor: minorUnitsToSafeNumber(economics.directExpensesMinor),
     projectedOperatingContributionMinor: minorUnitsToSafeNumber(economics.projectedOperatingContributionMinor),
     realizedOperatingContributionMinor: minorUnitsToSafeNumber(economics.realizedOperatingContributionMinor),
@@ -294,7 +339,8 @@ export async function updateOrder(member: AuthenticatedMember, input: UpdateOrde
   requirePermission(member, "orders.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
-    const [existing] = await transaction`SELECT status, assigned_master_id, master_payment_snapshot_minor, notes, version
+    const [existing] = await transaction`SELECT status, assigned_master_id, master_payment_snapshot_minor, master_paid_total_minor, notes, version,
+      agreed_total_minor, invoiced_total_minor, paid_total_minor
       FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId} FOR UPDATE`;
     if (!existing) throw new OrderNotFoundError();
     if (z.number().int().parse(existing.version) !== input.expectedVersion) throw new OrderVersionConflictError();
@@ -304,16 +350,40 @@ export async function updateOrder(member: AuthenticatedMember, input: UpdateOrde
     if (input.assignedMasterId && !masterRows.length) throw new OrderReferenceError("master");
     const master = masterRows[0] ?? null;
     const masterPaymentMinor = input.masterPayment === null ? null : parseMoneyToMinorUnits(input.masterPayment);
+    const masterPaidMinor = BigInt(existing.master_paid_total_minor);
+    const masterChanged = input.assignedMasterId !== existing.assigned_master_id;
+    if (masterPaidMinor > 0n && (masterChanged || masterPaymentMinor === null || masterPaymentMinor < masterPaidMinor)) {
+      throw new OrderMasterFinancialsLockedError(masterPaidMinor);
+    }
+    const serviceLines = input.services.map((service) => {
+      const quantityMilliunits = parseQuantityToMilliunits(service.quantity);
+      const unitPriceMinor = parseMoneyToMinorUnits(service.unitPrice);
+      return { ...service, quantityMilliunits, unitPriceMinor, lineTotalMinor: calculateServiceLineTotalMinor(unitPriceMinor, quantityMilliunits) };
+    });
+    const agreedTotalMinor = serviceLines.reduce((total, service) => total + service.lineTotalMinor, 0n);
+    const minimumTotalMinor = minimumRecordedOrderTotalMinor(BigInt(existing.invoiced_total_minor), BigInt(existing.paid_total_minor));
+    if (agreedTotalMinor < minimumTotalMinor) throw new OrderTotalBelowRecordedFinancialsError(minimumTotalMinor);
+    const previousServiceRows = await transaction`SELECT service_name_snapshot, quantity::text, unit_price_minor, line_total_minor, position, note
+      FROM order_services WHERE organization_id = ${member.organizationId} AND order_id = ${input.orderId} ORDER BY position`;
     const [updated] = await transaction`UPDATE orders SET
       status = ${input.status}, status_reason = ${input.status === "cancelled" ? input.statusReason : null},
       assigned_master_id = ${input.assignedMasterId}, master_name_snapshot = ${master?.full_name ?? null},
       master_phone_snapshot = ${master?.phone ?? null}, master_payment_snapshot_minor = ${masterPaymentMinor?.toString() ?? null},
-      notes = ${input.notes}, version = version + 1, updated_at = now()
+      notes = ${input.notes}, agreed_total_minor = ${agreedTotalMinor.toString()}, version = version + 1, updated_at = now()
       WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}
       RETURNING version`;
+    await transaction`DELETE FROM order_services WHERE organization_id = ${member.organizationId} AND order_id = ${input.orderId}`;
+    for (const [index, service] of serviceLines.entries()) {
+      await transaction`INSERT INTO order_services (
+        organization_id, order_id, service_name_snapshot, quantity, unit_price_minor, line_total_minor, position, note
+      ) VALUES (
+        ${member.organizationId}, ${input.orderId}, ${service.name}, ${formatQuantityForDatabase(service.quantityMilliunits)},
+        ${service.unitPriceMinor.toString()}, ${service.lineTotalMinor.toString()}, ${index + 1}, ${service.note}
+      )`;
+    }
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'order.update', 'order', ${input.orderId},
-        ${transaction.json({ before: { status: existing.status, assignedMasterId: existing.assigned_master_id, masterPaymentMinor: existing.master_payment_snapshot_minor, notes: existing.notes, version: existing.version }, after: { status: input.status, assignedMasterId: input.assignedMasterId, masterPaymentMinor: masterPaymentMinor?.toString() ?? null, notes: input.notes, version: updated.version } })})`;
+        ${transaction.json({ before: { status: existing.status, assignedMasterId: existing.assigned_master_id, masterPaymentMinor: existing.master_payment_snapshot_minor, notes: existing.notes, agreedTotalMinor: String(existing.agreed_total_minor), services: previousServiceRows, version: existing.version }, after: { status: input.status, assignedMasterId: input.assignedMasterId, masterPaymentMinor: masterPaymentMinor?.toString() ?? null, notes: input.notes, agreedTotalMinor: agreedTotalMinor.toString(), services: serviceLines.map((service, index) => ({ name: service.name, quantity: formatQuantityForDatabase(service.quantityMilliunits), unitPriceMinor: service.unitPriceMinor.toString(), lineTotalMinor: service.lineTotalMinor.toString(), position: index + 1, note: service.note })), version: updated.version } })})`;
     return z.number().int().positive().parse(updated.version);
   });
 }

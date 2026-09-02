@@ -9,6 +9,7 @@ type TrendChartProps = {
   labels: string[];
   series: ChartSeries[];
   scale?: "shared" | "per-series";
+  emptyMessage?: string;
 };
 
 function formatChartValue(value: number, format: ChartSeries["valueFormat"]) {
@@ -19,7 +20,7 @@ function formatAxisValue(value: number) {
   return new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
-export function TrendChart({ labels, series, scale = "shared" }: TrendChartProps) {
+export function TrendChart({ labels, series, scale = "shared", emptyMessage = "За период финансовых операций нет" }: TrendChartProps) {
   const gradientPrefix = useId().replaceAll(":", "");
   const [hiddenSeries, setHiddenSeries] = useState<Set<number>>(() => new Set());
   const chartData = useMemo(() => labels.map((label, index) => {
@@ -48,7 +49,7 @@ export function TrendChart({ labels, series, scale = "shared" }: TrendChartProps
         })}
       </div>
 
-      <div className="relative h-[clamp(18rem,28vw,32rem)] min-h-0 w-full" role="img" aria-label={`Динамика: ${series.map((entry) => entry.label).join(", ")}`}>
+      <div className="relative h-[clamp(18rem,21vw,24rem)] min-h-0 w-full" role="img" aria-label={`Динамика: ${series.map((entry) => entry.label).join(", ")}`}>
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={288}>
           <AreaChart data={chartData} margin={{ top: 14, right: scale === "per-series" ? 12 : 2, bottom: 2, left: scale === "per-series" ? 2 : 0 }} accessibilityLayer>
             <defs>
@@ -62,7 +63,7 @@ export function TrendChart({ labels, series, scale = "shared" }: TrendChartProps
             {series.map((entry, index) => <Area key={entry.label} yAxisId={scale === "shared" ? "shared" : `series-${index}`} type="monotone" dataKey={`series_${index}`} name={entry.label} stroke={entry.color} strokeWidth={2.4} fill={`url(#${gradientPrefix}-${index})`} fillOpacity={1} dot={false} activeDot={{ r: 4.5, fill: "#0b1115", stroke: entry.color, strokeWidth: 2 }} hide={hiddenSeries.has(index)} connectNulls isAnimationActive="auto" />)}
           </AreaChart>
         </ResponsiveContainer>
-        {!hasValues ? <div className="pointer-events-none absolute inset-0 grid place-items-center"><span className="rounded-full border border-white/[0.07] bg-[#0d1418]/92 px-4 py-2 text-[10px] text-[#737d83]">За период финансовых операций нет</span></div> : null}
+        {!hasValues ? <div className="pointer-events-none absolute inset-0 grid place-items-center"><span className="rounded-full border border-white/[0.07] bg-[#0d1418]/92 px-4 py-2 text-[10px] text-[#737d83]">{emptyMessage}</span></div> : null}
       </div>
     </div>
   );

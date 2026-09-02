@@ -3,14 +3,14 @@ import { CreateOrderButton } from "@/components/orders/create-order-dialog";
 import { OrdersTable } from "@/components/orders/orders-table";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getAuthMode } from "@/server/auth/config";
-import { requireSession } from "@/server/auth/session";
+import { requireOfficeSession } from "@/server/auth/session";
 import { listOrderCreationOptions, listOrders } from "@/server/orders/repository";
 import { getPreviewOrderCreationOptions, getPreviewOrders } from "@/server/orders/preview";
 
 export const metadata: Metadata = { title: "Заказы" };
 
 export default async function OrdersPage() {
-  const member = await requireSession();
+  const member = await requireOfficeSession();
   const [orders, creationOptions] = getAuthMode() === "preview"
     ? [getPreviewOrders(), getPreviewOrderCreationOptions()]
     : await Promise.all([listOrders(member), listOrderCreationOptions(member)]);

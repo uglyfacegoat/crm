@@ -1,4 +1,4 @@
-import type { MasterListItem } from "./types";
+import type { MasterDetail, MasterListItem } from "./types";
 
 const names = ["Алексей Смирнов", "Дмитрий Кузнецов", "Сергей Волков", "Мария Смирнова"];
 
@@ -22,4 +22,10 @@ export function getPreviewMasters(): MasterListItem[] {
     statusLabel: index ? "С выездами" : "Свободен",
     todayVisits: [],
   }));
+}
+
+export function getPreviewMasterDetail(masterId: string): MasterDetail | null {
+  const master = getPreviewMasters().find((entry) => entry.id === masterId);
+  if (!master) return null;
+  return { ...master, totalVisits: 0, completedVisits: 0, upcomingVisits: 0, totalOrders: 0, accruedMinor: 0, paidMinor: 0, recentVisits: [] };
 }

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   calculateServiceLineTotalMinor,
   formatQuantityForDatabase,
+  minimumRecordedOrderTotalMinor,
   minorUnitsToSafeNumber,
   parseMoneyToMinorUnits,
   parseQuantityToMilliunits,
@@ -32,4 +33,9 @@ test("invalid monetary values fail instead of being coerced", () => {
   assert.throws(() => parseMoneyToMinorUnits("10.001"), RangeError);
   assert.throws(() => parseMoneyToMinorUnits(""), RangeError);
   assert.throws(() => minorUnitsToSafeNumber("9007199254740992"), RangeError);
+});
+
+test("recorded order total floor uses the larger invoiced or paid amount", () => {
+  assert.equal(minimumRecordedOrderTotalMinor(125_000n, 90_000n), 125_000n);
+  assert.equal(minimumRecordedOrderTotalMinor(40_000n, 75_000n), 75_000n);
 });
