@@ -20,3 +20,21 @@ export function parseDateInput(value: string) {
 
   return `${year}-${month}-${day}`;
 }
+
+export function formatIsoDateForInput(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : "";
+}
+
+export function formatTimeInput(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  return digits.length <= 2 ? digits : `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+export function parseTimeInput(value: string) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours <= 23 && minutes <= 59 ? value : null;
+}

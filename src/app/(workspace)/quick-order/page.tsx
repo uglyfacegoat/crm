@@ -33,9 +33,9 @@ export default async function QuickOrderPage() {
   return (
     <div>
       <PageHeading
-        eyebrow="Мобильное оформление"
-        title="Новый заказ и выезд"
-        description="Один поток от клиента до готовой карточки мастеру. Все данные сохраняются одной операцией."
+        eyebrow="Единый сценарий оформления"
+        title="Создать заказ"
+        description="Клиент, объект, работы и первый выезд — в одном понятном потоке без повторного ввода."
       />
       <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
         {canCreate && options ? (

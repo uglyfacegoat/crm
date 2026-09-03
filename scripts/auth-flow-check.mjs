@@ -54,13 +54,14 @@ try {
   await page.getByRole("heading", { name: masterName, exact: true }).waitFor();
   await page.getByPlaceholder("ФИО, телефон, регион, зона…").fill(suffix);
   await page.getByRole("heading", { name: masterName, exact: true }).waitFor();
-  await page.getByRole("button", { name: `Изменить ${masterName}` }).click();
+  await page.getByRole("link", { name: `Открыть карточку мастера ${masterName}` }).click();
+  await page.getByRole("button", { name: `Редактировать мастера ${masterName}`, exact: true }).click();
   const editMasterDialog = page.getByRole("dialog", { name: masterName });
   await editMasterDialog.locator('input[name="serviceZone"]').fill("ЦАО · Центр");
   await editMasterDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
   await editMasterDialog.waitFor({ state: "hidden" });
   await page.getByText("Москва · ЦАО · Центр", { exact: true }).waitFor();
-  await page.getByRole("button", { name: `Изменить ${masterName}` }).click();
+  await page.getByRole("button", { name: `Редактировать мастера ${masterName}`, exact: true }).click();
   const deactivateMasterDialog = page.getByRole("dialog", { name: masterName });
   await deactivateMasterDialog.getByRole("checkbox").uncheck();
   await deactivateMasterDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
@@ -81,7 +82,7 @@ try {
   await page.getByTestId("quick-service-name").fill("Срочная мобильная дезинсекция");
   await page.getByTestId("quick-unit-price").fill("18500");
   await page.getByTestId("quick-next").click();
-  await page.getByTestId("quick-visit-date").fill(dateInTimeZone("Europe/Moscow"));
+  await page.getByTestId("quick-visit-date").fill(dateInTimeZone("Europe/Moscow").split("-").reverse().join("."));
   await page.getByTestId("quick-visit-time").fill("09:30");
   await page.waitForFunction(() => {
     const submit = document.querySelector('[data-testid="quick-submit"]');
@@ -117,7 +118,7 @@ try {
   await page.getByPlaceholder("+7 999 000-00-00").fill("+7 999 111-22-33");
   await page.getByPlaceholder("contact@company.ru").fill(`check-${suffix}@example.local`);
   await page.getByRole("button", { name: "Создать клиента" }).click();
-  const clientLink = page.getByRole("link", { name: clientName, exact: true }).first();
+  const clientLink = page.getByRole("link", { name: `Открыть клиента ${clientName}`, exact: true }).first();
   await clientLink.waitFor();
   await clientLink.click();
   await page.waitForURL(/\/clients\/[0-9a-f-]{36}$/);

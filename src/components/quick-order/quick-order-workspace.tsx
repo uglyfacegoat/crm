@@ -5,7 +5,9 @@ import { ArrowLeft, ArrowRight, Building2, CalendarClock, Check, CheckCircle2, C
 import { useActionState, useMemo, useRef, useState } from "react";
 import { createQuickOrderAction, type QuickOrderState } from "@/app/(workspace)/quick-order/actions";
 import { OrderField, OrderPicker, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
+import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
+import { formatPhoneInput } from "@/lib/phone-input";
 import type { OrderCreationOptions } from "@/server/orders/types";
 
 type ClientMode = "existing" | "new";
@@ -206,13 +208,13 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate 
         {clientMode === "existing" ? <div className="mt-5 grid gap-4">
           <OrderPicker label="Клиент" required value={clientId} onChange={selectClient} placeholder="Выберите клиента" options={options.clients.map((client) => ({ value: client.id, label: client.name }))} />
           {availableContacts.length ? <ModeSwitch value={contactMode} onChange={setContactMode} existingLabel="Готовый контакт" newLabel="Новый контакт" /> : null}
-          {effectiveContactMode === "existing" ? <OrderPicker label="Контакт" required value={contactId} onChange={setContactId} placeholder="Выберите контакт" options={availableContacts.map((contact) => ({ value: contact.id, label: contact.name, detail: contact.phone }))} /> : <div className="grid gap-3 sm:grid-cols-2"><OrderField label="Контактное лицо" required><input value={contactName} onChange={(event) => setContactName(event.target.value)} className={orderInputClass} placeholder="Имя и фамилия" /></OrderField><OrderField label="Телефон" required><input value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} className={orderInputClass} placeholder="+7 999 000-00-00" /></OrderField><OrderField label="Должность"><input value={contactPosition} onChange={(event) => setContactPosition(event.target.value)} className={orderInputClass} placeholder="Управляющий" /></OrderField><OrderField label="Email"><input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} className={orderInputClass} placeholder="mail@company.ru" /></OrderField></div>}
+          {effectiveContactMode === "existing" ? <OrderPicker label="Контакт" required value={contactId} onChange={setContactId} placeholder="Выберите контакт" options={availableContacts.map((contact) => ({ value: contact.id, label: contact.name, detail: contact.phone }))} /> : <div className="grid gap-3 sm:grid-cols-2"><OrderField label="Контактное лицо" required><input value={contactName} onChange={(event) => setContactName(event.target.value)} className={orderInputClass} placeholder="Имя и фамилия" /></OrderField><OrderField label="Телефон" required><input inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(formatPhoneInput(event.target.value))} className={orderInputClass} placeholder="+7 (999) 000-00-00" /></OrderField><OrderField label="Должность"><input value={contactPosition} onChange={(event) => setContactPosition(event.target.value)} className={orderInputClass} placeholder="Управляющий" /></OrderField><OrderField label="Email"><input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} className={orderInputClass} placeholder="mail@company.ru" /></OrderField></div>}
         </div> : <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <OrderPicker label="Тип клиента" required value={clientKind} onChange={(value) => setClientKind(value as typeof clientKind)} placeholder="Тип клиента" options={[{ value: "legal_entity", label: "Юридическое лицо" }, { value: "individual", label: "Физическое лицо" }]} />
           <OrderField label={clientKind === "legal_entity" ? "Название организации" : "ФИО"} required><input data-testid="quick-client-name" value={clientName} onChange={(event) => setClientName(event.target.value)} className={orderInputClass} placeholder={clientKind === "legal_entity" ? "ООО «Компания»" : "Иванов Иван Иванович"} /></OrderField>
           {clientKind === "legal_entity" ? <OrderField label="ИНН" required><input data-testid="quick-tax-id" inputMode="numeric" value={taxId} onChange={(event) => setTaxId(event.target.value.replace(/\D/g, ""))} className={orderInputClass} placeholder="10 или 12 цифр" /></OrderField> : null}
           <OrderField label="Контактное лицо" required><input data-testid="quick-contact-name" value={contactName} onChange={(event) => setContactName(event.target.value)} className={orderInputClass} placeholder="Имя и фамилия" /></OrderField>
-          <OrderField label="Телефон" required><input data-testid="quick-contact-phone" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} className={orderInputClass} placeholder="+7 999 000-00-00" /></OrderField>
+          <OrderField label="Телефон" required><input data-testid="quick-contact-phone" inputMode="tel" value={contactPhone} onChange={(event) => setContactPhone(formatPhoneInput(event.target.value))} className={orderInputClass} placeholder="+7 (999) 000-00-00" /></OrderField>
           <OrderField label="Email"><input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} className={orderInputClass} placeholder="mail@company.ru" /></OrderField>
         </div>}
       </> : null}
@@ -238,8 +240,8 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate 
       {step === 3 ? <>
         <SectionIntro number="04" title="Когда выезжать" description="Назначьте первый выезд. Он сразу появится в календаре и создаст напоминание." />
         <div className="grid gap-3 sm:grid-cols-3">
-          <OrderField label="Дата" required><input data-testid="quick-visit-date" type="date" value={visitDate} onChange={(event) => setVisitDate(event.target.value)} className={orderInputClass} /></OrderField>
-          <OrderField label="Время" required><input data-testid="quick-visit-time" type="time" value={visitTime} onChange={(event) => setVisitTime(event.target.value)} className={orderInputClass} /></OrderField>
+          <OrderField label="Дата" required><DateInput data-testid="quick-visit-date" name="visitDate" value={visitDate} onChange={setVisitDate} required /></OrderField>
+          <OrderField label="Время" required><TimeInput data-testid="quick-visit-time" name="visitTime" value={visitTime} onChange={setVisitTime} required /></OrderField>
           <OrderField label="Длительность, мин" required><input inputMode="numeric" value={durationMinutes} onChange={(event) => setDurationMinutes(event.target.value)} className={orderInputClass} /></OrderField>
           <div className="sm:col-span-3"><OrderField label="Инструкция мастеру"><textarea value={visitNotes} onChange={(event) => setVisitNotes(event.target.value)} className={orderTextareaClass} placeholder="Кому позвонить, что взять, как попасть на объект" /></OrderField></div>
         </div>

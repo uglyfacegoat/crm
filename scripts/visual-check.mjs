@@ -29,6 +29,8 @@ const visualCases = [
   { name: "orders-compact", path: "/orders", width: 320, height: 568 },
   { name: "orders-filters-desktop", path: "/orders", width: 1920, height: 1080, openFiltersDialog: "Фильтры заказов" },
   { name: "orders-filters-mobile", path: "/orders", width: 320, height: 568, openFiltersDialog: "Фильтры заказов" },
+  { name: "quick-order-desktop", path: "/quick-order", width: 1920, height: 1080 },
+  { name: "quick-order-mobile", path: "/quick-order", width: 320, height: 568 },
   { name: "order-create-dialog-desktop", path: "/orders", width: 1920, height: 1080, openOrderDialog: true },
   { name: "order-create-dialog-mobile", path: "/orders", width: 320, height: 568, openOrderDialog: true },
   { name: "clients-mobile", path: "/clients", width: 360, height: 800 },
@@ -81,6 +83,7 @@ const visualCases = [
   { name: "visit-create-dialog-mobile", path: "/orders/ord-1248", width: 320, height: 568, openVisitDialog: true },
   { name: "visit-series-dialog-desktop", path: "/orders/ord-1248", width: 1920, height: 1080, openVisitSeriesDialog: true },
   { name: "visit-series-dialog-mobile", path: "/orders/ord-1248", width: 320, height: 568, openVisitSeriesDialog: true },
+  { name: "custom-calendar-mobile", path: "/orders/ord-1248", width: 320, height: 568, openVisitSeriesDialog: true, openDatePicker: true },
   { name: "visit-edit-dialog-mobile", path: "/orders/ord-1248", width: 320, height: 568, openVisitEditDialog: true },
   { name: "analytics-4k", path: "/analytics", width: 3840, height: 2160 },
   { name: "analytics-desktop", path: "/analytics", width: 1920, height: 1080 },
@@ -235,6 +238,10 @@ try {
     if (visualCase.openSiteDialog) {
       await page.getByRole("button", { name: "Подключить сайт", exact: true }).click();
       await page.getByRole("dialog", { name: "Новый сайт", exact: true }).waitFor();
+    }
+    if (visualCase.openDatePicker) {
+      await page.getByRole("button", { name: "Открыть календарь", exact: true }).first().click();
+      await page.getByRole("dialog", { name: "Выбор даты", exact: true }).waitFor();
     }
 
     const viewportState = await page.evaluate(() => ({
