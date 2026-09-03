@@ -21,6 +21,7 @@
     "backup:ui-check": "node --env-file-if-exists=.env.local scripts/backup-ui-check.mjs",
     "import:check": "node --env-file-if-exists=.env.local scripts/import-ui-check.mjs",
     "sites:check": "node --env-file-if-exists=.env.local scripts/sites-flow-check.mjs",
+    "support:check": "node --env-file-if-exists=.env.local scripts/support-flow-check.mjs",
     "reminders:worker": "node --env-file-if-exists=.env.local scripts/reminder-worker.mjs",
     "db:down": "docker compose --env-file .env.local down",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
@@ -29,7 +30,7 @@
     "docker:logs": "docker compose --env-file .env.local logs -f crm",
     "docker:down": "docker compose --env-file .env.local down",
     "start": "next start",
-    "test": "node --test scripts/*.test.mjs src/lib/*.test.ts src/lib/visits/*.test.ts src/server/analytics/*.test.ts src/server/domain/*.test.ts src/server/auth/*.test.ts src/server/chat/*.test.ts src/server/clients/*.test.ts src/server/contracts/*.test.ts src/server/document-templates/*.test.ts src/server/documents/*.test.ts src/server/finance/*.test.ts src/server/imports/*.test.ts src/server/masters/*.test.ts src/server/members/*.test.ts src/server/orders/*.test.ts src/server/quick-order/*.test.ts src/server/sites/*.test.ts src/server/tasks/*.test.ts src/server/visits/*.test.ts",
+    "test": "node --test scripts/*.test.mjs src/lib/*.test.ts src/lib/visits/*.test.ts src/server/analytics/*.test.ts src/server/domain/*.test.ts src/server/auth/*.test.ts src/server/chat/*.test.ts src/server/clients/*.test.ts src/server/contracts/*.test.ts src/server/document-templates/*.test.ts src/server/documents/*.test.ts src/server/finance/*.test.ts src/server/imports/*.test.ts src/server/masters/*.test.ts src/server/members/*.test.ts src/server/orders/*.test.ts src/server/quick-order/*.test.ts src/server/sites/*.test.ts src/server/support/*.test.ts src/server/tasks/*.test.ts src/server/visits/*.test.ts",
     "lint": "eslint",
     "visual:check": "node --env-file-if-exists=.env.local scripts/visual-check.mjs",
     "ui:audit": "node --env-file-if-exists=.env.local scripts/ui-audit.mjs"

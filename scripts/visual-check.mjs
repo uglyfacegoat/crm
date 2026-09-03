@@ -105,6 +105,8 @@ const visualCases = [
   { name: "settings-mobile", path: "/settings", width: 320, height: 568 },
   { name: "help-desktop", path: "/help", width: 1920, height: 1080 },
   { name: "help-mobile", path: "/help", width: 320, height: 568 },
+  { name: "help-support-dialog-desktop", path: "/help", width: 1920, height: 1080, openSupportDialog: true },
+  { name: "help-support-dialog-mobile", path: "/help", width: 320, height: 568, openSupportDialog: true },
   { name: "login-4k", path: "/login", width: 3840, height: 2160 },
   { name: "login-desktop", path: "/login", width: 1920, height: 1080 },
   { name: "login-micro", path: "/login", width: 280, height: 653 },
@@ -256,6 +258,10 @@ try {
     if (visualCase.openSiteInfrastructureDialog) {
       await page.getByRole("button", { name: /Настроить инфраструктуру|Обновить данные/ }).click();
       await page.getByRole("dialog", { name: "Инфраструктура сайта", exact: true }).waitFor();
+    }
+    if (visualCase.openSupportDialog) {
+      await page.getByRole("button", { name: "Связаться с поддержкой", exact: true }).click();
+      await page.getByRole("dialog", { name: "Обращение в поддержку", exact: true }).waitFor();
     }
     if (visualCase.openDatePicker) {
       await page.getByRole("button", { name: "Открыть календарь", exact: true }).first().click();

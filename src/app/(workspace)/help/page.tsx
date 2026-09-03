@@ -1,36 +1,36 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { Bell, CalendarDays, ChevronRight, ClipboardList, FileText, Search, Smartphone, Wrench } from "lucide-react";
+import { BookOpenText, ChevronRight, Clock3, LifeBuoy, Mail, Megaphone, Search, ShieldCheck } from "lucide-react";
+import packageJson from "../../../../package.json";
+import { SupportRequestDialog } from "@/components/help/support-request-dialog";
 import { PageHeading } from "@/components/ui/page-heading";
+import { helpSections, releaseNotes } from "@/lib/help-content";
+import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
+import { getSupportCenterSnapshot } from "@/server/support/repository";
+import type { SupportRequestStatus } from "@/server/support/types";
 
-const officeTopics = [
-  { href: "/quick-order", title: "Оформить заказ", description: "Создать клиента, объект, заказ и первый выезд одним сценарием.", icon: ClipboardList, tone: "text-[#f0d65f] bg-[#f0d65f]/[0.08]" },
-  { href: "/calendar", title: "Спланировать выезды", description: "Назначить даты, перенести карточки и проверить загрузку мастеров.", icon: CalendarDays, tone: "text-[#66aef3] bg-[#66aef3]/[0.08]" },
-  { href: "/documents", title: "Найти документы", description: "Открыть архив клиента, заказа или конкретного выезда.", icon: FileText, tone: "text-[#72d4c4] bg-[#72d4c4]/[0.08]" },
-  { href: "/notifications", title: "Проверить напоминания", description: "Просрочки, предстоящие выезды и системные события.", icon: Bell, tone: "text-[#ef8b67] bg-[#ef8b67]/[0.08]" },
-];
+export const metadata: Metadata = { title: "Документация и поддержка" };
+const statusLabels: Record<SupportRequestStatus, string> = { new: "Новое", in_progress: "В работе", resolved: "Решено", closed: "Закрыто" };
+const dateFormatter = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", timeZone: "Europe/Moscow" });
 
 export default async function HelpPage() {
-  const session = await requireSession();
-  const topics = session.role === "master" ? [
-    { href: "/my-visits", title: "Мои выезды", description: "Открыть назначения, начать работу и заполнить результат.", icon: Wrench, tone: "text-[#a892ec] bg-[#a892ec]/[0.08]" },
-    { href: "/notifications", title: "Уведомления", description: "Проверить новые назначения и изменения расписания.", icon: Bell, tone: "text-[#ef8b67] bg-[#ef8b67]/[0.08]" },
-  ] : officeTopics;
+  const member = await requireSession();
+  const support = getAuthMode() === "preview" ? { administrators: [], requests: [] } : await getSupportCenterSnapshot(member);
 
   return <div>
-    <PageHeading eyebrow="Поддержка" title="Помощь по CRM" description="Короткие маршруты к основным рабочим сценариям без неработающих декоративных кнопок." />
-    <section className="mt-6 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-      {topics.map((topic) => <Link key={topic.href} href={topic.href} className="focus-ring surface-panel group flex min-h-40 flex-col p-5 hover:border-white/[0.13]">
-        <span className={`grid size-10 place-items-center rounded-[12px] ${topic.tone}`}><topic.icon className="size-4" /></span>
-        <h2 className="mt-5 font-display text-base font-semibold text-white">{topic.title}</h2>
-        <p className="mt-2 flex-1 text-xs leading-5 text-[#747e84]">{topic.description}</p>
-        <span className="mt-5 flex items-center gap-2 text-[10px] font-medium text-[var(--accent)]">Открыть <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></span>
-      </Link>)}
+    <PageHeading eyebrow={`База знаний · версия ${packageJson.version}`} title="Документация и поддержка" description="Рабочие инструкции по каждому разделу CRM, журнал обновлений и обращения без потери истории." action={getAuthMode() === "preview" ? undefined : <SupportRequestDialog />} />
+    <section className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.55fr)]">
+      <article className="surface-panel p-5 sm:p-6"><div className="flex items-center gap-2"><Megaphone className="size-4 text-[var(--accent)]" /><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">Что нового</p></div>{releaseNotes.map((release) => <div key={release.version} className="mt-5"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h2 className="font-display text-xl font-semibold text-white">{release.title}</h2><span className="rounded-full bg-[#9c82e8]/[0.08] px-2.5 py-1 text-[9px] font-semibold text-[#b3a1e9]">v{release.version} · {release.date}</span></div><ul className="mt-4 grid gap-2 text-xs leading-5 text-[#7b858b]">{release.changes.map((change) => <li key={change} className="flex gap-2"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-[#69d3a4]" />{change}</li>)}</ul></div>)}</article>
+      <article className="surface-panel p-5 sm:p-6"><div className="flex items-center gap-2"><Search className="size-4 text-[#65b7ee]" /><h2 className="text-sm font-semibold text-white">Быстрый поиск</h2></div><p className="mt-4 text-xs leading-5 text-[#747e84]">На любом рабочем экране нажмите <kbd className="rounded-md border border-white/[0.08] bg-white/[0.035] px-1.5 py-0.5 text-[10px] text-[#b8c0c3]">Ctrl K</kbd>, чтобы найти клиента, заказ, объект, документ, мастера или дату выезда.</p><div className="mt-5 flex items-center gap-2 rounded-xl border border-[#65b7ee]/15 bg-[#65b7ee]/[0.035] p-3 text-[10px] leading-5 text-[#7d929f]"><ShieldCheck className="size-4 shrink-0 text-[#65b7ee]" />Результаты учитывают роль и компанию пользователя.</div></article>
     </section>
-    {session.role !== "master" ? <section className="surface-panel mt-4 grid gap-4 p-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
-      <span className="grid size-11 place-items-center rounded-[13px] bg-[#9c82e8]/[0.08] text-[#ad98ea]"><Search className="size-5" /></span>
-      <div><h2 className="text-sm font-semibold text-white">Быстрый поиск</h2><p className="mt-1 text-xs leading-5 text-[#747e84]">Нажмите <kbd className="rounded-md border border-white/[0.08] bg-white/[0.035] px-1.5 py-0.5 text-[10px] text-[#b8c0c3]">Ctrl K</kbd> на любом экране, чтобы найти клиента, заказ, объект, документ, мастера или дату выезда.</p></div>
-    </section> : null}
-    <section className="mt-4 flex items-start gap-3 rounded-[14px] border border-white/[0.06] bg-white/[0.018] p-4"><Smartphone className="mt-0.5 size-4 shrink-0 text-[#69d3a4]" /><p className="text-[10px] leading-5 text-[#717b81]">Если действие недоступно для вашей роли или требует изменения прав, обратитесь к администратору организации. CRM не показывает фиктивное успешное сохранение для незавершённых серверных функций.</p></section>
+    <div className="mt-4 grid items-start gap-4 xl:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside className="surface-panel p-3 xl:sticky xl:top-20"><p className="px-2 py-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#626d73]">Содержание</p><nav aria-label="Разделы документации" className="grid gap-1">{helpSections.map((section) => <Link key={section.id} href={`#${section.id}`} className="focus-ring flex items-center justify-between gap-2 rounded-[10px] px-2.5 py-2.5 text-[10px] text-[#828c91] hover:bg-white/[0.035] hover:text-white"><span className="flex items-center gap-2"><section.icon className="size-3.5" />{section.title}</span><ChevronRight className="size-3" /></Link>)}</nav></aside>
+      <main className="grid gap-3">{helpSections.map((section) => <section key={section.id} id={section.id} className="surface-panel scroll-mt-24 p-5 sm:p-6"><div className="flex gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-[var(--accent)]/[0.06] text-[var(--accent)]"><section.icon className="size-4" /></span><div><h2 className="font-display text-lg font-semibold text-white">{section.title}</h2><p className="mt-1 text-xs text-[#717c82]">{section.description}</p></div></div><ol className="mt-5 grid gap-3">{section.steps.map((step, index) => <li key={step} className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 text-xs leading-5 text-[#8a9499]"><span className="grid size-7 place-items-center rounded-full border border-white/[0.07] bg-white/[0.025] font-display text-[9px] text-[#a5adb0]">{index + 1}</span><span>{step}</span></li>)}</ol></section>)}</main>
+    </div>
+    <section className="mt-4 grid gap-4 lg:grid-cols-2">
+      <article className="surface-panel p-5 sm:p-6"><div className="flex items-center gap-2"><LifeBuoy className="size-4 text-[#efb454]" /><h2 className="text-sm font-semibold text-white">Контакты администратора</h2></div>{support.administrators.length ? <div className="mt-4 grid gap-2">{support.administrators.map((administrator) => <a key={administrator.id} href={`mailto:${administrator.email}`} className="focus-ring flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 hover:bg-white/[0.035]"><span className="grid size-9 place-items-center rounded-full bg-[#efb454]/[0.08] text-[10px] font-semibold text-[#efb454]">{administrator.name.slice(0, 1).toUpperCase()}</span><span className="min-w-0"><strong className="block truncate text-xs text-white">{administrator.name}</strong><span className="mt-1 block truncate text-[9px] text-[#6f797f]">{administrator.email}</span></span><Mail className="ml-auto size-4 text-[#68737a]" /></a>)}</div> : <p className="mt-4 text-xs leading-5 text-[#747e84]">Контакт поддержки появится после настройки администратора организации.</p>}</article>
+      <article className="surface-panel p-5 sm:p-6"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Clock3 className="size-4 text-[#9c82e8]" /><h2 className="text-sm font-semibold text-white">Мои обращения</h2></div><span className="text-[9px] text-[#657077]">{support.requests.length} последних</span></div>{support.requests.length ? <div className="mt-4 divide-y divide-white/[0.055]">{support.requests.map((request) => <div key={request.id} className="flex items-center gap-3 py-3"><span className="size-2 shrink-0 rounded-full bg-[#9c82e8]" /><span className="min-w-0 flex-1"><strong className="block truncate text-xs text-white">{request.subject}</strong><span className="mt-1 block text-[9px] text-[#657077]">{dateFormatter.format(new Date(request.createdAt))}</span></span><span className="rounded-full bg-white/[0.04] px-2 py-1 text-[9px] text-[#8a9499]">{statusLabels[request.status]}</span></div>)}</div> : <div className="mt-4 grid min-h-28 place-items-center rounded-xl border border-dashed border-white/[0.07] text-center"><div><BookOpenText className="mx-auto size-5 text-[#5f6a70]" /><p className="mt-2 text-[10px] leading-4 text-[#68737a]">Обращений пока нет.<br />Сначала проверьте инструкцию выше.</p></div></div>}</article>
+    </section>
   </div>;
 }
