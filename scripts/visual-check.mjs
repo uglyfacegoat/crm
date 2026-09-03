@@ -62,6 +62,8 @@ const visualCases = [
   { name: "contracts-filters-mobile", path: "/contracts", width: 320, height: 568, openFiltersDialog: "Фильтры договоров" },
   { name: "finance-4k", path: "/finance", width: 3840, height: 2160 },
   { name: "finance-mobile", path: "/finance", width: 320, height: 568 },
+  { name: "finance-filters-desktop", path: "/finance", width: 1920, height: 1080, openFiltersDialog: "Фильтры дебиторки" },
+  { name: "finance-filters-mobile", path: "/finance", width: 320, height: 568, openFiltersDialog: "Фильтры дебиторки" },
   { name: "notifications-desktop", path: "/notifications", width: 1920, height: 1080 },
   { name: "notifications-mobile", path: "/notifications", width: 320, height: 568 },
   { name: "notifications-4k", path: "/notifications", width: 3840, height: 2160 },

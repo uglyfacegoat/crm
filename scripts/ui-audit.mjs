@@ -181,6 +181,12 @@ try {
   report.interactions.push({ route: "/documents", action: "category filter", result: "1 active condition" });
 
   await openRoute("/finance");
+  await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+  await page.getByRole("dialog", { name: "Фильтры дебиторки", exact: true }).getByRole("radio", { name: "Не всё выставлено", exact: true }).click();
+  await page.getByRole("button", { name: "Показать заказы", exact: true }).click();
+  await page.getByText(/1 активных условий/).waitFor();
+  report.interactions.push({ route: "/finance", action: "receivables state filter", result: "1 active condition" });
+  await page.getByRole("button", { name: "Сбросить", exact: true }).click();
   const invoiceButton = page.getByRole("button", { name: "Новый счёт", exact: true }).first();
   await invoiceButton.waitFor();
   await invoiceButton.click();
