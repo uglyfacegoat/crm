@@ -1,52 +1,138 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, CalendarRange, CircleAlert, Download } from "lucide-react";
-import { ServiceMixChart } from "@/components/analytics/service-mix-chart";
+import { BadgeRussianRuble, CalendarCheck2, Download, Route, Wrench } from "lucide-react";
 import { SummaryCard } from "@/components/analytics/summary-card";
 import { TrendChart } from "@/components/analytics/trend-chart";
 import { PageHeading } from "@/components/ui/page-heading";
 import { formatMoneyMinor } from "@/lib/format";
-import { getAnalyticsSnapshot } from "@/server/analytics/repository";
-import { getPreviewAnalytics } from "@/server/analytics/preview";
-import { analyticsRanges, type AnalyticsMetric, type AnalyticsRange } from "@/server/analytics/types";
 import { getAuthMode } from "@/server/auth/config";
 import { requireOfficeSession } from "@/server/auth/session";
+import { getPreviewAnalytics } from "@/server/analytics/preview";
+import { getAnalyticsSnapshot } from "@/server/analytics/repository";
+import { analyticsRanges, type AnalyticsMetric, type AnalyticsRange, type AnalyticsSnapshot } from "@/server/analytics/types";
 
 export const metadata: Metadata = { title: "Аналитика" };
 
-function PanelHeading({ eyebrow, title, meta }: { eyebrow: string; title: string; meta?: string }) {
-  return <div className="mb-6 flex items-end justify-between gap-4"><div><p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[var(--accent)]">{eyebrow}</p><h2 className="mt-2 font-display text-[clamp(1rem,0.9rem+0.35vw,1.3rem)] font-semibold tracking-[-0.035em] text-white">{title}</h2></div>{meta ? <p className="hidden text-[10px] text-[#687279] sm:block">{meta}</p> : null}</div>;
-}
+type AnalyticsView = "overview" | "sales" | "visits" | "clients" | "masters" | "finance";
+
+const analyticsViews: Array<{ id: AnalyticsView; label: string }> = [
+  { id: "overview", label: "Обзор" },
+  { id: "sales", label: "Продажи" },
+  { id: "visits", label: "Выезды" },
+  { id: "clients", label: "Клиенты" },
+  { id: "masters", label: "Мастера" },
+  { id: "finance", label: "Финансы" },
+];
+
+const viewCopy: Record<AnalyticsView, { eyebrow: string; title: string; description: string }> = {
+  overview: { eyebrow: "Управленческий контур", title: "Обзор бизнеса", description: "Главные показатели компании за выбранный период — без повторения операционных экранов." },
+  sales: { eyebrow: "Аналитика · Продажи", title: "Продажи и воронка", description: "Конверсия заказов, структура услуг и точки потери между этапами." },
+  visits: { eyebrow: "Аналитика · Выезды", title: "Качество выездов", description: "Объём работ, завершение визитов и распределение нагрузки по услугам." },
+  clients: { eyebrow: "Аналитика · Клиенты", title: "Клиентская база", description: "Новые и повторные клиенты, выручка и самые активные заказчики." },
+  masters: { eyebrow: "Аналитика · Мастера", title: "Эффективность команды", description: "Сравнение исполнителей по выездам, завершению работ и сумме заказов." },
+  finance: { eyebrow: "Аналитика · Финансы", title: "Финансовая динамика", description: "Согласованные суммы, оплаты и операционный результат в одном срезе." },
+};
 
 function parseRange(value: string | undefined): AnalyticsRange {
   const parsed = Number(value);
   return analyticsRanges.includes(parsed as AnalyticsRange) ? parsed as AnalyticsRange : 30;
 }
 
+function parseView(value: string | undefined): AnalyticsView {
+  return analyticsViews.some((view) => view.id === value) ? value as AnalyticsView : "overview";
+}
+
 function formatMetric(metric: AnalyticsMetric) {
   return metric.format === "money" ? formatMoneyMinor(metric.value) : new Intl.NumberFormat("ru-RU").format(metric.value);
 }
 
-function formatDateOnly(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
+function MetricGrid({ metrics }: { metrics: AnalyticsMetric[] }) {
+  return <section aria-label="Ключевые показатели" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{metrics.map((metric) => <SummaryCard key={metric.id} label={metric.label} value={formatMetric(metric)} change={metric.change} tone={metric.tone} />)}</section>;
 }
 
-export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
+function StageFlow({ stages }: { stages: AnalyticsSnapshot["orderStages"] }) {
+  return (
+    <section className="panel overflow-hidden" aria-labelledby="stage-flow-title">
+      <div className="border-b border-white/[0.06] p-5 sm:p-6">
+        <p className="eyebrow">Путь заказа</p>
+        <h2 id="stage-flow-title" className="mt-2 font-display text-lg font-semibold text-white">От обращения до завершения</h2>
+      </div>
+      <div className="grid gap-px bg-white/[0.06] sm:grid-cols-2 xl:grid-cols-4">
+        {stages.map((stage, index) => {
+          const previous = stages[index - 1];
+          const loss = previous ? Math.max(0, previous.value - stage.value) : 0;
+          return (
+            <article key={stage.label} className="group relative min-h-40 bg-[var(--surface)] p-5 transition-colors hover:bg-white/[0.035]">
+              <div className="flex items-center justify-between gap-3"><span className="font-display text-[10px] text-[#687279]">0{index + 1}</span><span className="text-[10px] text-[#707a80]">{index === 0 ? "точка входа" : loss ? `−${loss} с этапа` : "без потерь"}</span></div>
+              <p className="mt-8 text-xs font-medium text-[#9da6aa]">{stage.label}</p>
+              <div className="mt-2 flex items-end justify-between gap-3"><strong className="font-display text-3xl font-semibold tracking-[-0.05em] text-white">{stage.value}</strong><span className="pb-1 font-display text-sm text-[var(--accent)]">{stage.percent}%</span></div>
+              <span className="absolute inset-x-5 bottom-0 h-px bg-gradient-to-r from-[var(--accent)]/70 via-[#69d3a4]/35 to-transparent opacity-60" />
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ServiceMosaic({ entries }: { entries: AnalyticsSnapshot["serviceMix"] }) {
+  return (
+    <section className="panel p-5 sm:p-6" aria-labelledby="service-mix-title">
+      <p className="eyebrow">Структура выручки</p>
+      <h2 id="service-mix-title" className="mt-2 font-display text-lg font-semibold text-white">Какие услуги выбирают</h2>
+      {entries.length ? <div className="mt-5 grid auto-rows-[8.5rem] gap-2 sm:grid-cols-2 xl:grid-cols-4">{entries.map((entry, index) => <article key={entry.label} className={`${index === 0 ? "sm:col-span-2 xl:row-span-2 xl:min-h-[17.5rem]" : ""} relative overflow-hidden rounded-[14px] border border-white/[0.07] bg-white/[0.025] p-4`}><span className="absolute inset-x-0 top-0 h-0.5" style={{ backgroundColor: entry.color }} /><div className="flex h-full flex-col justify-between"><p className="max-w-[18rem] text-xs leading-5 text-[#aab2b6]">{entry.label}</p><div className="flex items-end justify-between gap-3"><strong className={`${index === 0 ? "text-5xl" : "text-3xl"} font-display font-semibold tracking-[-0.06em] text-white`}>{entry.percent}%</strong><span className="pb-1 text-[10px] text-[#727c82]">{formatMoneyMinor(entry.amountMinor)}</span></div></div></article>)}</div> : <p className="mt-6 rounded-[14px] border border-dashed border-white/[0.08] p-8 text-center text-xs text-[#687279]">За выбранный период нет услуг с выручкой.</p>}
+    </section>
+  );
+}
+
+function RateSpotlight({ label, value, note, tone }: { label: string; value: number; note: string; tone: string }) {
+  return <article className="panel relative overflow-hidden p-6"><span className="absolute -right-12 -top-16 size-44 rounded-full opacity-10 blur-3xl" style={{ backgroundColor: tone }} /><p className="text-xs text-[#8e989d]">{label}</p><p className="mt-5 font-display text-6xl font-semibold tracking-[-0.07em] text-white">{value}<span className="ml-1 text-2xl" style={{ color: tone }}>%</span></p><p className="mt-5 max-w-sm text-xs leading-5 text-[#69747a]">{note}</p></article>;
+}
+
+function TeamTable({ members }: { members: AnalyticsSnapshot["teamPerformance"] }) {
+  return <section className="panel overflow-hidden"><div className="border-b border-white/[0.06] p-5 sm:p-6"><p className="eyebrow">Команда</p><h2 className="mt-2 font-display text-lg font-semibold text-white">Результаты исполнителей</h2></div>{members.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left"><thead className="text-[10px] uppercase tracking-[0.12em] text-[#626c72]"><tr><th className="px-6 py-4 font-medium">Мастер</th><th className="px-4 py-4 font-medium">Выезды</th><th className="px-4 py-4 font-medium">Завершено</th><th className="px-6 py-4 text-right font-medium">Сумма заказов</th></tr></thead><tbody className="divide-y divide-white/[0.055]">{members.map((member, index) => <tr key={member.id} className="transition-colors hover:bg-white/[0.025]"><td className="px-6 py-4"><div className="flex items-center gap-3"><span className="grid size-8 place-items-center rounded-[10px] bg-[#9c82e8]/10 font-display text-[10px] text-[#b19aec]">{String(index + 1).padStart(2, "0")}</span><span className="text-xs font-medium text-[#dfe3df]">{member.name}</span></div></td><td className="px-4 py-4 font-display text-sm text-white">{member.visits}</td><td className="px-4 py-4"><span className="rounded-full border border-[#69d3a4]/15 bg-[#69d3a4]/[0.06] px-2.5 py-1 text-[10px] text-[#78dcb0]">{member.completion}%</span></td><td className="px-6 py-4 text-right font-display text-xs text-white">{formatMoneyMinor(member.orderValueMinor)}</td></tr>)}</tbody></table></div> : <p className="p-8 text-center text-xs text-[#687279]">Нет назначенных выездов за период.</p>}</section>;
+}
+
+function TopClients({ clients }: { clients: AnalyticsSnapshot["topClients"] }) {
+  return <section className="panel overflow-hidden"><div className="border-b border-white/[0.06] p-5 sm:p-6"><p className="eyebrow">Клиентская база</p><h2 className="mt-2 font-display text-lg font-semibold text-white">Клиенты с наибольшим оборотом</h2></div>{clients.length ? <div className="grid gap-px bg-white/[0.055] sm:grid-cols-2">{clients.map((client, index) => <article key={client.id} className="bg-[var(--surface)] p-5 transition-colors hover:bg-white/[0.03]"><div className="flex items-start justify-between gap-4"><span className="font-display text-[10px] text-[#687279]">0{index + 1}</span><span className="text-[10px] text-[#778188]">{client.orders} заказов</span></div><p className="mt-7 truncate text-sm font-medium text-white">{client.name}</p><p className="mt-2 font-display text-lg text-[#9c82e8]">{formatMoneyMinor(client.agreedMinor)}</p></article>)}</div> : <p className="p-8 text-center text-xs text-[#687279]">За период нет заказов клиентов.</p>}</section>;
+}
+
+function AnalyticsContent({ view, snapshot }: { view: AnalyticsView; snapshot: AnalyticsSnapshot }) {
+  const metricById = new Map(snapshot.metrics.map((metric) => [metric.id, metric]));
+  const selectMetrics = (...ids: AnalyticsMetric["id"][]) => ids.map((id) => metricById.get(id)).filter((metric): metric is AnalyticsMetric => Boolean(metric));
+  const agreed = metricById.get("agreed")?.value ?? 0;
+  const paid = metricById.get("paid")?.value ?? 0;
+
+  if (view === "sales") return <><MetricGrid metrics={selectMetrics("orders", "agreed", "average_order")} /><StageFlow stages={snapshot.orderStages} /><ServiceMosaic entries={snapshot.serviceMix} /></>;
+  if (view === "visits") return <><div className="grid gap-3 lg:grid-cols-[1.3fr_0.7fr]"><MetricGrid metrics={selectMetrics("visits", "orders")} /><RateSpotlight label="Доля завершённых выездов" value={snapshot.completedVisitRate} note="Показывает, какая часть запланированной работы закрыта в выбранном периоде." tone="#69d3a4" /></div><ServiceMosaic entries={snapshot.serviceMix} /></>;
+  if (view === "clients") return <><div className="grid gap-3 lg:grid-cols-[1.3fr_0.7fr]"><MetricGrid metrics={selectMetrics("clients", "orders")} /><RateSpotlight label="Повторные клиенты" value={snapshot.repeatClientRate} note="Доля клиентов, которые оформили больше одного заказа за выбранный период." tone="#9c82e8" /></div><TopClients clients={snapshot.topClients} /></>;
+  if (view === "masters") return <><div className="grid gap-3 sm:grid-cols-3"><article className="panel p-5"><Wrench className="size-5 text-[#9c82e8]" /><p className="mt-7 text-xs text-[#7c868c]">Мастеров с выездами</p><strong className="mt-2 block font-display text-3xl text-white">{snapshot.teamPerformance.length}</strong></article><article className="panel p-5"><CalendarCheck2 className="size-5 text-[#69d3a4]" /><p className="mt-7 text-xs text-[#7c868c]">Выездов команды</p><strong className="mt-2 block font-display text-3xl text-white">{snapshot.teamPerformance.reduce((sum, member) => sum + member.visits, 0)}</strong></article><article className="panel p-5"><BadgeRussianRuble className="size-5 text-[#f2c95e]" /><p className="mt-7 text-xs text-[#7c868c]">Сумма назначенных заказов</p><strong className="mt-2 block font-display text-2xl text-white">{formatMoneyMinor(snapshot.teamPerformance.reduce((sum, member) => sum + member.orderValueMinor, 0))}</strong></article></div><TeamTable members={snapshot.teamPerformance} /></>;
+  if (view === "finance") return <><MetricGrid metrics={selectMetrics("agreed", "paid", "average_order")} /><section className="panel p-5 sm:p-6"><div className="mb-6 flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Деньги во времени</p><h2 className="mt-2 font-display text-lg font-semibold text-white">Согласовано, получено и результат</h2></div><span className="rounded-full border border-[#f2c95e]/15 bg-[#f2c95e]/[0.05] px-3 py-1.5 text-[10px] text-[#e7c567]">Ожидается {formatMoneyMinor(Math.max(0, agreed - paid))}</span></div><TrendChart labels={snapshot.financialTrend.labels} series={snapshot.financialTrend.series} /></section></>;
+  return <><MetricGrid metrics={snapshot.metrics} /><section className="grid gap-3 xl:grid-cols-[1.45fr_0.55fr]"><div className="panel p-5 sm:p-6"><div className="mb-6"><p className="eyebrow">Динамика</p><h2 className="mt-2 font-display text-lg font-semibold text-white">Финансы за период</h2></div><TrendChart labels={snapshot.financialTrend.labels} series={snapshot.financialTrend.series} /></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1"><RateSpotlight label="Повторные клиенты" value={snapshot.repeatClientRate} note="Доля клиентов с несколькими заказами." tone="#9c82e8" /><RateSpotlight label="Завершённые выезды" value={snapshot.completedVisitRate} note="Доля выполненной работы в календаре." tone="#69d3a4" /></div></section><StageFlow stages={snapshot.orderStages} /></>;
+}
+
+export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ range?: string; view?: string }> }) {
   const member = await requireOfficeSession();
-  const range = parseRange((await searchParams).range);
-  const analytics = getAuthMode() === "preview" ? getPreviewAnalytics(range) : await getAnalyticsSnapshot(member, range);
-  const periodLabel = `${formatDateOnly(analytics.range.startDate)} — ${formatDateOnly(analytics.range.endDate)}`;
+  const params = await searchParams;
+  const range = parseRange(params.range);
+  const view = parseView(params.view);
+  const snapshot = getAuthMode() === "preview" ? getPreviewAnalytics(range) : await getAnalyticsSnapshot(member, range);
+  const copy = viewCopy[view];
 
-  return <div><PageHeading eyebrow="Управленческий контур" title="Аналитика" description="Фактические показатели PostgreSQL: заказы, деньги, выезды, клиенты, услуги и загрузка мастеров." action={<div className="flex gap-2"><span className="soft-button flex h-11 items-center gap-2 rounded-xl px-3 text-xs text-[#929ba0]"><CalendarRange className="size-4" />{periodLabel}</span><a href={`/api/v1/analytics/export?range=${range}`} download className="focus-ring soft-button grid size-11 place-items-center rounded-xl text-[var(--accent)]" aria-label="Экспортировать аналитику в CSV" title="Скачать полный отчёт CSV"><Download className="size-4" /></a></div>} />
+  return (
+    <div className="space-y-[clamp(1.5rem,1.2rem+0.8vw,2.5rem)]">
+      <PageHeading eyebrow={copy.eyebrow} title={copy.title} description={copy.description} action={<a href={`/api/v1/analytics/export?range=${range}`} className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border border-white/[0.08] px-4 text-xs text-[#a9b2b6] transition-colors hover:bg-white/[0.04] hover:text-white"><Download className="size-4" />Экспорт CSV</a>} />
 
-    <div className="mt-5 flex flex-col gap-3 border-b border-white/[0.06] pb-3 sm:flex-row sm:items-end sm:justify-between"><nav aria-label="Разделы аналитики" className="flex gap-1 overflow-x-auto">{[["Обзор", "overview"], ["Продажи", "sales"], ["Выезды", "visits"], ["Клиенты", "clients"], ["Мастера", "masters"], ["Финансы", "finance"]].map(([tab, anchor], index) => <Link key={tab} href={`/analytics?range=${range}#${anchor}`} className={`focus-ring flex h-10 shrink-0 items-center border-b-2 px-3 text-xs ${index === 0 ? "border-[var(--accent)] text-[var(--accent)]" : "border-transparent text-[#737d83] hover:border-white/[0.16] hover:text-white"}`}>{tab}</Link>)}</nav><div className="flex gap-1 rounded-xl border border-white/[0.07] p-1">{analyticsRanges.map((days) => <Link key={days} href={`/analytics?range=${days}`} className={`focus-ring rounded-lg px-3 py-2 text-[10px] ${range === days ? "bg-[var(--accent)] font-semibold text-[#111509]" : "text-[#7b858b] hover:text-white"}`}>{days === 365 ? "1 год" : `${days} дней`}</Link>)}</div></div>
+      <div className="sticky top-[var(--header-height)] z-20 -mx-2 rounded-[16px] border border-white/[0.07] bg-[#080d10]/90 p-2 shadow-2xl shadow-black/15 backdrop-blur-xl">
+        <nav aria-label="Разделы аналитики" className="flex gap-1 overflow-x-auto">{analyticsViews.map((entry) => <Link key={entry.id} href={`/analytics?view=${entry.id}&range=${range}`} aria-current={view === entry.id ? "page" : undefined} className={`focus-ring shrink-0 rounded-[10px] px-4 py-2.5 text-xs transition-colors ${view === entry.id ? "bg-[var(--accent)] text-[#11150b]" : "text-[#7e898f] hover:bg-white/[0.04] hover:text-white"}`}>{entry.label}</Link>)}</nav>
+      </div>
 
-    <section id="overview" aria-label="Ключевые показатели" className="mt-5 scroll-mt-24 grid gap-3 min-[460px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">{analytics.metrics.map((metric) => <SummaryCard key={metric.id} label={metric.label} value={formatMetric(metric)} change={metric.change} tone={metric.tone} />)}</section>
+      <div className="flex flex-col gap-3 rounded-[14px] border border-white/[0.06] bg-white/[0.018] p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-[10px] text-[#687279]"><Route className="size-4 text-[#9c82e8]" /><span>{snapshot.range.startDate} — {snapshot.range.endDate}</span></div>
+        <div className="flex gap-1" aria-label="Период аналитики">{analyticsRanges.map((days) => <Link key={days} href={`/analytics?view=${view}&range=${days}`} aria-current={range === days ? "true" : undefined} className={`focus-ring rounded-[9px] px-3 py-2 text-[10px] transition-colors ${range === days ? "bg-white/[0.08] text-white" : "text-[#687279] hover:text-white"}`}>{days === 365 ? "Год" : `${days} дней`}</Link>)}</div>
+      </div>
 
-    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(18rem,0.75fr)] 2xl:gap-5"><section id="finance" className="surface-panel min-w-0 scroll-mt-24 p-[clamp(1rem,0.75rem+0.8vw,1.75rem)]"><PanelHeading eyebrow="Финансы" title="Динамика по заказам" meta={`${periodLabel} · ₽`} /><TrendChart {...analytics.financialTrend} /></section><section id="sales" className="surface-panel scroll-mt-24 p-[clamp(1rem,0.75rem+0.8vw,1.75rem)]"><PanelHeading eyebrow="Процесс" title="Прохождение заказов" meta="по дате создания" /><div className="grid grid-cols-2 gap-2">{analytics.orderStages.map((stage, index) => <article key={stage.label} className="rounded-[13px] border border-white/[0.06] bg-white/[0.022] p-3"><div className="flex items-start justify-between gap-2"><span className="grid size-7 place-items-center rounded-full bg-[var(--accent)]/[0.07] font-display text-[9px] text-[var(--accent)]">0{index + 1}</span><span className="font-display text-xs text-[#8e989d]">{stage.percent}%</span></div><strong className="mt-5 block font-display text-xl text-white">{stage.value}</strong><p className="mt-1 text-[10px] leading-4 text-[#747e84]">{stage.label}</p></article>)}</div>{analytics.orderStages[0]?.value === 0 ? <div className="mt-4 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 text-[11px] leading-5 text-[#747e84]"><CircleAlert className="mr-2 inline size-3.5" />За выбранный период заказов ещё нет.</div> : null}</section></div>
-
-    <div id="visits" className="mt-4 scroll-mt-24 grid gap-4 lg:grid-cols-2 2xl:grid-cols-[0.8fr_1.2fr] 2xl:gap-5"><section className="surface-panel p-[clamp(1rem,0.75rem+0.8vw,1.75rem)]"><PanelHeading eyebrow="Портфель" title="Структура услуг" meta="по согласованной стоимости" /><ServiceMixChart entries={analytics.serviceMix} /></section><section id="masters" className="surface-panel min-w-0 scroll-mt-24 p-[clamp(1rem,0.75rem+0.8vw,1.75rem)]"><PanelHeading eyebrow="Команда" title="Загрузка мастеров" meta="по датам выездов" />{analytics.teamPerformance.length ? <><div className="hidden overflow-x-auto min-[620px]:block"><table className="w-full min-w-[580px] text-left"><thead><tr className="text-[9px] uppercase tracking-[0.12em] text-[#616b72]"><th className="pb-3 font-medium">Мастер</th><th className="pb-3 font-medium">Выезды</th><th className="pb-3 font-medium">Завершено</th><th className="pb-3 text-right font-medium">Сумма заказов</th></tr></thead><tbody className="divide-y divide-white/[0.055]">{analytics.teamPerformance.map((member) => <tr key={member.id}><td className="py-3 text-xs font-medium text-[#dce0dc]">{member.name}</td><td className="py-3 font-display text-xs text-white">{member.visits}</td><td className="py-3"><span className="text-xs text-[#93a099]">{member.completion}%</span></td><td className="py-3 text-right font-display text-xs text-white">{formatMoneyMinor(member.orderValueMinor)}</td></tr>)}</tbody></table></div><div className="space-y-4 min-[620px]:hidden">{analytics.teamPerformance.map((member) => <article key={member.id} className="rounded-xl bg-white/[0.03] p-3"><div className="flex justify-between gap-3"><p className="truncate text-xs font-medium text-white">{member.name}</p><p className="shrink-0 font-display text-xs text-white">{formatMoneyMinor(member.orderValueMinor)}</p></div><p className="mt-2 text-[10px] text-[#707a80]">{member.visits} выездов · {member.completion}% завершено</p></article>)}</div></> : <div className="grid min-h-48 place-items-center rounded-xl border border-dashed border-white/[0.07] text-center text-xs text-[#69737a]">Назначьте мастеров на выезды,<br />чтобы увидеть загрузку команды</div>}<div className="mt-5 grid grid-cols-2 gap-2"><div className="rounded-xl bg-[#69d3a4]/[0.055] p-3"><ArrowUpRight className="size-4 text-[#69d3a4]" /><p className="mt-3 text-[10px] text-[#819088]">Повторные клиенты</p><strong className="mt-1 block font-display text-lg text-white">{analytics.repeatClientRate}%</strong></div><div className="rounded-xl bg-[#9c82e8]/[0.055] p-3"><ArrowDownRight className="size-4 rotate-180 text-[#ae98eb]" /><p className="mt-3 text-[10px] text-[#8f8798]">Завершено выездов</p><strong className="mt-1 block font-display text-lg text-white">{analytics.completedVisitRate}%</strong></div></div></section></div>
-
-    <section id="clients" className="surface-panel mt-4 scroll-mt-24 p-[clamp(1rem,0.75rem+0.8vw,1.75rem)]"><PanelHeading eyebrow="Клиенты" title="Топ по согласованной стоимости" meta="отменённые заказы исключены" />{analytics.topClients.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{analytics.topClients.map((client, index) => <Link key={client.id} href={`/clients/${client.id}`} className="focus-ring flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 hover:bg-white/[0.035]"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--accent)]/[0.07] font-display text-xs text-[var(--accent)]">{index + 1}</span><span className="min-w-0 flex-1"><strong className="block truncate text-xs text-white">{client.name}</strong><span className="mt-1 block text-[9px] text-[#6d777d]">{client.orders} заказ.</span></span><strong className="shrink-0 font-display text-xs text-white">{formatMoneyMinor(client.agreedMinor)}</strong></Link>)}</div> : <p className="rounded-xl border border-dashed border-white/[0.07] py-10 text-center text-xs text-[#69737a]">В выбранном периоде нет заказов для рейтинга</p>}</section>
-  </div>;
+      <main className="space-y-3"><AnalyticsContent view={view} snapshot={snapshot} /></main>
+    </div>
+  );
 }
