@@ -1,13 +1,14 @@
 "use client";
 
-import { CalendarDays, Check, Clock3, GripVertical, History, MoreVertical, Pencil, RotateCw, Sparkles, Trash2 } from "lucide-react";
+import { CalendarDays, Check, Clock3, GripVertical, History, MoreVertical, Pencil, RotateCcw, RotateCw, Search, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { completeTaskAction, rescheduleTaskAction } from "@/app/(workspace)/tasks/actions";
 import { TaskManagementDialogs } from "@/components/tasks/task-management-dialogs";
 import { TaskDistributionChart } from "@/components/tasks/task-distribution-chart";
-import type { TaskCard, TaskColumn, TaskSnapshot } from "@/server/tasks/types";
+import { Dialog } from "@/components/ui/dialog";
+import type { TaskCard, TaskColumn, TaskPriority, TaskSnapshot } from "@/server/tasks/types";
 
 const columns: { id: TaskColumn; title: string; tone: string }[] = [
   { id: "overdue", title: "Просроченные", tone: "#ef646a" },
@@ -18,10 +19,32 @@ const columns: { id: TaskColumn; title: string; tone: string }[] = [
 
 const priorityLabels = { low: "Низкий", normal: "Обычный", high: "Высокий", critical: "Критичный" } as const;
 const completedAtFormatter = new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Moscow" });
+type TaskSourceFilter = "all" | TaskCard["source"];
+type TaskFilters = { priority: "all" | TaskPriority; source: TaskSourceFilter; assignee: string };
+const defaultFilters: TaskFilters = { priority: "all", source: "all", assignee: "" };
+
+function taskMatchesFilters(task: TaskCard, filters: TaskFilters, normalizedQuery: string) {
+  if (filters.priority !== "all" && task.priority !== filters.priority) return false;
+  if (filters.source !== "all" && task.source !== filters.source) return false;
+  if (filters.assignee && task.assignedMemberId !== filters.assignee) return false;
+
+  return !normalizedQuery || `${task.title} ${task.meta} ${task.description ?? ""} ${task.assigneeName ?? ""}`
+    .toLocaleLowerCase("ru")
+    .includes(normalizedQuery);
+}
+
+function FilterChoice<T extends string>({ value, current, label, onChange }: { value: T; current: T; label: string; onChange: (value: T) => void }) {
+  const selected = value === current;
+  return <button type="button" role="radio" aria-checked={selected} onClick={() => onChange(value)} className={`focus-ring min-h-10 rounded-[11px] border px-3 text-left text-xs transition-colors ${selected ? "border-[var(--accent)]/30 bg-[var(--accent)]/[0.08] text-white" : "border-white/[0.07] text-[#858f94] hover:bg-white/[0.035] hover:text-white"}`}>{label}</button>;
+}
 
 export function TasksWorkspace({ snapshot, canWrite }: { snapshot: TaskSnapshot; canWrite: boolean }) {
   const [tasks, setTasks] = useState(snapshot.tasks);
   const [activeTab, setActiveTab] = useState<"all" | "mine" | "completed">("all");
+  const [query, setQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState(defaultFilters);
+  const [draftFilters, setDraftFilters] = useState(defaultFilters);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
@@ -29,8 +52,13 @@ export function TasksWorkspace({ snapshot, canWrite }: { snapshot: TaskSnapshot;
   const [dialogMode, setDialogMode] = useState<"edit" | "cancel" | "history" | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
-  const visibleTasks = useMemo(() => tasks.filter((task) => activeTab === "all" || task.assignedMemberId === snapshot.currentMemberId), [activeTab, snapshot.currentMemberId, tasks]);
+  const normalizedQuery = query.trim().toLocaleLowerCase("ru");
+  const visibleTasks = useMemo(() => tasks.filter((task) => (activeTab === "all" || task.assignedMemberId === snapshot.currentMemberId) && taskMatchesFilters(task, filters, normalizedQuery)), [activeTab, filters, normalizedQuery, snapshot.currentMemberId, tasks]);
+  const visibleCompletedTasks = useMemo(() => snapshot.completedTasks.filter((task) => taskMatchesFilters(task, filters, normalizedQuery)), [filters, normalizedQuery, snapshot.completedTasks]);
+  const activeFilterCount = [filters.priority !== "all", filters.source !== "all", Boolean(filters.assignee)].filter(Boolean).length;
   const dialogTask = tasks.find((task) => task.id === dialogTaskId) ?? null;
+
+  function resetFilters() { setQuery(""); setFilters(defaultFilters); setDraftFilters(defaultFilters); }
 
   function openDialog(task: TaskCard, mode: "edit" | "cancel" | "history") {
     setMenuTaskId(null);
@@ -90,8 +118,9 @@ export function TasksWorkspace({ snapshot, canWrite }: { snapshot: TaskSnapshot;
           <button onClick={() => setActiveTab("completed")} className={`focus-ring h-11 shrink-0 rounded-[12px] px-4 text-xs font-medium ${activeTab === "completed" ? "bg-[var(--accent)] text-[#111509]" : "soft-button text-[#899298]"}`}>Последние выполненные <span className="ml-2 opacity-60">{snapshot.completedTasks.length}</span></button>
           <span className="ml-auto flex shrink-0 items-center gap-2 rounded-[12px] border border-white/[0.06] px-3 text-[10px] text-[#69737a]"><Sparkles className="size-3.5 text-[var(--accent)]" />Выезды создают напоминания автоматически</span>
         </div>
+        <div className="mb-4 flex min-w-0 gap-2"><label className="soft-button flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] px-3 sm:max-w-md"><Search className="size-4 shrink-0 text-[#687279]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Задача, заказ, описание или сотрудник" className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-[#59636a]" /></label><button type="button" onClick={() => { setDraftFilters(filters); setFiltersOpen(true); }} className={`focus-ring flex h-11 shrink-0 items-center gap-2 rounded-[12px] border px-3 text-xs ${activeFilterCount ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.06] text-white" : "border-white/[0.07] text-[#858f94]"}`}><SlidersHorizontal className="size-4" />Фильтры{activeFilterCount ? <span className="grid min-w-5 place-items-center rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[9px] font-semibold text-[#101308]">{activeFilterCount}</span> : null}</button>{query.trim() || activeFilterCount ? <button type="button" onClick={resetFilters} aria-label="Сбросить фильтры задач" className="focus-ring grid size-11 shrink-0 place-items-center rounded-[12px] border border-white/[0.07] text-[#7c858b]"><RotateCcw className="size-3.5" /></button> : null}</div>
         {message ? <p role="alert" className="mb-4 flex items-center gap-2 rounded-[12px] border border-[#ef646a]/20 bg-[#ef646a]/[0.05] p-3 text-xs text-[#d89599]"><RotateCw className="size-4" />{message}</p> : null}
-        {activeTab === "completed" ? <section className="surface-panel overflow-hidden"><header className="border-b border-white/[0.06] px-4 py-4 sm:px-5"><h2 className="text-sm font-semibold text-white">Последние выполненные задачи</h2><p className="mt-1 text-xs text-[#69737a]">До 50 последних завершений с ответственным и связью с заказом.</p></header>{snapshot.completedTasks.length ? <div className="divide-y divide-white/[0.055]">{snapshot.completedTasks.map((task) => <article key={task.id} className="grid gap-3 px-4 py-4 hover:bg-white/[0.025] sm:px-5 md:grid-cols-[minmax(0,1fr)_12rem_10rem] md:items-center"><div className="min-w-0"><div className="flex items-center gap-2"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#69d3a4]/10 text-[#69d3a4]"><Check className="size-3.5" /></span>{task.relatedOrderId ? <Link href={`/orders/${task.relatedOrderId}`} className="focus-ring min-w-0 truncate rounded text-sm font-medium text-white hover:text-[var(--accent)]">{task.title}</Link> : <h3 className="min-w-0 truncate text-sm font-medium text-white">{task.title}</h3>}</div><p className="mt-1 pl-9 text-[10px] text-[#69737a]">{task.meta}</p></div><p className="text-xs text-[#899399]">{task.assigneeName ?? "Без ответственного"}</p><time dateTime={task.completedAt} className="text-xs text-[#69d3a4] md:text-right">{completedAtFormatter.format(new Date(task.completedAt))}</time></article>)}</div> : <div className="grid min-h-64 place-items-center text-center"><div><Check className="mx-auto size-8 text-[#4f595f]" /><p className="mt-3 text-sm text-[#7e888e]">Выполненных задач пока нет</p></div></div>}</section> : null}
+        {activeTab === "completed" ? <section className="surface-panel overflow-hidden"><header className="border-b border-white/[0.06] px-4 py-4 sm:px-5"><h2 className="text-sm font-semibold text-white">Последние выполненные задачи</h2><p className="mt-1 text-xs text-[#69737a]">До 50 последних завершений с ответственным и связью с заказом.</p></header>{visibleCompletedTasks.length ? <div className="divide-y divide-white/[0.055]">{visibleCompletedTasks.map((task) => <article key={task.id} className="grid gap-3 px-4 py-4 hover:bg-white/[0.025] sm:px-5 md:grid-cols-[minmax(0,1fr)_12rem_10rem] md:items-center"><div className="min-w-0"><div className="flex items-center gap-2"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#69d3a4]/10 text-[#69d3a4]"><Check className="size-3.5" /></span>{task.relatedOrderId ? <Link href={`/orders/${task.relatedOrderId}`} className="focus-ring min-w-0 truncate rounded text-sm font-medium text-white hover:text-[var(--accent)]">{task.title}</Link> : <h3 className="min-w-0 truncate text-sm font-medium text-white">{task.title}</h3>}</div><p className="mt-1 pl-9 text-[10px] text-[#69737a]">{task.meta}</p></div><p className="text-xs text-[#899399]">{task.assigneeName ?? "Без ответственного"}</p><time dateTime={task.completedAt} className="text-xs text-[#69d3a4] md:text-right">{completedAtFormatter.format(new Date(task.completedAt))}</time></article>)}</div> : <div className="grid min-h-64 place-items-center text-center"><div><Check className="mx-auto size-8 text-[#4f595f]" /><p className="mt-3 text-sm text-[#7e888e]">Выполненных задач по выбранным условиям нет</p><button type="button" onClick={resetFilters} className="focus-ring mt-4 rounded-[10px] bg-white/[0.07] px-3 py-2 text-xs text-white">Сбросить фильтры</button></div></div>}</section> : null}
         <div className={`${activeTab === "completed" ? "hidden" : "grid"} gap-3 lg:grid-cols-2 2xl:grid-cols-4`}>
           {columns.map((column) => {
             const columnTasks = visibleTasks.filter((task) => task.column === column.id);
@@ -112,6 +141,14 @@ export function TasksWorkspace({ snapshot, canWrite }: { snapshot: TaskSnapshot;
         <section className="surface-panel p-4"><div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold text-white">Распределение задач</h2><p className="mt-1 text-[10px] text-[#687279]">Структура открытой очереди по срокам</p></div><CalendarDays className="size-4 text-[var(--accent)]" /></div><TaskDistributionChart tasks={tasks} /></section>
         <section className="surface-panel p-4"><h2 className="text-sm font-semibold text-white">Сводка</h2><dl className="mt-4 space-y-3 text-xs"><div className="flex items-center gap-3"><dt className="flex-1 text-[#768087]">Открыто сейчас</dt><dd className="font-display font-semibold text-white">{tasks.length}</dd></div><div className="flex items-center gap-3"><dt className="flex-1 text-[#768087]">Автоматических</dt><dd className="font-display font-semibold text-[var(--accent)]">{tasks.filter((task) => task.source === "visit_reminder").length}</dd></div><div className="flex items-center gap-3 border-t border-white/[0.06] pt-3"><dt className="flex-1 text-[#768087]">Выполнено за 30 дней</dt><dd className="font-display font-semibold text-[#69d3a4]">{snapshot.completedLast30Days}</dd></div></dl></section>
       </aside>
+      <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Фильтры задач" description="Отберите открытые и выполненные задачи по приоритету, происхождению и ответственному сотруднику.">
+        <div className="space-y-7 p-5 sm:p-7">
+          <fieldset><legend className="mb-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-[#69737a]">Приоритет</legend><div className="grid gap-2 sm:grid-cols-2" role="radiogroup"><FilterChoice value="all" current={draftFilters.priority} label="Любой приоритет" onChange={(priority) => setDraftFilters((current) => ({ ...current, priority }))} />{Object.entries(priorityLabels).map(([priority, label]) => <FilterChoice key={priority} value={priority as TaskPriority} current={draftFilters.priority} label={label} onChange={(selectedPriority) => setDraftFilters((current) => ({ ...current, priority: selectedPriority }))} />)}</div></fieldset>
+          <fieldset><legend className="mb-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-[#69737a]">Источник</legend><div className="grid gap-2 sm:grid-cols-3" role="radiogroup"><FilterChoice value="all" current={draftFilters.source} label="Все задачи" onChange={(source) => setDraftFilters((current) => ({ ...current, source }))} /><FilterChoice value="manual" current={draftFilters.source} label="Ручные" onChange={(source) => setDraftFilters((current) => ({ ...current, source }))} /><FilterChoice value="visit_reminder" current={draftFilters.source} label="По выездам" onChange={(source) => setDraftFilters((current) => ({ ...current, source }))} /></div></fieldset>
+          <fieldset><legend className="mb-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-[#69737a]">Ответственный</legend><div className="max-h-56 space-y-1 overflow-y-auto rounded-[13px] border border-white/[0.07] bg-black/10 p-1.5" role="radiogroup"><FilterChoice value="" current={draftFilters.assignee} label="Любой сотрудник" onChange={(assignee) => setDraftFilters((current) => ({ ...current, assignee }))} />{snapshot.assigneeOptions.map((assignee) => <FilterChoice key={assignee.id} value={assignee.id} current={draftFilters.assignee} label={assignee.displayName} onChange={(selectedAssignee) => setDraftFilters((current) => ({ ...current, assignee: selectedAssignee }))} />)}</div></fieldset>
+        </div>
+        <footer className="sticky bottom-0 mt-auto grid shrink-0 grid-cols-[auto_minmax(0,1fr)] gap-2 border-t border-white/[0.07] bg-[#0d1317]/95 p-4 backdrop-blur-xl sm:p-5"><button type="button" onClick={() => setDraftFilters(defaultFilters)} className="focus-ring h-11 rounded-[12px] border border-white/[0.08] px-4 text-xs text-[#899399]"><RotateCcw className="mr-2 inline size-3.5" />Очистить</button><button type="button" onClick={() => { setFilters(draftFilters); setFiltersOpen(false); }} className="focus-ring h-11 rounded-[12px] bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308]">Показать задачи</button></footer>
+      </Dialog>
       <TaskManagementDialogs task={dialogTask} mode={dialogMode} assigneeOptions={snapshot.assigneeOptions} timeZone={snapshot.timeZone} onClose={closeDialog} />
     </div>
   );

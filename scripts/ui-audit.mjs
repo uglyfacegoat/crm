@@ -194,6 +194,20 @@ try {
   report.interactions.push({ route: "/finance", action: "button:Новый счёт", result: "dialog:Новый счёт" });
   await page.keyboard.press("Escape");
 
+  await openRoute("/tasks");
+  await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+  await page.getByRole("dialog", { name: "Фильтры задач", exact: true }).getByRole("radio", { name: "По выездам", exact: true }).click();
+  await page.getByRole("button", { name: "Показать задачи", exact: true }).click();
+  await page.getByRole("button", { name: /Фильтры\s*1/ }).waitFor();
+  report.interactions.push({ route: "/tasks", action: "task source filter", result: "1 active condition" });
+
+  await openRoute("/sites");
+  await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+  await page.getByRole("dialog", { name: "Фильтры сайтов", exact: true }).getByRole("radio", { name: "Без интеграций", exact: true }).click();
+  await page.getByRole("button", { name: "Показать сайты", exact: true }).click();
+  await page.getByRole("button", { name: /Фильтры\s*1/ }).waitFor();
+  report.interactions.push({ route: "/sites", action: "integration state filter", result: "1 active condition" });
+
   await openRoute("/settings");
   await page.getByRole("tab", { name: "Пользователи", exact: true }).click();
   await page.getByRole("button", { name: "Новый сотрудник", exact: true }).click();
