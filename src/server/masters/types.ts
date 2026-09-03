@@ -1,4 +1,7 @@
-export const masterStatusCodes = ["scheduled", "available", "overloaded", "inactive"] as const;
+export const masterOperationalStatuses = ["working", "vacation", "unavailable", "terminated"] as const;
+export type MasterOperationalStatus = (typeof masterOperationalStatuses)[number];
+
+export const masterStatusCodes = ["scheduled", "available", "overloaded", "vacation", "unavailable", "terminated"] as const;
 export type MasterStatusCode = (typeof masterStatusCodes)[number];
 
 export type MasterVisitSummary = {
@@ -22,6 +25,10 @@ export type MasterListItem = {
   dailyCapacity: number;
   skills: string[];
   notes: string | null;
+  operationalStatus: MasterOperationalStatus;
+  workingDays: number[];
+  statusUntil: string | null;
+  statusNote: string | null;
   active: boolean;
   version: number;
   todayVisitCount: number;

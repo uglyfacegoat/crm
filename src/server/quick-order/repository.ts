@@ -219,7 +219,7 @@ export async function createQuickOrder(member: AuthenticatedMember, input: Quick
 
       const masterRows = input.order.assignedMasterId
         ? await transaction`SELECT id, full_name, phone FROM masters
-            WHERE organization_id = ${member.organizationId} AND id = ${input.order.assignedMasterId} AND active`
+            WHERE organization_id = ${member.organizationId} AND id = ${input.order.assignedMasterId} AND active AND operational_status = 'working'`
         : [];
       if (input.order.assignedMasterId && !masterRows.length) throw new QuickOrderReferenceError("master");
       const master = masterRows[0] ?? null;

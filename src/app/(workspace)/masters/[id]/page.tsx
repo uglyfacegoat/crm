@@ -27,6 +27,8 @@ function formatVisitDate(visit: MasterDetailVisit) {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: visit.timezone, day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(visit.scheduledStartAt));
 }
 
+const weekDayLabels = new Map([[1, "Пн"], [2, "Вт"], [3, "Ср"], [4, "Чт"], [5, "Пт"], [6, "Сб"], [7, "Вс"]]);
+
 export default async function MasterDetailPage({ params }: PageProps<"/masters/[id]">) {
   const { id } = await params;
   const parsedId = masterIdSchema.safeParse(id);
@@ -57,6 +59,11 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
       <WorkspaceStatCard label="Заказов" value={String(master.totalOrders)} note="Уникальных заказов" icon={ClipboardList} color="#9c82e8" />
       {canReadFinance ? <WorkspaceStatCard label="Начислено" value={formatMoneyMinor(master.accruedMinor ?? 0)} note="По назначенным заказам" icon={Banknote} color="#f0ad55" /> : null}
       {canReadFinance ? <WorkspaceStatCard label="Выплачено" value={formatMoneyMinor(master.paidMinor ?? 0)} note="Фактический заработок" icon={Banknote} color="#55d5ca" /> : null}
+    </section>
+
+    <section className="surface-panel mt-4 grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:p-5">
+      <div><p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[#687279]">Текущий статус</p><div className="mt-3 flex items-center gap-3"><span className={`size-2.5 rounded-full ${master.operationalStatus === "working" ? "bg-[#69d3a4]" : master.operationalStatus === "vacation" ? "bg-[#9c82e8]" : master.operationalStatus === "unavailable" ? "bg-[#efb454]" : "bg-[#ef646a]"}`} /><strong className="text-sm text-white">{master.statusLabel}</strong>{master.statusUntil ? <span className="text-[10px] text-[#7d878d]">до {new Intl.DateTimeFormat("ru-RU").format(new Date(`${master.statusUntil}T12:00:00Z`))}</span> : null}</div>{master.statusNote ? <p className="mt-2 text-xs leading-5 text-[#8a9499]">{master.statusNote}</p> : null}</div>
+      <div><p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[#687279]">Рабочая неделя</p><div className="mt-3 flex flex-wrap gap-1.5">{Array.from({ length: 7 }, (_, index) => index + 1).map((day) => <span key={day} className={`grid size-9 place-items-center rounded-[10px] border text-[10px] ${master.workingDays.includes(day) ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.07] text-white" : "border-white/[0.055] text-[#4f595f]"}`}>{weekDayLabels.get(day)}</span>)}</div></div>
     </section>
 
     <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.6fr)]">

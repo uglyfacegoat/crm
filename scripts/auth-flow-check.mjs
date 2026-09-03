@@ -30,6 +30,16 @@ function nearbyDateInSameWeek(dateKey) {
   return date.toISOString().slice(0, 10);
 }
 
+function addDays(dateKey, days) {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatTimeFromMinutes(totalMinutes) {
+  return `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
+}
+
 try {
   await page.goto(`${baseUrl}/clients`, { waitUntil: "networkidle" });
   if (!page.url().includes("/login?next=%2Fclients")) throw new Error(`Protected route did not redirect to login: ${page.url()}`);
@@ -63,9 +73,10 @@ try {
   await page.getByText("Москва · ЦАО · Центр", { exact: true }).waitFor();
   await page.getByRole("button", { name: `Редактировать мастера ${masterName}`, exact: true }).click();
   const deactivateMasterDialog = page.getByRole("dialog", { name: masterName });
-  await deactivateMasterDialog.getByRole("checkbox").uncheck();
+  await deactivateMasterDialog.locator('input[name="operationalStatus"][value="terminated"]').check({ force: true });
+  await deactivateMasterDialog.getByPlaceholder("Отпуск до даты, больничный, причина увольнения").fill("Тестовое завершение сотрудничества");
   await deactivateMasterDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
-  await page.getByText("Неактивен", { exact: true }).waitFor();
+  await page.getByText("Уволен", { exact: true }).first().waitFor();
 
   const quickClientName = `ООО «Мобильный поток ${suffix}»`;
   await page.setViewportSize({ width: 320, height: 568 });
@@ -183,9 +194,12 @@ try {
 
   await page.getByRole("button", { name: "Добавить выезд", exact: true }).click();
   const createVisitDialog = page.getByRole("dialog", { name: "Новый выезд" });
-  const visitDate = dateInTimeZone("Europe/Moscow");
+  const visitDate = addDays(dateInTimeZone("Europe/Moscow"), Number(suffix.slice(-2)) % 21 + 1);
+  const visitStartMinutes = 7 * 60 + (Number(suffix) % 44) * 15;
+  const initialVisitTime = formatTimeFromMinutes(visitStartMinutes);
+  const updatedVisitTime = formatTimeFromMinutes(visitStartMinutes + 15);
   await createVisitDialog.locator('input[name="localDate"]').fill(visitDate);
-  await createVisitDialog.locator('input[name="localTime"]').fill("11:00");
+  await createVisitDialog.locator('input[name="localTime"]').fill(initialVisitTime);
   await createVisitDialog.getByRole("button", { name: "Создать выезд", exact: true }).click();
   await page.getByText("Запланирован", { exact: true }).waitFor();
 
@@ -194,7 +208,7 @@ try {
   const editRescheduleReason = `Клиент уточнил время выезда ${suffix}`;
   const autosaveResponse = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/orders/"));
   await editVisitDialog.getByRole("button", { name: "Подтверждён", exact: true }).click();
-  await editVisitDialog.locator('input[name="localTime"]').fill("11:15");
+  await editVisitDialog.locator('input[name="localTime"]').fill(updatedVisitTime);
   await editVisitDialog.locator('textarea[name="rescheduleReason"]').fill(editRescheduleReason);
   await autosaveResponse;
   await editVisitDialog.getByText("Сохранено", { exact: true }).waitFor();
@@ -205,7 +219,7 @@ try {
   const dispatchCardDialog = page.getByRole("dialog", { name: "Карточка выезда" });
   await dispatchCardDialog.getByText(updatedClientName, { exact: true }).waitFor();
   const dispatchText = await dispatchCardDialog.locator("textarea").inputValue();
-  if (!dispatchText.includes("Комплексная тестовая обработка") || !dispatchText.includes("11:15")) {
+  if (!dispatchText.includes("Комплексная тестовая обработка") || !dispatchText.includes(updatedVisitTime)) {
     throw new Error(`Dispatch card is missing visit or service data: ${dispatchText}`);
   }
   await dispatchCardDialog.getByRole("button", { name: "Закрыть окно", exact: true }).click();
@@ -309,7 +323,8 @@ try {
   }
   const movedDate = nearbyDateInSameWeek(visitDate);
   const rescheduleReason = `Клиент попросил перенести выезд ${suffix}`;
-  const sourceVisit = page.locator('article[draggable="true"]').filter({ hasText: updatedClientName }).filter({ hasText: "11:15" }).first();
+  const sourceVisit = visitDayColumn.locator(`article[draggable="true"][title^="${updatedVisitTime}"]`, { hasText: updatedClientName }).first();
+  await sourceVisit.waitFor();
   await sourceVisit.dragTo(page.locator(`[data-calendar-day="${movedDate}"]`), { targetPosition: { x: 60, y: 396 } });
   const moveVisitDialog = page.getByRole("dialog", { name: "Перенести выезд" });
   await moveVisitDialog.getByText("Причина переноса", { exact: false }).first().waitFor();

@@ -11,13 +11,16 @@ const statusStyle: Record<MasterStatusCode, string> = {
   scheduled: "border-[#dce63c]/20 bg-[#dce63c]/10 text-[#dfe874]",
   available: "border-[#58a6ff]/20 bg-[#58a6ff]/10 text-[#7fb9f4]",
   overloaded: "border-[#f07832]/20 bg-[#f07832]/10 text-[#f2945d]",
-  inactive: "border-white/[0.08] bg-white/[0.04] text-[#7a858b]",
+  vacation: "border-[#9c82e8]/20 bg-[#9c82e8]/10 text-[#bcaaf2]",
+  unavailable: "border-[#efb454]/20 bg-[#efb454]/10 text-[#efc778]",
+  terminated: "border-[#ef646a]/15 bg-[#ef646a]/[0.06] text-[#c77b80]",
 };
 
 const statusFilters: Array<{ value: "all" | MasterStatusCode; label: string }> = [
   { value: "all", label: "Все" }, { value: "scheduled", label: "С выездами" },
   { value: "available", label: "Свободны" }, { value: "overloaded", label: "Перегружены" },
-  { value: "inactive", label: "Неактивны" },
+  { value: "vacation", label: "В отпуске" }, { value: "unavailable", label: "Не работают" },
+  { value: "terminated", label: "Уволены" },
 ];
 
 function FilterMenu({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {

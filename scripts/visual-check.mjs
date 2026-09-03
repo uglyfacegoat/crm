@@ -56,6 +56,8 @@ const visualCases = [
   { name: "master-detail-4k", path: "/masters/master-1", width: 3840, height: 2160 },
   { name: "master-detail-desktop", path: "/masters/master-1", width: 1920, height: 1080 },
   { name: "master-detail-mobile", path: "/masters/master-1", width: 320, height: 568 },
+  { name: "master-edit-dialog-desktop", path: "/masters/master-1", width: 1920, height: 1080, openMasterEditDialog: true },
+  { name: "master-edit-dialog-mobile", path: "/masters/master-1", width: 320, height: 568, openMasterEditDialog: true },
   { name: "tasks-tablet", path: "/tasks", width: 768, height: 1024 },
   { name: "tasks-desktop", path: "/tasks", width: 1920, height: 1080 },
   { name: "tasks-filters-desktop", path: "/tasks", width: 1920, height: 1080, openFiltersDialog: "Фильтры задач" },
@@ -202,6 +204,10 @@ try {
     if (visualCase.openObjectDialog) {
       await page.getByRole("button", { name: "Новый объект", exact: true }).click();
       await page.getByRole("dialog", { name: "Новый объект" }).waitFor();
+    }
+    if (visualCase.openMasterEditDialog) {
+      await page.getByRole("button", { name: /Редактировать мастера/ }).click();
+      await page.getByRole("dialog").waitFor();
     }
     if (visualCase.openOrderDialog) {
       await page.getByRole("button", { name: "Новый заказ", exact: true }).click();

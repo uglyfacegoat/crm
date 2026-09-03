@@ -154,7 +154,7 @@ export async function copyOrder(member: AuthenticatedMember, input: CopyOrderInp
 
       const masterRows = input.copyMaster && source.assigned_master_id
         ? await transaction`SELECT id, full_name, phone FROM masters
-            WHERE organization_id = ${member.organizationId} AND id = ${source.assigned_master_id} AND active`
+            WHERE organization_id = ${member.organizationId} AND id = ${source.assigned_master_id} AND active AND operational_status = 'working'`
         : [];
       if (input.copyMaster && source.assigned_master_id && !masterRows.length) throw new OrderReferenceError("master");
       const master = masterRows[0] ?? null;

@@ -10,8 +10,9 @@ import {
 } from "@/app/(workspace)/masters/actions";
 import { OrderField, OrderFormFooter, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
 import { Dialog } from "@/components/ui/dialog";
+import { DateInput } from "@/components/ui/date-time-inputs";
 import { clientCrypto as crypto } from "@/lib/client-id";
-import type { MasterListItem } from "@/server/masters/types";
+import type { MasterListItem, MasterOperationalStatus } from "@/server/masters/types";
 
 const initialState: MasterMutationState = { status: "idle", message: null, fieldErrors: {} };
 
@@ -34,6 +35,24 @@ function MasterFields({ state, master }: { state: MasterMutationState; master?: 
   </div>;
 }
 
+const workDays = [[1, "Пн"], [2, "Вт"], [3, "Ср"], [4, "Чт"], [5, "Пт"], [6, "Сб"], [7, "Вс"]] as const;
+const operationalStatuses: Array<{ value: MasterOperationalStatus; label: string; note: string; tone: string }> = [
+  { value: "working", label: "Работает", note: "Можно назначать", tone: "#69d3a4" },
+  { value: "vacation", label: "В отпуске", note: "Временно недоступен", tone: "#9c82e8" },
+  { value: "unavailable", label: "Не работает", note: "ЧП, больничный, выходной", tone: "#efb454" },
+  { value: "terminated", label: "Уволен", note: "Только исторические данные", tone: "#ef646a" },
+];
+
+function MasterAvailabilityFields({ state, master }: { state: MasterMutationState; master?: MasterListItem }) {
+  const initialStatus = master?.operationalStatus ?? "working";
+  return <section className="space-y-5 rounded-[15px] border border-white/[0.07] bg-white/[0.018] p-4">
+    <fieldset><legend className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#687279]">Статус мастера</legend><div className="mt-3 grid gap-2 sm:grid-cols-2">{operationalStatuses.map((status) => <label key={status.value} className="relative cursor-pointer"><input type="radio" name="operationalStatus" value={status.value} defaultChecked={initialStatus === status.value} className="peer sr-only" /><span className="flex min-h-14 items-center gap-3 rounded-[12px] border border-white/[0.07] px-3 transition-colors peer-checked:border-[var(--status-tone)]/40 peer-checked:bg-white/[0.04]" style={{ "--status-tone": status.tone } as React.CSSProperties}><span className="size-2.5 rounded-full" style={{ backgroundColor: status.tone }} /><span><strong className="block text-xs text-white">{status.label}</strong><span className="mt-1 block text-[9px] text-[#687279]">{status.note}</span></span></span></label>)}</div></fieldset>
+    <fieldset><legend className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#687279]">Рабочие дни</legend><div className="mt-3 grid grid-cols-7 gap-1.5">{workDays.map(([value, label]) => <label key={value} className="cursor-pointer"><input type="checkbox" name="workingDays" value={value} defaultChecked={master?.workingDays.includes(value) ?? value <= 5} className="peer sr-only" /><span className="grid aspect-square place-items-center rounded-[10px] border border-white/[0.07] text-[10px] text-[#6f797f] peer-checked:border-[var(--accent)]/30 peer-checked:bg-[var(--accent)]/[0.08] peer-checked:text-white">{label}</span></label>)}</div>{state.fieldErrors.workingDays?.length ? <p className="mt-2 text-[10px] text-[#ef8a8f]">{state.fieldErrors.workingDays[0]}</p> : null}</fieldset>
+    <div className="grid gap-4 sm:grid-cols-2"><OrderField label="Статус действует до" errors={state.fieldErrors.statusUntil}><DateInput name="statusUntil" defaultValue={master?.statusUntil ?? ""} /></OrderField><OrderField label="Причина / комментарий" errors={state.fieldErrors.statusNote}><input name="statusNote" maxLength={1000} defaultValue={master?.statusNote ?? ""} placeholder="Отпуск до даты, больничный, причина увольнения" className={orderInputClass} /></OrderField></div>
+    <p className="text-[10px] leading-4 text-[#687279]">«Уволен» скрывает мастера из новых назначений, но не удаляет его выезды, заказы, начисления и историю.</p>
+  </section>;
+}
+
 function MasterForm({ master, requestKey, onComplete }: { master?: MasterListItem; requestKey?: string; onComplete: () => void }) {
   const [state, formAction, pending] = useActionState(master ? updateMasterAction : createMasterAction, initialState);
   const router = useRouter();
@@ -51,10 +70,7 @@ function MasterForm({ master, requestKey, onComplete }: { master?: MasterListIte
     {master ? <><input type="hidden" name="masterId" value={master.id} /><input type="hidden" name="expectedVersion" value={master.version} /></> : null}
     <div className="flex-1 space-y-6 p-5 sm:p-7">
       <MasterFields state={state} master={master} />
-      {master ? <label className="flex cursor-pointer items-start gap-3 rounded-[13px] border border-white/[0.07] bg-black/10 p-4">
-        <input name="active" type="checkbox" defaultChecked={master.active} className="mt-0.5 size-4 accent-[var(--accent)]" />
-        <span><strong className="block text-xs font-medium text-white">Активен и доступен для назначения</strong><span className="mt-1 block text-[10px] leading-4 text-[#727c82]">Перед деактивацией переназначьте его будущие выезды.</span></span>
-      </label> : null}
+      <MasterAvailabilityFields state={state} master={master} />
       <MutationStatus state={state} />
     </div>
     <OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={onComplete} submitLabel={master ? "Сохранить" : "Добавить мастера"} />

@@ -157,7 +157,7 @@ async function createContractSchedule(
   const localDates = generateVisitRecurrenceDates(contract.startsOn, contract.endsOn, schedule.frequencyUnit, schedule.frequencyInterval);
   const masterRows = schedule.defaultMasterId
     ? await transaction`SELECT id, full_name, phone FROM masters
-        WHERE organization_id = ${member.organizationId} AND id = ${schedule.defaultMasterId} AND active FOR KEY SHARE`
+        WHERE organization_id = ${member.organizationId} AND id = ${schedule.defaultMasterId} AND active AND operational_status = 'working' FOR KEY SHARE`
     : [];
   if (schedule.defaultMasterId && !masterRows.length) throw new ContractReferenceError("master");
   const master = masterRows[0] ?? null;
@@ -239,7 +239,7 @@ export async function listContracts(member: AuthenticatedMember): Promise<Contra
       WHERE client_objects.organization_id = ${member.organizationId}
       ORDER BY clients.legal_name, client_objects.name LIMIT 1000`,
     sql`SELECT id, full_name, service_region AS region FROM masters
-      WHERE organization_id = ${member.organizationId} AND active ORDER BY full_name LIMIT 500`,
+      WHERE organization_id = ${member.organizationId} AND active AND operational_status = 'working' ORDER BY full_name LIMIT 500`,
   ]);
   const contracts = contractRows.map(mapContract);
   return {

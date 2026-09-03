@@ -36,6 +36,10 @@ function fields(formData: FormData) {
     dailyCapacity: formData.get("dailyCapacity"),
     skills: formData.get("skills"),
     notes: formData.get("notes"),
+    operationalStatus: formData.get("operationalStatus"),
+    workingDays: formData.getAll("workingDays"),
+    statusUntil: formData.get("statusUntil"),
+    statusNote: formData.get("statusNote"),
   };
 }
 
@@ -67,7 +71,7 @@ export async function updateMasterAction(_previous: MasterMutationState, formDat
     masterId: formData.get("masterId"),
     expectedVersion: formData.get("expectedVersion"),
     ...fields(formData),
-    active: formData.get("active") === "on",
+    active: formData.get("operationalStatus") !== "terminated",
   });
   if (!parsed.success) return { status: "error", message: "Проверьте обязательные поля.", fieldErrors: parsed.error.flatten().fieldErrors };
   try {

@@ -322,7 +322,7 @@ export async function createVisit(member: AuthenticatedMember, input: CreateVisi
       if (!order) throw new VisitReferenceError("order");
       const orderNumber = z.string().parse(order.order_number);
       const masterRows = input.assignedMasterId
-        ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active`
+        ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
         : [];
       if (input.assignedMasterId && !masterRows.length) throw new VisitReferenceError("master");
       const master = masterRows[0] ?? null;
@@ -397,7 +397,7 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
       const orderNumber = z.string().parse(order.order_number);
       const masterRows = input.assignedMasterId
         ? await transaction`SELECT id, full_name, phone FROM masters
-          WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active`
+          WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
         : [];
       if (input.assignedMasterId && !masterRows.length) throw new VisitReferenceError("master");
       const master = masterRows[0] ?? null;
@@ -475,7 +475,7 @@ export async function updateVisit(member: AuthenticatedMember, input: UpdateVisi
       if (z.number().int().parse(existing.version) !== input.expectedVersion) throw new VisitVersionConflictError();
       if (existing.status === "completed") throw new VisitImmutableError();
       const masterRows = input.assignedMasterId
-        ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active`
+        ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
         : [];
       if (input.assignedMasterId && !masterRows.length) throw new VisitReferenceError("master");
       const master = masterRows[0] ?? null;

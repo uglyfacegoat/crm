@@ -8,7 +8,7 @@ import { minorUnitsToSafeNumber } from "@/server/orders/money";
 import type { CreateMasterInput, UpdateMasterInput } from "./schemas";
 import { getMasterStatus } from "./status";
 import { visitStatusLabels } from "@/server/visits/types";
-import type { MasterDetail, MasterListItem, MasterVisitSummary } from "./types";
+import { masterOperationalStatuses, type MasterDetail, type MasterListItem, type MasterVisitSummary } from "./types";
 
 const masterRowSchema = z.object({
   id: z.string().uuid(),
@@ -21,6 +21,10 @@ const masterRowSchema = z.object({
   daily_capacity: z.number().int().positive(),
   skills: z.array(z.string()),
   notes: z.string().nullable(),
+  operational_status: z.enum(masterOperationalStatuses),
+  working_days: z.array(z.number().int().min(1).max(7)),
+  status_until: z.coerce.date().nullable(),
+  status_note: z.string().nullable(),
   active: z.boolean(),
   version: z.number().int().positive(),
 });
@@ -89,7 +93,7 @@ export async function listMasters(member: AuthenticatedMember): Promise<MasterLi
   const sql = getDatabase();
   const [masterRows, visitRows] = await Promise.all([
     sql`SELECT id, full_name, phone, messenger, service_region, service_zone, base_payment_minor,
-      daily_capacity, skills, notes, active, version
+      daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active, version
       FROM masters
       WHERE organization_id = ${member.organizationId}
       ORDER BY active DESC, full_name ASC
@@ -113,7 +117,7 @@ export async function listMasters(member: AuthenticatedMember): Promise<MasterLi
   return masterRows.map((row) => {
     const master = masterRowSchema.parse(row);
     const todayVisits = visitsByMaster.get(master.id) ?? [];
-    const status = getMasterStatus(master.active, todayVisits.length, master.daily_capacity);
+    const status = getMasterStatus(master.operational_status, todayVisits.length, master.daily_capacity);
     return {
       id: master.id,
       fullName: master.full_name,
@@ -125,6 +129,10 @@ export async function listMasters(member: AuthenticatedMember): Promise<MasterLi
       dailyCapacity: master.daily_capacity,
       skills: master.skills,
       notes: master.notes,
+      operationalStatus: master.operational_status,
+      workingDays: master.working_days,
+      statusUntil: master.status_until?.toISOString().slice(0, 10) ?? null,
+      statusNote: master.status_note,
       active: master.active,
       version: master.version,
       todayVisitCount: todayVisits.length,
@@ -143,7 +151,7 @@ export async function getMasterDetail(member: AuthenticatedMember, masterId: str
   const canReadFinance = hasPermission(member.role, "finance.read");
   const [masterRows, todayVisitRows, recentVisitRows, statsRows, earningsRows] = await Promise.all([
     sql`SELECT id, full_name, phone, messenger, service_region, service_zone, base_payment_minor,
-      daily_capacity, skills, notes, active, version
+      daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active, version
       FROM masters WHERE organization_id = ${member.organizationId} AND id = ${parsedMasterId}`,
     sql`SELECT service_visits.id, service_visits.assigned_master_id, service_visits.order_id,
       orders.order_number, service_visits.client_name_snapshot, service_visits.object_address_snapshot,
@@ -176,7 +184,7 @@ export async function getMasterDetail(member: AuthenticatedMember, masterId: str
   if (!masterRows.length) throw new MasterNotFoundError();
   const row = masterRowSchema.parse(masterRows[0]);
   const todayVisits = groupVisits(todayVisitRows).get(row.id) ?? [];
-  const status = getMasterStatus(row.active, todayVisits.length, row.daily_capacity);
+  const status = getMasterStatus(row.operational_status, todayVisits.length, row.daily_capacity);
   const stats = masterStatsRowSchema.parse(statsRows[0]);
   const earnings = canReadFinance ? masterEarningsRowSchema.parse(earningsRows[0]) : null;
   return {
@@ -190,6 +198,10 @@ export async function getMasterDetail(member: AuthenticatedMember, masterId: str
     dailyCapacity: row.daily_capacity,
     skills: row.skills,
     notes: row.notes,
+    operationalStatus: row.operational_status,
+    workingDays: row.working_days,
+    statusUntil: row.status_until?.toISOString().slice(0, 10) ?? null,
+    statusNote: row.status_note,
     active: row.active,
     version: row.version,
     todayVisitCount: todayVisits.length,
@@ -240,10 +252,10 @@ export async function createMaster(member: AuthenticatedMember, input: CreateMas
 
       const [master] = await transaction`INSERT INTO masters
         (organization_id, full_name, phone, normalized_phone, messenger, service_region, service_zone,
-          base_payment_minor, daily_capacity, skills, notes)
+          base_payment_minor, daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active)
         VALUES (${member.organizationId}, ${input.fullName}, ${input.phone}, ${normalizeContactPhone(input.phone)},
           ${input.messenger}, ${input.serviceRegion}, ${input.serviceZone}, ${input.basePaymentMinor},
-          ${input.dailyCapacity}, ${input.skills}, ${input.notes})
+          ${input.dailyCapacity}, ${input.skills}, ${input.notes}, ${input.operationalStatus}, ${input.workingDays}, ${input.statusUntil}, ${input.statusNote}, ${input.operationalStatus !== "terminated"})
         RETURNING id`;
       await transaction`UPDATE idempotency_requests SET entity_id = ${master.id}
         WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
@@ -265,13 +277,13 @@ export async function updateMaster(member: AuthenticatedMember, input: UpdateMas
   try {
     return await sql.begin(async (transaction) => {
       const [existing] = await transaction`SELECT full_name, phone, messenger, service_region, service_zone,
-        base_payment_minor, daily_capacity, skills, notes, active, version
+        base_payment_minor, daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active, version
         FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.masterId} FOR UPDATE`;
       if (!existing) throw new MasterNotFoundError();
       const current = masterRowSchema.omit({ id: true }).parse(existing);
       if (current.version !== input.expectedVersion) throw new MasterVersionConflictError();
 
-      if (current.active && !input.active) {
+      if (current.operational_status !== "terminated" && input.operationalStatus === "terminated") {
         const [futureVisit] = await transaction`SELECT id FROM service_visits
           WHERE organization_id = ${member.organizationId} AND assigned_master_id = ${input.masterId}
             AND scheduled_start_at > now() AND status NOT IN ('cancelled', 'completed')
@@ -283,18 +295,32 @@ export async function updateMaster(member: AuthenticatedMember, input: UpdateMas
         full_name = ${input.fullName}, phone = ${input.phone}, normalized_phone = ${normalizeContactPhone(input.phone)},
         messenger = ${input.messenger}, service_region = ${input.serviceRegion}, service_zone = ${input.serviceZone},
         base_payment_minor = ${input.basePaymentMinor}, daily_capacity = ${input.dailyCapacity}, skills = ${input.skills},
-        notes = ${input.notes}, active = ${input.active}, version = version + 1, updated_at = now()
+        notes = ${input.notes}, operational_status = ${input.operationalStatus}, working_days = ${input.workingDays},
+        status_until = ${input.statusUntil}, status_note = ${input.statusNote}, active = ${input.operationalStatus !== "terminated"}, version = version + 1, updated_at = now()
         WHERE organization_id = ${member.organizationId} AND id = ${input.masterId} AND version = ${input.expectedVersion}
         RETURNING version`;
       if (!updated) throw new MasterVersionConflictError();
       const nextVersion = z.number().int().positive().parse(updated.version);
 
+      if (input.operationalStatus === "terminated") {
+        const linkedMembers = await transaction`UPDATE organization_members
+          SET active = false, version = version + 1, updated_at = now()
+          WHERE organization_id = ${member.organizationId} AND master_id = ${input.masterId} AND active
+          RETURNING id`;
+        if (linkedMembers.length) {
+          await transaction`UPDATE auth_sessions SET revoked_at = coalesce(revoked_at, now())
+            WHERE organization_id = ${member.organizationId}
+              AND member_id = ANY(${linkedMembers.map((linkedMember) => linkedMember.id)}::uuid[])
+              AND revoked_at IS NULL`;
+        }
+      }
+
       await transaction`INSERT INTO audit_events
         (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'master.update', 'master', ${input.masterId},
           ${transaction.json({
-            before: { fullName: current.full_name, serviceRegion: current.service_region, serviceZone: current.service_zone, basePaymentMinor: current.base_payment_minor === null ? null : minorUnitsToSafeNumber(current.base_payment_minor), active: current.active },
-            after: { fullName: input.fullName, serviceRegion: input.serviceRegion, serviceZone: input.serviceZone, basePaymentMinor: input.basePaymentMinor, active: input.active },
+            before: { fullName: current.full_name, serviceRegion: current.service_region, serviceZone: current.service_zone, basePaymentMinor: current.base_payment_minor === null ? null : minorUnitsToSafeNumber(current.base_payment_minor), operationalStatus: current.operational_status, workingDays: current.working_days },
+            after: { fullName: input.fullName, serviceRegion: input.serviceRegion, serviceZone: input.serviceZone, basePaymentMinor: input.basePaymentMinor, operationalStatus: input.operationalStatus, workingDays: input.workingDays },
             version: nextVersion,
           })})`;
       return nextVersion;

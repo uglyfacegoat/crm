@@ -13,6 +13,10 @@ const validMaster = {
   dailyCapacity: "4",
   skills: "Дератизация, Дезинсекция, Дератизация",
   notes: "",
+  operationalStatus: "working",
+  workingDays: [1, 2, 3, 4, 5],
+  statusUntil: "",
+  statusNote: "",
 };
 
 test("master input normalizes money, text and unique skills", () => {
@@ -33,13 +37,22 @@ test("master input rejects invalid contacts and capacity", () => {
   }
 });
 
-test("update input requires optimistic version and explicit active state", () => {
+test("update input supports terminating a master while preserving the record", () => {
   const parsed = updateMasterSchema.parse({
     ...validMaster,
     masterId: "00000000-0000-4000-8000-000000000002",
     expectedVersion: "3",
+    operationalStatus: "terminated",
+    statusNote: "Сотрудничество завершено",
     active: false,
   });
   assert.equal(parsed.expectedVersion, 3);
   assert.equal(parsed.active, false);
+  assert.equal(parsed.operationalStatus, "terminated");
+});
+
+test("temporary and terminal statuses require an explanation", () => {
+  const parsed = createMasterSchema.safeParse({ ...validMaster, operationalStatus: "vacation" });
+  assert.equal(parsed.success, false);
+  if (!parsed.success) assert.ok(parsed.error.flatten().fieldErrors.statusNote);
 });

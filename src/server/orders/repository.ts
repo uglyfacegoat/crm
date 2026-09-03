@@ -175,7 +175,7 @@ export async function listOrderCreationOptions(member: AuthenticatedMember): Pro
     sql`SELECT id, legal_name AS name FROM clients WHERE organization_id = ${member.organizationId} ORDER BY legal_name`,
     sql`SELECT id, client_id, name, address FROM client_objects WHERE organization_id = ${member.organizationId} ORDER BY name`,
     sql`SELECT id, client_id, full_name AS name, phone, is_primary FROM client_contacts WHERE organization_id = ${member.organizationId} ORDER BY is_primary DESC, full_name`,
-    sql`SELECT id, full_name AS name, phone FROM masters WHERE organization_id = ${member.organizationId} AND active ORDER BY full_name`,
+    sql`SELECT id, full_name AS name, phone FROM masters WHERE organization_id = ${member.organizationId} AND active AND operational_status = 'working' ORDER BY full_name`,
   ]);
   return {
     clients: clientRows.map((row) => optionRowSchema.parse(row)),
@@ -280,7 +280,7 @@ export async function createOrder(member: AuthenticatedMember, input: CreateOrde
     const [contact] = await transaction`SELECT id, full_name, phone FROM client_contacts WHERE organization_id = ${member.organizationId} AND client_id = ${input.clientId} AND id = ${input.contactId}`;
     if (!contact) throw new OrderReferenceError("contact");
     const masterRows = input.assignedMasterId
-      ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active`
+      ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
       : [];
     if (input.assignedMasterId && !masterRows.length) throw new OrderReferenceError("master");
     const master = masterRows[0] ?? null;
@@ -345,7 +345,7 @@ export async function updateOrder(member: AuthenticatedMember, input: UpdateOrde
     if (!existing) throw new OrderNotFoundError();
     if (z.number().int().parse(existing.version) !== input.expectedVersion) throw new OrderVersionConflictError();
     const masterRows = input.assignedMasterId
-      ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active`
+      ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
       : [];
     if (input.assignedMasterId && !masterRows.length) throw new OrderReferenceError("master");
     const master = masterRows[0] ?? null;
