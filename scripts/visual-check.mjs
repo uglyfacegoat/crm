@@ -27,10 +27,14 @@ const visualCases = [
   { name: "orders-desktop", path: "/orders", width: 1920, height: 1080 },
   { name: "orders-tablet", path: "/orders", width: 1024, height: 768 },
   { name: "orders-compact", path: "/orders", width: 320, height: 568 },
+  { name: "orders-filters-desktop", path: "/orders", width: 1920, height: 1080, openFiltersDialog: "Фильтры заказов" },
+  { name: "orders-filters-mobile", path: "/orders", width: 320, height: 568, openFiltersDialog: "Фильтры заказов" },
   { name: "order-create-dialog-desktop", path: "/orders", width: 1920, height: 1080, openOrderDialog: true },
   { name: "order-create-dialog-mobile", path: "/orders", width: 320, height: 568, openOrderDialog: true },
   { name: "clients-mobile", path: "/clients", width: 360, height: 800 },
   { name: "clients-desktop", path: "/clients", width: 1920, height: 1080 },
+  { name: "clients-filters-desktop", path: "/clients", width: 1920, height: 1080, openFiltersDialog: "Фильтры клиентов" },
+  { name: "clients-filters-mobile", path: "/clients", width: 320, height: 568, openFiltersDialog: "Фильтры клиентов" },
   { name: "clients-dialog-desktop", path: "/clients", width: 1920, height: 1080, openClientDialog: true },
   { name: "clients-dialog-mobile", path: "/clients", width: 320, height: 568, openClientDialog: true },
   { name: "client-detail-desktop", path: "/clients/cl-1", width: 1920, height: 1080 },
@@ -177,6 +181,10 @@ try {
     if (visualCase.openClientDialog) {
       await page.getByRole("button", { name: "Новый клиент", exact: true }).click();
       await page.getByRole("dialog", { name: "Новый клиент" }).waitFor();
+    }
+    if (visualCase.openFiltersDialog) {
+      await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+      await page.getByRole("dialog", { name: visualCase.openFiltersDialog }).waitFor();
     }
     if (visualCase.openObjectDialog) {
       await page.getByRole("button", { name: "Новый объект", exact: true }).click();

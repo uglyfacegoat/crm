@@ -14,7 +14,6 @@ import { listMasters } from "@/server/masters/repository";
 import { getPreviewMasters } from "@/server/masters/preview";
 import { getPreviewOrders } from "@/server/orders/preview";
 import { listOrders } from "@/server/orders/repository";
-import type { OrderListItem } from "@/server/orders/types";
 import { getPreviewTasks } from "@/server/tasks/preview";
 import { listTasks } from "@/server/tasks/repository";
 import { getPreviewVisits } from "@/server/visits/preview";

@@ -21,7 +21,6 @@ import {
   LogOut,
   Menu,
   MessageSquare,
-  Plus,
   Search,
   Settings,
   UserRound,
@@ -307,7 +306,6 @@ export function AppShell({ children, currentUser }: { children: React.ReactNode;
   const mobileNavigation = navigation.slice(0, 4);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const showQuickOrderAction = canUseQuickOrder && pathname === "/";
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -350,10 +348,6 @@ export function AppShell({ children, currentUser }: { children: React.ReactNode;
               <span className="ml-auto hidden rounded-md border border-white/[0.08] px-1.5 py-0.5 text-[10px] text-[#616a70] sm:block">Ctrl K</span>
             </button> : <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">Мои выезды</p><p className="mt-0.5 truncate text-[9px] text-[#687279]">Мобильное рабочее место</p></div>}
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              {showQuickOrderAction ? <Link href="/quick-order" className="focus-ring hidden h-10 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#101308] transition-colors hover:bg-[#f4f854] sm:flex">
-                <Plus className="size-4" />
-                Новый заказ
-              </Link> : null}
               {currentUser.role !== "master" ? <Link href="/chat" className="focus-ring soft-button hidden size-10 place-items-center rounded-[13px] text-[#8b9499] hover:text-white sm:grid" aria-label="Внутренний чат"><MessageSquare className="size-[18px]" /></Link> : null}
               <NotificationCenter />
               <details className="group relative hidden lg:block">

@@ -145,6 +145,26 @@ try {
   await expectDialog("/tasks", "Новая задача", "Новая задача");
   await expectDialog("/chat", "Новая группа", "Новая группа");
 
+  await openRoute("/");
+  if (await page.getByRole("link", { name: "Новый заказ", exact: true }).count()) failures.push("/: redundant new-order action is still visible in the global header");
+  report.interactions.push({ route: "/", action: "global new-order action", result: "not rendered" });
+
+  await openRoute("/orders");
+  await page.getByRole("button", { name: /^Новый\s+\d+$/ }).click();
+  await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+  await page.getByRole("dialog", { name: "Фильтры заказов", exact: true }).getByRole("radio", { name: "Без мастера", exact: true }).click();
+  await page.getByRole("button", { name: "Показать заказы", exact: true }).click();
+  await page.getByText(/2 активных условий/).waitFor();
+  report.interactions.push({ route: "/orders", action: "status and assignment filters", result: "2 active conditions" });
+
+  await openRoute("/clients");
+  await page.getByRole("button", { name: /^С заказами\s+\d+$/ }).click();
+  await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+  await page.getByRole("dialog", { name: "Фильтры клиентов", exact: true }).getByRole("radio", { name: "Юридические лица", exact: true }).click();
+  await page.getByRole("button", { name: "Показать клиентов", exact: true }).click();
+  await page.getByText(/2 активных условий/).waitFor();
+  report.interactions.push({ route: "/clients", action: "history and entity type filters", result: "2 active conditions" });
+
   await openRoute("/finance");
   const invoiceButton = page.getByRole("button", { name: "Новый счёт", exact: true }).first();
   await invoiceButton.waitFor();
