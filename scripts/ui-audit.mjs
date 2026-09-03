@@ -165,6 +165,21 @@ try {
   await page.getByText(/2 активных условий/).waitFor();
   report.interactions.push({ route: "/clients", action: "history and entity type filters", result: "2 active conditions" });
 
+  await openRoute("/contracts");
+  await page.getByRole("button", { name: /Действуют/ }).click();
+  await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+  await page.getByRole("dialog", { name: "Фильтры договоров", exact: true }).getByRole("radio", { name: "Есть график", exact: true }).click();
+  await page.getByRole("button", { name: "Показать договоры", exact: true }).click();
+  await page.getByText(/2 активных условий/).waitFor();
+  report.interactions.push({ route: "/contracts", action: "status and schedule filters", result: "2 active conditions" });
+
+  await openRoute("/documents");
+  await page.getByRole("button", { name: "Фильтры", exact: true }).click();
+  await page.getByRole("dialog", { name: "Фильтры документов", exact: true }).getByRole("radio", { name: "Акты", exact: true }).click();
+  await page.getByRole("button", { name: "Показать документы", exact: true }).click();
+  await page.getByText(/1 активных условий/).waitFor();
+  report.interactions.push({ route: "/documents", action: "category filter", result: "1 active condition" });
+
   await openRoute("/finance");
   const invoiceButton = page.getByRole("button", { name: "Новый счёт", exact: true }).first();
   await invoiceButton.waitFor();

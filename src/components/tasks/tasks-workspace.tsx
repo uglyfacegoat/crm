@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { completeTaskAction, rescheduleTaskAction } from "@/app/(workspace)/tasks/actions";
 import { TaskManagementDialogs } from "@/components/tasks/task-management-dialogs";
+import { TaskDistributionChart } from "@/components/tasks/task-distribution-chart";
 import type { TaskCard, TaskColumn, TaskSnapshot } from "@/server/tasks/types";
 
 const columns: { id: TaskColumn; title: string; tone: string }[] = [
@@ -108,7 +109,7 @@ export function TasksWorkspace({ snapshot, canWrite }: { snapshot: TaskSnapshot;
       </div>
 
       <aside className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-1">
-        <section className="surface-panel p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold text-white">Распределение задач</h2><CalendarDays className="size-4 text-[var(--accent)]" /></div><div className="mt-5 space-y-3">{columns.map((column) => { const count = tasks.filter((task) => task.column === column.id).length; const percent = tasks.length ? Math.max(4, Math.round(count / tasks.length * 100)) : 0; return <div key={column.id}><div className="mb-1.5 flex items-center text-[10px]"><span className="flex-1 text-[#768087]">{column.title}</span><strong style={{ color: column.tone }}>{count}</strong></div><div className="h-1.5 overflow-hidden rounded-full bg-white/[0.04]"><div className="h-full rounded-full transition-[width]" style={{ width: `${percent}%`, backgroundColor: column.tone }} /></div></div>; })}</div></section>
+        <section className="surface-panel p-4"><div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold text-white">Распределение задач</h2><p className="mt-1 text-[10px] text-[#687279]">Структура открытой очереди по срокам</p></div><CalendarDays className="size-4 text-[var(--accent)]" /></div><TaskDistributionChart tasks={tasks} /></section>
         <section className="surface-panel p-4"><h2 className="text-sm font-semibold text-white">Сводка</h2><dl className="mt-4 space-y-3 text-xs"><div className="flex items-center gap-3"><dt className="flex-1 text-[#768087]">Открыто сейчас</dt><dd className="font-display font-semibold text-white">{tasks.length}</dd></div><div className="flex items-center gap-3"><dt className="flex-1 text-[#768087]">Автоматических</dt><dd className="font-display font-semibold text-[var(--accent)]">{tasks.filter((task) => task.source === "visit_reminder").length}</dd></div><div className="flex items-center gap-3 border-t border-white/[0.06] pt-3"><dt className="flex-1 text-[#768087]">Выполнено за 30 дней</dt><dd className="font-display font-semibold text-[#69d3a4]">{snapshot.completedLast30Days}</dd></div></dl></section>
       </aside>
       <TaskManagementDialogs task={dialogTask} mode={dialogMode} assigneeOptions={snapshot.assigneeOptions} timeZone={snapshot.timeZone} onClose={closeDialog} />
