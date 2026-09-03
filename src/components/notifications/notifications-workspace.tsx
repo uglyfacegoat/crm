@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { AlertTriangle, BellRing, CalendarClock, CheckCheck, FileUp, LoaderCircle, RefreshCw } from "lucide-react";
+import { CheckCheck, LoaderCircle, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { NotificationItem, NotificationSnapshot } from "@/lib/notifications";
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications-client";
@@ -23,8 +23,6 @@ export function NotificationsWorkspace({ initialSnapshot }: { initialSnapshot: N
     return true;
   }), [filter, snapshot.items]);
 
-  const visitCount = snapshot.items.filter((item) => item.kind === "visit_upcoming" || item.kind === "visit_unassigned").length;
-  const documentCount = snapshot.items.filter((item) => item.kind === "document_uploaded" || item.kind === "closing_act_overdue").length;
 
   async function refresh() {
     setRefreshing(true);
@@ -73,20 +71,9 @@ export function NotificationsWorkspace({ initialSnapshot }: { initialSnapshot: N
     }
   }
 
-  const stats = [
-    { label: "Непрочитанные", value: snapshot.unreadCount, icon: BellRing, tone: "text-[var(--accent)] bg-[var(--accent)]/[0.07] border-[var(--accent)]/15" },
-    { label: "Критичные", value: snapshot.criticalUnreadCount, icon: AlertTriangle, tone: "text-[#ef858a] bg-[#ef646a]/[0.07] border-[#ef646a]/15" },
-    { label: "По выездам", value: visitCount, icon: CalendarClock, tone: "text-[#73d8ce] bg-[#58c7bc]/[0.07] border-[#58c7bc]/15" },
-    { label: "По документам", value: documentCount, icon: FileUp, tone: "text-[#82c7f2] bg-[#66b6eb]/[0.07] border-[#66b6eb]/15" },
-  ];
-
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-      <section aria-label="Сводка уведомлений" className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
-        {stats.map((stat) => <article key={stat.label} className="surface-panel min-w-0 p-3.5 sm:p-5"><div className={`grid size-9 place-items-center rounded-[11px] border ${stat.tone}`}><stat.icon className="size-4" /></div><p className="mt-5 font-display text-[clamp(1.45rem,1.1rem+0.8vw,2rem)] font-semibold tracking-[-0.04em] text-white">{stat.value}</p><p className="mt-1 truncate text-[10px] uppercase tracking-[0.12em] text-[#687279]">{stat.label}</p></article>)}
-      </section>
-
-      <section className="surface-panel mt-3 overflow-hidden sm:mt-4">
+      <section className="surface-panel overflow-hidden">
         <header className="flex flex-col gap-3 border-b border-white/[0.07] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <div className="flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {([

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CalendarCheck2, Check, FileText, Radio, ShieldCheck } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
 import { getAuthMode } from "@/server/auth/config";
 
@@ -13,26 +14,31 @@ function safeNextPath(value: string | string[] | undefined) {
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
   const { next } = await searchParams;
   const authMode = getAuthMode();
-  return <main className="relative grid min-h-screen place-items-center overflow-hidden px-3 py-5 sm:px-6 sm:py-8">
-    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(102,174,243,0.09),transparent_28rem),radial-gradient(circle_at_88%_12%,rgba(237,244,59,0.065),transparent_25rem),radial-gradient(circle_at_72%_84%,rgba(156,130,232,0.08),transparent_30rem)]" />
-    <section className="relative grid w-full max-w-6xl overflow-hidden rounded-[clamp(1.25rem,1rem+0.6vw,1.8rem)] border border-white/[0.08] bg-[#0b1014]/94 shadow-[0_36px_120px_rgba(0,0,0,0.42)] backdrop-blur-xl lg:grid-cols-[minmax(0,1.08fr)_minmax(27rem,0.92fr)] min-[2200px]:max-w-[88rem]">
-      <div className="relative hidden min-h-[42rem] overflow-hidden border-r border-white/[0.07] p-[clamp(2.5rem,3.5vw,4.5rem)] lg:flex lg:flex-col lg:justify-between">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(102,174,243,0.11),transparent_25rem),radial-gradient(circle_at_85%_80%,rgba(156,130,232,0.1),transparent_27rem),linear-gradient(145deg,rgba(255,255,255,0.02),transparent_55%)]" />
-        <div className="relative">
-          <p className="eyebrow">Единый рабочий контур</p>
-          <h1 className="mt-5 max-w-xl font-display text-[clamp(2.5rem,3.2vw,4.25rem)] font-semibold leading-[1.04] tracking-[-0.06em] text-white">Все процессы<br />в одном спокойном интерфейсе.</h1>
-          <p className="mt-6 max-w-lg text-base leading-7 text-[#89949b]">Заказы, выезды, документы и аналитика остаются связаны — от первого обращения до закрывающего акта.</p>
+  return <main className="relative min-h-screen overflow-hidden bg-[#070b0e] p-3 sm:p-5 lg:p-7">
+    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_6%_12%,rgba(101,183,238,0.1),transparent_30rem),radial-gradient(circle_at_92%_88%,rgba(156,130,232,0.09),transparent_34rem)]" />
+    <section className="relative mx-auto grid min-h-[calc(100dvh-1.5rem)] max-w-[104rem] overflow-hidden rounded-[22px] border border-white/[0.075] bg-[#0a1013]/95 shadow-[0_35px_120px_rgba(0,0,0,0.48)] sm:min-h-[calc(100dvh-2.5rem)] lg:grid-cols-[minmax(0,1.25fr)_minmax(27rem,0.75fr)] lg:min-h-[calc(100dvh-3.5rem)]">
+      <div className="relative hidden overflow-hidden border-r border-white/[0.065] p-[clamp(2.5rem,4vw,5rem)] lg:flex lg:flex-col lg:justify-between">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:5rem_5rem] [mask-image:linear-gradient(to_bottom,black,transparent_92%)]" />
+        <div className="relative max-w-2xl">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-[#7c878d]"><Radio className="size-3.5 text-[#69d3a4]" /><span>Рабочая система онлайн</span></div>
+          <h1 className="mt-8 font-display text-[clamp(3.3rem,4.2vw,5.7rem)] font-semibold leading-[0.92] tracking-[-0.075em] text-white">Порядок<br />в каждом<br /><span className="text-[#9c82e8]">процессе.</span></h1>
+          <p className="mt-7 max-w-xl text-[clamp(0.9rem,0.8rem+0.25vw,1.1rem)] leading-7 text-[#818c92]">От входящей заявки до оплаты и закрывающего документа — одна связанная история без разрозненных таблиц.</p>
         </div>
-        <div className="relative grid grid-cols-3 gap-3">
-          {[["01", "Заказы"], ["02", "Команда"], ["03", "Аналитика"]].map(([number, label], index) => <div key={label} className="rounded-[15px] border border-white/[0.07] bg-white/[0.025] p-4"><span className={`font-display text-xs ${index === 0 ? "text-[#66aef3]" : index === 1 ? "text-[#a892ec]" : "text-[#72d4c4]"}`}>{number}</span><p className="mt-7 text-xs font-medium text-[#b8c0c3]">{label}</p></div>)}
+        <div className="relative ml-auto w-full max-w-2xl">
+          <div className="grid gap-2 sm:grid-cols-3">
+            {[{ icon: CalendarCheck2, label: "Выезд назначен", tone: "#69d3a4" }, { icon: FileText, label: "Документы связаны", tone: "#65b7ee" }, { icon: Check, label: "Оплата учтена", tone: "#edf43b" }].map(({ icon: Icon, label, tone }, index) => <div key={label} className={`rounded-[15px] border border-white/[0.07] bg-[#0b1216]/80 p-4 backdrop-blur-sm ${index === 1 ? "sm:translate-y-5" : ""}`}><Icon className="size-4" style={{ color: tone }} /><p className="mt-7 text-xs font-medium text-[#c2c8ca]">{label}</p><p className="mt-1 text-[9px] text-[#626d73]">Единый журнал изменений</p></div>)}
+          </div>
         </div>
       </div>
-      <div className="flex min-h-[min(44rem,calc(100dvh-2.5rem))] min-w-0 flex-col justify-center p-5 sm:p-10 lg:min-h-[42rem] lg:p-[clamp(2.5rem,3.5vw,4.5rem)]">
-        <p className="eyebrow">Защищённый вход</p>
-        <h2 className="mt-4 font-display text-[clamp(2rem,1.55rem+1.25vw,3rem)] font-semibold tracking-[-0.055em] text-white">Добро пожаловать</h2>
-        <p className="mt-2 text-sm leading-6 text-[#7e888e]">Войдите в рабочее пространство под своей учётной записью.</p>
-        <LoginForm nextPath={safeNextPath(next)} preview={authMode === "preview"} />
-        <p className="mt-6 text-xs leading-5 text-[#6f797f]">Нет аккаунта? Обратитесь к администратору вашей организации.</p>
+      <div className="flex min-w-0 items-center justify-center p-5 sm:p-10 lg:p-[clamp(2.5rem,4vw,5rem)]">
+        <div className="w-full max-w-md">
+          <span className="grid size-12 place-items-center rounded-[15px] border border-[var(--accent)]/15 bg-[var(--accent)]/[0.055] text-[var(--accent)]"><ShieldCheck className="size-5" /></span>
+          <p className="eyebrow mt-8">Личный доступ</p>
+          <h2 className="mt-3 font-display text-[clamp(2.4rem,2rem+1vw,3.4rem)] font-semibold tracking-[-0.065em] text-white">Вход в CRM</h2>
+          <p className="mt-3 max-w-sm text-sm leading-6 text-[#7b858b]">Используйте корпоративную почту или рабочий телефон.</p>
+          <LoginForm nextPath={safeNextPath(next)} preview={authMode === "preview"} />
+          <div className="mt-7 border-t border-white/[0.06] pt-5"><p className="text-[10px] leading-5 text-[#606a70]">Доступы и восстановление пароля контролирует администратор вашей компании.</p></div>
+        </div>
       </div>
     </section>
   </main>;

@@ -240,9 +240,6 @@ export function CalendarWorkspace({ visits, unassignedOrders, anchorDate, initia
     };
     return { previous: isoDate(addDays(weekStart, -7)), next: isoDate(addDays(weekStart, 7)), label: weekLabel(weekStart, addDays(weekStart, 6)), unit: "неделю" };
   }, [selectedDateValue, view, weekStart]);
-  const summaryDateKeys = new Set(view === "day" ? [selectedDate] : view === "month" ? monthDays.filter((day) => day.date.startsWith(selectedDate.slice(0, 7))).map((day) => day.date) : days.map((day) => day.date));
-  const summaryVisits = visibleVisits.filter((visit) => summaryDateKeys.has(localVisitEntry(visit).date));
-  const unassigned = summaryVisits.filter((visit) => !visit.assignedMasterId).length;
 
   function openMoveDialog(visit: ServiceVisit, localDate?: string, localTime?: string) {
     const current = localVisitEntry(visit);
@@ -350,13 +347,6 @@ export function CalendarWorkspace({ visits, unassignedOrders, anchorDate, initia
     </div>
 
     <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center"><div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">{masterOptions.map((name, index) => <button key={name} onClick={() => setMaster(name)} className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs ${master === name ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.07] text-white" : "border-white/[0.07] text-[#818b91]"}`}>{index === 0 ? <UsersRound className="size-4 text-[var(--accent)]" /> : <span className="grid size-6 place-items-center rounded-full bg-white/[0.055] font-display text-[8px] text-[#aab1b5]">{name.split(" ").map((part) => part[0]).join("")}</span>}{name}</button>)}</div>{canWrite ? <p className="flex shrink-0 items-center gap-2 text-[10px] text-[#687279]"><GripVertical className="size-3.5 text-[var(--accent)]" />Перетащите карточку на нужный день и время</p> : null}</div>
-
-    <dl className="surface-panel mt-3 grid grid-cols-2 divide-x divide-y divide-white/[0.06] overflow-hidden sm:grid-cols-4 sm:divide-y-0">
-      <div className="p-3 sm:px-4"><dt className="text-[9px] uppercase tracking-[0.1em] text-[#687279]">Всего выездов</dt><dd className="mt-1 font-display text-base text-white">{summaryVisits.length}</dd></div>
-      <div className="p-3 sm:px-4"><dt className="text-[9px] uppercase tracking-[0.1em] text-[#687279]">Без мастера</dt><dd className={`mt-1 font-display text-base ${unassigned ? "text-[#efc85d]" : "text-[var(--success)]"}`}>{unassigned}</dd></div>
-      <div className="p-3 sm:px-4"><dt className="text-[9px] uppercase tracking-[0.1em] text-[#687279]">Завершено</dt><dd className="mt-1 font-display text-base text-[var(--success)]">{summaryVisits.filter((visit) => visit.statusCode === "completed").length}</dd></div>
-      <div className="p-3 sm:px-4"><dt className="text-[9px] uppercase tracking-[0.1em] text-[#687279]">Отменено</dt><dd className="mt-1 font-display text-base text-[#ef858a]">{summaryVisits.filter((visit) => visit.statusCode === "cancelled").length}</dd></div>
-    </dl>
 
     {message ? <p role={message.tone === "error" ? "alert" : "status"} className={`mt-3 flex items-center gap-2 rounded-[12px] border p-3 text-xs ${message.tone === "success" ? "border-[#69d3a4]/20 bg-[#69d3a4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#dc969a]"}`}>{message.tone === "success" ? <Check className="size-4" /> : <Clock3 className="size-4" />}{message.text}</p> : null}
 
