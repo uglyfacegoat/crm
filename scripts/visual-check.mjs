@@ -96,6 +96,11 @@ const visualCases = [
   { name: "sites-filters-mobile", path: "/sites", width: 320, height: 568, openFiltersDialog: "Фильтры сайтов" },
   { name: "site-connect-dialog-desktop", path: "/sites", width: 1920, height: 1080, openSiteDialog: true },
   { name: "site-connect-dialog-mobile", path: "/sites", width: 320, height: 568, openSiteDialog: true },
+  { name: "site-detail-4k", path: "/sites/site-1", width: 3840, height: 2160 },
+  { name: "site-detail-desktop", path: "/sites/site-1", width: 1920, height: 1080 },
+  { name: "site-detail-mobile", path: "/sites/site-1", width: 320, height: 568 },
+  { name: "site-infrastructure-dialog-desktop", path: "/sites/site-1", width: 1920, height: 1080, openSiteInfrastructureDialog: true },
+  { name: "site-infrastructure-dialog-mobile", path: "/sites/site-1", width: 320, height: 568, openSiteInfrastructureDialog: true },
   { name: "settings-desktop", path: "/settings", width: 1920, height: 1080 },
   { name: "settings-mobile", path: "/settings", width: 320, height: 568 },
   { name: "help-desktop", path: "/help", width: 1920, height: 1080 },
@@ -168,6 +173,7 @@ try {
   const clientDetailPath = await discoverInteractiveDetailPath("/clients", /Открыть клиента/, "/clients/");
   const orderDetailPath = await discoverDetailPath("/orders", "/orders/");
   const masterDetailPath = await discoverInteractiveDetailPath("/masters", /Открыть карточку мастера/, "/masters/");
+  const siteDetailPath = await discoverDetailPath("/sites", "/sites/");
   const editableVisitOrderPath = await discoverOrderWithEditableVisit();
   await authenticationPage.close();
 
@@ -189,6 +195,8 @@ try {
       ? clientDetailPath
       : visualCase.path === "/masters/master-1"
         ? masterDetailPath
+      : visualCase.path === "/sites/site-1"
+        ? siteDetailPath
       : visualCase.path === "/orders/ord-1248"
         ? orderDetailPath
         : visualCase.path;
@@ -244,6 +252,10 @@ try {
     if (visualCase.openSiteDialog) {
       await page.getByRole("button", { name: "Подключить сайт", exact: true }).click();
       await page.getByRole("dialog", { name: "Новый сайт", exact: true }).waitFor();
+    }
+    if (visualCase.openSiteInfrastructureDialog) {
+      await page.getByRole("button", { name: /Настроить инфраструктуру|Обновить данные/ }).click();
+      await page.getByRole("dialog", { name: "Инфраструктура сайта", exact: true }).waitFor();
     }
     if (visualCase.openDatePicker) {
       await page.getByRole("button", { name: "Открыть календарь", exact: true }).first().click();

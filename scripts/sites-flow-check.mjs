@@ -71,13 +71,46 @@ try {
   if (!audit || audit.changes.includes(secretReference)) throw new Error("Credential reference leaked into the audit log.");
   if ((await page.locator("body").innerText()).includes(secretReference)) throw new Error("Credential reference remained visible after the integration dialog closed.");
 
+  await siteCard.getByRole("link", { name: "Карточка", exact: true }).click();
+  await page.waitForURL(`${baseUrl}/sites/${websiteId}`);
+  await page.getByRole("button", { name: "Настроить инфраструктуру", exact: true }).click();
+  const infrastructureDialog = page.getByRole("dialog", { name: "Инфраструктура сайта" });
+  await infrastructureDialog.getByText("Активен", { exact: true }).click();
+  await infrastructureDialog.locator('input[name="hostingProvider"]').fill("Selectel E2E");
+  await infrastructureDialog.locator('input[name="planName"]').fill("Cloud Test");
+  await infrastructureDialog.locator('input[name="serverRegion"]').fill("Москва");
+  await infrastructureDialog.locator('input[name="monthlyCost"]').fill("4900,50");
+  await infrastructureDialog.locator('[data-form-name="renewalOn"]').fill("03.10.2026");
+  await infrastructureDialog.locator('[data-form-name="sslExpiresOn"]').fill("18.12.2026");
+  await infrastructureDialog.locator('input[name="diskCapacityMb"]').fill("102400");
+  await infrastructureDialog.locator('input[name="memoryCapacityMb"]').fill("8192");
+  await infrastructureDialog.locator('input[name="uptimePercent"]').fill("99,98");
+  await infrastructureDialog.locator('input[name="responseTimeMs"]').fill("184");
+  await infrastructureDialog.locator('input[name="cpuLoadPercent"]').fill("37,2");
+  await infrastructureDialog.locator('input[name="memoryUsedMb"]').fill("4096");
+  await infrastructureDialog.locator('input[name="diskUsedMb"]').fill("38400");
+  await infrastructureDialog.getByRole("button", { name: "Сохранить данные", exact: true }).click();
+  await infrastructureDialog.waitFor({ state: "hidden" });
+  await page.getByText("Selectel E2E", { exact: true }).waitFor();
+
+  const [hosting] = await sql`SELECT provider, monthly_cost_minor::text, renewal_on::text, ssl_expires_on::text
+    FROM website_hosting_profiles WHERE organization_id = ${website.organization_id} AND website_id = ${websiteId}`;
+  const [health] = await sql`SELECT health_status, uptime_percent::text, response_time_ms, cpu_load_percent::text
+    FROM website_health_snapshots WHERE organization_id = ${website.organization_id} AND website_id = ${websiteId}`;
+  if (hosting?.provider !== "Selectel E2E" || hosting.monthly_cost_minor !== "490050" || hosting.renewal_on !== "2026-10-03" || hosting.ssl_expires_on !== "2026-12-18") {
+    throw new Error(`Website hosting is inconsistent: ${JSON.stringify(hosting)}`);
+  }
+  if (health?.health_status !== "healthy" || health.uptime_percent !== "99.98" || health.response_time_ms !== 184 || health.cpu_load_percent !== "37.20") {
+    throw new Error(`Website health snapshot is inconsistent: ${JSON.stringify(health)}`);
+  }
+
   for (const [width, height] of [[320, 568], [3840, 2160]]) {
     await page.setViewportSize({ width, height });
     const layout = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
     if (layout.document > layout.viewport) throw new Error(`Sites page overflow at ${width}px: ${layout.document}px.`);
   }
   if (pageErrors.length || consoleErrors.length) throw new Error(`Browser errors: ${JSON.stringify({ pageErrors, consoleErrors })}`);
-  console.log(JSON.stringify({ operation: "sites.flow_check", status: "succeeded", websiteId, integrationId, secretReferenceProtected: true, viewports: [320, 3840] }));
+  console.log(JSON.stringify({ operation: "sites.flow_check", status: "succeeded", websiteId, integrationId, infrastructurePersisted: true, secretReferenceProtected: true, viewports: [320, 3840] }));
 } finally {
   await browser.close();
   try {

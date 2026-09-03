@@ -4,6 +4,7 @@ export const websiteProviders = ["yandex_metrica", "ga4", "google_search_console
 export type WebsiteProvider = (typeof websiteProviders)[number];
 export type WebsiteStatus = "setup" | "active" | "attention" | "disabled";
 export type WebsiteIntegrationStatus = "pending" | "connected" | "error" | "revoked";
+export type WebsiteHealthStatus = "healthy" | "degraded" | "down";
 
 export type WebsiteIntegrationListItem = {
   id: string;
@@ -45,4 +46,35 @@ export type WebsiteSnapshot = {
   sites: WebsiteListItem[];
   trafficTrend: { labels: string[]; series: ChartSeries[] };
   trafficSources: Array<{ label: string; value: number; amount: number }>;
+};
+
+export type WebsiteHostingProfile = {
+  provider: string;
+  planName: string;
+  serverRegion: string;
+  monthlyCostMinor: number;
+  renewalOn: string;
+  sslExpiresOn: string;
+  diskCapacityMb: number;
+  memoryCapacityMb: number;
+  notes: string | null;
+};
+
+export type WebsiteHealthSnapshot = {
+  id: string;
+  measuredAt: string;
+  healthStatus: WebsiteHealthStatus;
+  uptimePercent: number;
+  responseTimeMs: number;
+  cpuLoadPercent: number;
+  memoryUsedMb: number;
+  diskUsedMb: number;
+  source: "manual" | "monitor";
+};
+
+export type WebsiteDetail = WebsiteListItem & {
+  timezone: string;
+  hosting: WebsiteHostingProfile | null;
+  health: WebsiteHealthSnapshot | null;
+  healthHistory: WebsiteHealthSnapshot[];
 };

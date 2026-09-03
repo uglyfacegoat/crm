@@ -1,4 +1,4 @@
-import type { WebsiteSnapshot } from "./types";
+import type { WebsiteDetail, WebsiteSnapshot } from "./types";
 
 export function getPreviewWebsiteSnapshot(): WebsiteSnapshot {
   const sites = [
@@ -23,4 +23,14 @@ export function getPreviewWebsiteSnapshot(): WebsiteSnapshot {
       { label: "Карты и каталоги", value: 9, amount: 49 },
     ],
   };
+}
+
+export function getPreviewWebsiteDetail(websiteId: string): WebsiteDetail | null {
+  const site = getPreviewWebsiteSnapshot().sites.find((entry) => entry.id === websiteId);
+  if (!site) return null;
+  const healthHistory = [
+    { id: "health-1", measuredAt: "2026-09-02T15:40:00.000Z", healthStatus: "healthy" as const, uptimePercent: 99.98, responseTimeMs: 184, cpuLoadPercent: 37.2, memoryUsedMb: 4096, diskUsedMb: 38_400, source: "monitor" as const },
+    { id: "health-2", measuredAt: "2026-09-02T14:40:00.000Z", healthStatus: "healthy" as const, uptimePercent: 99.98, responseTimeMs: 171, cpuLoadPercent: 31.8, memoryUsedMb: 3880, diskUsedMb: 38_310, source: "monitor" as const },
+  ];
+  return { ...site, timezone: "Europe/Moscow", hosting: { provider: "Selectel", planName: "Cloud M", serverRegion: "Москва", monthlyCostMinor: 490_000, renewalOn: "2026-10-03", sslExpiresOn: "2026-12-18", diskCapacityMb: 102_400, memoryCapacityMb: 8192, notes: "Ежедневная резервная копия хранится отдельно от основного сервера." }, health: healthHistory[0], healthHistory };
 }

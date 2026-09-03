@@ -4,8 +4,8 @@ import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { selectCanonicalWebsiteMetrics, type WebsiteMetricRow } from "./metrics";
-import type { ConfigureWebsiteIntegrationInput, CreateWebsiteInput } from "./schemas";
-import type { WebsiteIntegrationListItem, WebsiteListItem, WebsiteSnapshot } from "./types";
+import type { ConfigureWebsiteIntegrationInput, CreateWebsiteInput, UpdateWebsiteInfrastructureInput } from "./schemas";
+import type { WebsiteDetail, WebsiteHealthSnapshot, WebsiteIntegrationListItem, WebsiteListItem, WebsiteSnapshot } from "./types";
 
 const websiteRowSchema = z.object({ id: z.string().uuid(), name: z.string(), domain: z.string(), status: z.enum(["setup", "active", "attention", "disabled"]), version: z.number().int().positive() });
 const integrationRowSchema = z.object({ id: z.string().uuid(), website_id: z.string().uuid(), provider: z.enum(["yandex_metrica", "ga4", "google_search_console", "yandex_webmaster"]), external_property_id: z.string(), status: z.enum(["pending", "connected", "error", "revoked"]), last_successful_sync_at: z.coerce.date().nullable(), last_error_code: z.string().nullable() });
@@ -13,10 +13,13 @@ const metricRowSchema = z.object({ website_id: z.string().uuid(), metric_date: z
 const leadRowSchema = z.object({ website_id: z.string().uuid(), leads: z.number().int().nonnegative(), paid_orders: z.number().int().nonnegative(), paid_revenue_minor: z.string() });
 const sourceRowSchema = z.object({ source: z.string(), leads: z.number().int().positive() });
 const boundsRowSchema = z.object({ timezone: z.string(), start_date: z.string(), end_date: z.string(), start_at: z.coerce.date(), end_at: z.coerce.date() });
+const hostingRowSchema = z.object({ provider: z.string(), plan_name: z.string(), server_region: z.string(), monthly_cost_minor: z.string(), renewal_on: z.string(), ssl_expires_on: z.string(), disk_capacity_mb: z.number().int().positive(), memory_capacity_mb: z.number().int().positive(), notes: z.string().nullable() });
+const healthRowSchema = z.object({ id: z.string().uuid(), measured_at: z.coerce.date(), health_status: z.enum(["healthy", "degraded", "down"]), uptime_percent: z.coerce.number(), response_time_ms: z.number().int().nonnegative(), cpu_load_percent: z.coerce.number(), memory_used_mb: z.number().int().nonnegative(), disk_used_mb: z.number().int().nonnegative(), source: z.enum(["manual", "monitor"]) });
 
 export class WebsiteDomainConflictError extends Error { constructor() { super("Website domain already exists."); this.name = "WebsiteDomainConflictError"; } }
 export class WebsiteNotFoundError extends Error { constructor() { super("Website was not found."); this.name = "WebsiteNotFoundError"; } }
 export class WebsiteIntegrationConflictError extends Error { constructor() { super("Website provider is already configured."); this.name = "WebsiteIntegrationConflictError"; } }
+export class WebsiteVersionConflictError extends Error { constructor() { super("Website was changed by another user."); this.name = "WebsiteVersionConflictError"; } }
 
 function constraintName(error: unknown) {
   if (!error || typeof error !== "object" || !("code" in error) || error.code !== "23505") return null;
@@ -31,6 +34,11 @@ function safeInteger(value: string | number | bigint) {
 
 function formatDateLabel(date: string) {
   return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`)).replace(".", "");
+}
+
+function mapHealthSnapshot(value: unknown): WebsiteHealthSnapshot {
+  const row = healthRowSchema.parse(value);
+  return { id: row.id, measuredAt: row.measured_at.toISOString(), healthStatus: row.health_status, uptimePercent: row.uptime_percent, responseTimeMs: row.response_time_ms, cpuLoadPercent: row.cpu_load_percent, memoryUsedMb: row.memory_used_mb, diskUsedMb: row.disk_used_mb, source: row.source };
 }
 
 export async function getWebsiteSnapshot(member: AuthenticatedMember): Promise<WebsiteSnapshot> {
@@ -142,6 +150,79 @@ export async function createWebsite(member: AuthenticatedMember, input: CreateWe
     if (constraintName(error) === "websites_organization_id_domain_key") throw new WebsiteDomainConflictError();
     throw error;
   }
+}
+
+export async function getWebsiteDetail(member: AuthenticatedMember, websiteId: string): Promise<WebsiteDetail> {
+  requirePermission(member, "sites.read");
+  const parsedWebsiteId = z.string().uuid().parse(websiteId);
+  const snapshot = await getWebsiteSnapshot(member);
+  const website = snapshot.sites.find((site) => site.id === parsedWebsiteId);
+  if (!website) throw new WebsiteNotFoundError();
+  const sql = getDatabase();
+  const [hostingRows, healthRows] = await Promise.all([
+    sql`SELECT provider, plan_name, server_region, monthly_cost_minor::text, renewal_on::text, ssl_expires_on::text,
+        disk_capacity_mb, memory_capacity_mb, notes
+      FROM website_hosting_profiles WHERE organization_id = ${member.organizationId} AND website_id = ${parsedWebsiteId}`,
+    sql`SELECT id, measured_at, health_status, uptime_percent::text, response_time_ms, cpu_load_percent::text,
+        memory_used_mb, disk_used_mb, source
+      FROM website_health_snapshots WHERE organization_id = ${member.organizationId} AND website_id = ${parsedWebsiteId}
+      ORDER BY measured_at DESC LIMIT 30`,
+  ]);
+  const hostingRow = hostingRows[0] ? hostingRowSchema.parse(hostingRows[0]) : null;
+  const healthHistory = healthRows.map(mapHealthSnapshot);
+  return {
+    ...website,
+    timezone: snapshot.period.timezone,
+    hosting: hostingRow ? {
+      provider: hostingRow.provider,
+      planName: hostingRow.plan_name,
+      serverRegion: hostingRow.server_region,
+      monthlyCostMinor: safeInteger(hostingRow.monthly_cost_minor),
+      renewalOn: hostingRow.renewal_on,
+      sslExpiresOn: hostingRow.ssl_expires_on,
+      diskCapacityMb: hostingRow.disk_capacity_mb,
+      memoryCapacityMb: hostingRow.memory_capacity_mb,
+      notes: hostingRow.notes,
+    } : null,
+    health: healthHistory[0] ?? null,
+    healthHistory,
+  };
+}
+
+export async function updateWebsiteInfrastructure(member: AuthenticatedMember, input: UpdateWebsiteInfrastructureInput) {
+  requirePermission(member, "sites.write");
+  const sql = getDatabase();
+  return sql.begin(async (transaction) => {
+    const [current] = await transaction`SELECT status, version FROM websites
+      WHERE organization_id = ${member.organizationId} AND id = ${input.websiteId} FOR UPDATE`;
+    if (!current) throw new WebsiteNotFoundError();
+    const currentWebsite = z.object({ status: z.enum(["setup", "active", "attention", "disabled"]), version: z.number().int().positive() }).parse(current);
+    if (currentWebsite.version !== input.expectedVersion) throw new WebsiteVersionConflictError();
+
+    await transaction`INSERT INTO website_hosting_profiles
+      (organization_id, website_id, provider, plan_name, server_region, monthly_cost_minor, renewal_on, ssl_expires_on,
+        disk_capacity_mb, memory_capacity_mb, notes, updated_by)
+      VALUES (${member.organizationId}, ${input.websiteId}, ${input.hostingProvider}, ${input.planName}, ${input.serverRegion},
+        ${input.monthlyCostMinor}, ${input.renewalOn}, ${input.sslExpiresOn}, ${input.diskCapacityMb}, ${input.memoryCapacityMb},
+        ${input.notes}, ${member.memberId})
+      ON CONFLICT (organization_id, website_id) DO UPDATE SET provider = EXCLUDED.provider, plan_name = EXCLUDED.plan_name,
+        server_region = EXCLUDED.server_region, monthly_cost_minor = EXCLUDED.monthly_cost_minor, renewal_on = EXCLUDED.renewal_on,
+        ssl_expires_on = EXCLUDED.ssl_expires_on, disk_capacity_mb = EXCLUDED.disk_capacity_mb,
+        memory_capacity_mb = EXCLUDED.memory_capacity_mb, notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+    const [health] = await transaction`INSERT INTO website_health_snapshots
+      (organization_id, website_id, health_status, uptime_percent, response_time_ms, cpu_load_percent,
+        memory_used_mb, disk_used_mb, source, created_by)
+      VALUES (${member.organizationId}, ${input.websiteId}, ${input.healthStatus}, ${input.uptimePercent}, ${input.responseTimeMs},
+        ${input.cpuLoadPercent}, ${input.memoryUsedMb}, ${input.diskUsedMb}, 'manual', ${member.memberId}) RETURNING id`;
+    const [updated] = await transaction`UPDATE websites SET status = ${input.status}, version = version + 1, updated_at = now()
+      WHERE organization_id = ${member.organizationId} AND id = ${input.websiteId} AND version = ${input.expectedVersion}
+      RETURNING version`;
+    if (!updated) throw new WebsiteVersionConflictError();
+    await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+      VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'website.infrastructure_update', 'website', ${input.websiteId},
+        ${transaction.json({ before: { status: currentWebsite.status, version: currentWebsite.version }, after: { status: input.status, hostingProvider: input.hostingProvider, planName: input.planName, renewalOn: input.renewalOn, sslExpiresOn: input.sslExpiresOn, healthStatus: input.healthStatus, healthSnapshotId: health.id, version: updated.version } })})`;
+    return z.number().int().positive().parse(updated.version);
+  });
 }
 
 export async function configureWebsiteIntegration(member: AuthenticatedMember, input: ConfigureWebsiteIntegrationInput) {
