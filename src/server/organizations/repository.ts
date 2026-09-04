@@ -1,12 +1,21 @@
 import "server-only";
 import { z } from "zod";
-import { requirePermission } from "@/server/auth/permissions";
+import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import type { CreateOrganizationInput } from "./schemas";
-import type { OrganizationOption } from "./types";
+import type { OrganizationOption, OrganizationSummary } from "./types";
 
 const organizationRowSchema = z.object({ id: z.string().uuid(), name: z.string(), organization_kind: z.enum(["center", "company"]) });
+const countSchema = z.union([z.string(), z.bigint(), z.number()]).transform(Number).pipe(z.number().int().nonnegative());
+const organizationSummaryRowSchema = organizationRowSchema.extend({
+  client_count: countSchema,
+  order_count: countSchema,
+  active_order_count: countSchema,
+  upcoming_visit_count: countSchema,
+  open_task_count: countSchema,
+  received_minor: countSchema,
+});
 
 export class OrganizationAccessError extends Error {
   constructor() { super("The organization is not available to this account."); this.name = "OrganizationAccessError"; }
@@ -33,6 +42,46 @@ export async function listAccessibleOrganizations(member: AuthenticatedMember): 
   return rows.map((value) => {
     const row = organizationRowSchema.parse(value);
     return { id: row.id, name: row.name, kind: row.organization_kind, current: row.id === member.organizationId };
+  });
+}
+
+export async function listOrganizationSummaries(member: AuthenticatedMember): Promise<OrganizationSummary[]> {
+  requirePermission(member, "settings.write");
+  const rows = await getDatabase()`WITH principal AS (
+      SELECT organization_id, member_id FROM auth_sessions WHERE id = ${member.sessionId} AND revoked_at IS NULL
+    ), available AS (
+      SELECT organizations.id, organizations.name, organizations.organization_kind
+      FROM principal JOIN organizations ON organizations.id = principal.organization_id
+      UNION ALL
+      SELECT organizations.id, organizations.name, organizations.organization_kind
+      FROM principal JOIN organization_access_grants grants
+        ON grants.principal_organization_id = principal.organization_id AND grants.principal_member_id = principal.member_id
+      JOIN organizations ON organizations.id = grants.target_organization_id
+    )
+    SELECT available.id, available.name, available.organization_kind,
+      (SELECT count(*) FROM clients WHERE organization_id = available.id) AS client_count,
+      (SELECT count(*) FROM orders WHERE organization_id = available.id) AS order_count,
+      (SELECT count(*) FROM orders WHERE organization_id = available.id AND status NOT IN ('completed', 'cancelled')) AS active_order_count,
+      (SELECT count(*) FROM service_visits WHERE organization_id = available.id AND scheduled_start_at >= now() AND status <> 'cancelled') AS upcoming_visit_count,
+      (SELECT count(*) FROM tasks WHERE organization_id = available.id AND status = 'open') AS open_task_count,
+      (SELECT coalesce(sum(paid_total_minor), 0) FROM orders WHERE organization_id = available.id AND status <> 'cancelled') AS received_minor
+    FROM available
+    ORDER BY CASE organization_kind WHEN 'center' THEN 0 ELSE 1 END, name`;
+  const canReadFinance = hasPermission(member, "finance.read");
+  return rows.map((value) => {
+    const row = organizationSummaryRowSchema.parse(value);
+    return {
+      id: row.id,
+      name: row.name,
+      kind: row.organization_kind,
+      current: row.id === member.organizationId,
+      clientCount: row.client_count,
+      orderCount: row.order_count,
+      activeOrderCount: row.active_order_count,
+      upcomingVisitCount: row.upcoming_visit_count,
+      openTaskCount: row.open_task_count,
+      receivedMinor: canReadFinance ? row.received_minor : null,
+    };
   });
 }
 
@@ -105,4 +154,3 @@ export async function createOrganization(member: AuthenticatedMember, input: Cre
     throw error;
   }
 }
-

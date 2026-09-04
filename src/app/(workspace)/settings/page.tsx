@@ -13,12 +13,17 @@ import { listDocumentTemplates } from "@/server/document-templates/repository";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
 import { listMemberMasterOptions, listOrganizationMembers } from "@/server/members/repository";
 import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
-import { listAccessibleOrganizations } from "@/server/organizations/repository";
-import type { OrganizationOption } from "@/server/organizations/types";
+import { listOrganizationSummaries } from "@/server/organizations/repository";
+import type { OrganizationSummary } from "@/server/organizations/types";
+import { cookies } from "next/headers";
+import { DIGIT_STYLE_COOKIE, FONT_SCALE_COOKIE, parseDigitStyle, parseFontScale } from "@/lib/appearance";
 
 export const metadata: Metadata = { title: "Настройки" };
 
 export default async function SettingsPage() {
+  const cookieStore = await cookies();
+  const fontScale = parseFontScale(cookieStore.get(FONT_SCALE_COOKIE)?.value);
+  const digitStyle = parseDigitStyle(cookieStore.get(DIGIT_STYLE_COOKIE)?.value);
   const member = await requireOfficeSession();
   if (!hasPermission(member, "settings.write")) redirect("/");
   const preview = getAuthMode() === "preview";
@@ -27,7 +32,7 @@ export default async function SettingsPage() {
   let templates: DocumentTemplateListItem[];
   let backupSnapshot: BackupSystemSnapshot;
   let importJobs: ImportJobListItem[];
-  let organizations: OrganizationOption[];
+  let organizations: OrganizationSummary[];
   if (preview) {
     members = [{
         id: member.memberId,
@@ -46,10 +51,10 @@ export default async function SettingsPage() {
     templates = [];
     backupSnapshot = getPreviewBackupSystemSnapshot();
     importJobs = [];
-    organizations = [{ id: member.organizationId, name: "Центр компаний", kind: "center", current: true }];
+    organizations = [{ id: member.organizationId, name: "Центр компаний", kind: "center", current: true, clientCount: 0, orderCount: 0, activeOrderCount: 0, upcomingVisitCount: 0, openTaskCount: 0, receivedMinor: 0 }];
   } else {
-    [members, masterOptions, templates, backupSnapshot, importJobs, organizations] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listRecentImportJobs(member), listAccessibleOrganizations(member)]);
+    [members, masterOptions, templates, backupSnapshot, importJobs, organizations] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listRecentImportJobs(member), listOrganizationSummaries(member)]);
   }
 
-  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} organizations={organizations} /></div>;
+  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} organizations={organizations} fontScale={fontScale} digitStyle={digitStyle} /></div>;
 }

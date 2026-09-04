@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  cp,
   mkdir,
   readdir,
   rename,
@@ -22,6 +23,7 @@ const ARCHIVE_PATTERN = /^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$/;
 const databaseUrl = process.env.DATABASE_URL;
 const storageRoot = resolve(process.env.DOCUMENT_STORAGE_ROOT ?? "/app/storage");
 const backupRoot = resolve(process.env.BACKUP_ROOT ?? "/app/backups");
+const backupExportRoot = process.env.BACKUP_EXPORT_ROOT ? resolve(process.env.BACKUP_EXPORT_ROOT) : null;
 const config = parseBackupWorkerConfig(process.env);
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required to run the backup worker.");
@@ -48,11 +50,17 @@ async function prepareDirectories() {
   }
   await stat(storageRoot);
   await mkdir(backupRoot, { recursive: true, mode: 0o700 });
+  if (backupExportRoot) {
+    if (backupExportRoot === backupRoot || backupExportRoot === storageRoot || isPathInside(backupRoot, backupExportRoot) || isPathInside(backupExportRoot, backupRoot) || isPathInside(storageRoot, backupExportRoot) || isPathInside(backupExportRoot, storageRoot)) {
+      throw new Error("Backup export, protected backup, and document storage directories must be separate.");
+    }
+    await mkdir(backupExportRoot, { recursive: true, mode: 0o700 });
+  }
 }
 
-async function removeExpiredArchives(now) {
+async function removeExpiredArchives(root, now) {
   const cutoff = now.getTime() - config.retentionDays * 86_400_000;
-  const entries = await readdir(backupRoot, { withFileTypes: true });
+  const entries = await readdir(root, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory() || !ARCHIVE_PATTERN.test(entry.name)) continue;
     const timestamp = Date.UTC(
@@ -64,9 +72,24 @@ async function removeExpiredArchives(now) {
       Number(entry.name.slice(13, 15)),
     );
     if (!Number.isFinite(timestamp) || timestamp >= cutoff) continue;
-    const archivePath = resolve(backupRoot, entry.name);
-    if (!isPathInside(backupRoot, archivePath)) throw new Error("Refusing to remove a backup outside the backup root.");
+    const archivePath = resolve(root, entry.name);
+    if (!isPathInside(root, archivePath)) throw new Error("Refusing to remove a backup outside the configured root.");
     await rm(archivePath, { recursive: true });
+  }
+}
+
+async function exportArchive(archiveName, archiveDirectory) {
+  if (!backupExportRoot) return null;
+  const partialDirectory = join(backupExportRoot, `.partial-${archiveName}`);
+  const exportedDirectory = join(backupExportRoot, archiveName);
+  await rm(partialDirectory, { recursive: true, force: true });
+  try {
+    await cp(archiveDirectory, partialDirectory, { recursive: true, force: false, errorOnExist: true });
+    await rename(partialDirectory, exportedDirectory);
+    return new Date().toISOString();
+  } catch (error) {
+    await rm(partialDirectory, { recursive: true, force: true });
+    throw error;
   }
 }
 
@@ -169,6 +192,7 @@ async function executeBackup() {
     `;
     const archive = await createArchive(run.id);
     const restoreResult = await verifyBackupRestore({ archiveDirectory: archive.archiveDirectory, databaseUrl });
+    const hostExportedAt = await exportArchive(archive.archiveName, archive.archiveDirectory);
     const result = {
       archiveName: archive.archiveName,
       databaseBytes: archive.databaseBytes,
@@ -178,6 +202,8 @@ async function executeBackup() {
       backupIntervalMs: config.backupIntervalMs,
       retryIntervalMs: config.retryIntervalMs,
       retentionDays: config.retentionDays,
+      hostExportEnabled: backupExportRoot !== null,
+      hostExportedAt,
     };
     await sql.begin(async (transaction) => {
       await transaction`
@@ -195,7 +221,9 @@ async function executeBackup() {
         WHERE job_name = ${JOB_NAME}
       `;
     });
-    await removeExpiredArchives(new Date());
+    const completedAt = new Date();
+    await removeExpiredArchives(backupRoot, completedAt);
+    if (backupExportRoot) await removeExpiredArchives(backupExportRoot, completedAt);
     console.log(JSON.stringify({ operation: "backup_worker.run", status: "succeeded", runId: run.id, ...result }));
   } catch (error) {
     await markJobFailure(run.id, error);
@@ -253,6 +281,14 @@ async function main() {
   if (process.argv.includes("--healthcheck")) {
     try {
       await checkHealth();
+    } finally {
+      await sql.end();
+    }
+    return;
+  }
+  if (process.argv.includes("--run-once")) {
+    try {
+      await runCycle();
     } finally {
       await sql.end();
     }

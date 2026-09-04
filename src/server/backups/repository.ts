@@ -25,6 +25,8 @@ const workerRowSchema = z.object({
   backup_interval_ms: z.string().regex(/^\d+$/).transform(Number).nullable(),
   retry_interval_ms: z.string().regex(/^\d+$/).transform(Number).nullable(),
   retention_days: z.string().regex(/^\d+$/).transform(Number).nullable(),
+  host_export_enabled: z.enum(["true", "false"]).transform((value) => value === "true").nullable(),
+  host_exported_at: z.string().datetime().nullable(),
 }).nullable();
 
 function mapBackupRun(value: unknown): BackupRunListItem {
@@ -50,6 +52,8 @@ export async function getBackupSystemSnapshot(member: AuthenticatedMember): Prom
         last_result->>'backupIntervalMs' AS backup_interval_ms,
         last_result->>'retryIntervalMs' AS retry_interval_ms,
         last_result->>'retentionDays' AS retention_days,
+        last_result->>'hostExportEnabled' AS host_export_enabled,
+        last_result->>'hostExportedAt' AS host_exported_at,
         heartbeat_at <= now() - interval '5 minutes' AS stale
       FROM background_job_status WHERE job_name = 'system.backup'`,
     sql`SELECT id, status, archive_name, database_bytes, documents_bytes,
@@ -66,10 +70,15 @@ export async function getBackupSystemSnapshot(member: AuthenticatedMember): Prom
       retryIntervalMs: worker.retry_interval_ms,
       retentionDays: worker.retention_days,
     } : null,
+    storage: {
+      protectedVolume: true,
+      hostExportEnabled: worker?.host_export_enabled ?? false,
+      hostExportedAt: worker?.host_exported_at ?? null,
+    },
     runs: runRows.map(mapBackupRun),
   };
 }
 
 export function getPreviewBackupSystemSnapshot(): BackupSystemSnapshot {
-  return { workerStatus: "not_started", heartbeatAt: null, lastSucceededAt: null, policy: null, runs: [] };
+  return { workerStatus: "not_started", heartbeatAt: null, lastSucceededAt: null, policy: null, storage: { protectedVolume: true, hostExportEnabled: false, hostExportedAt: null }, runs: [] };
 }

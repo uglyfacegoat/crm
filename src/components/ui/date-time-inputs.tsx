@@ -29,7 +29,7 @@ function calendarDays(month: Date) {
 }
 
 type DateInputProps = {
-  name: string;
+  name?: string;
   value?: string;
   defaultValue?: string;
   onChange?: (value: string) => void;
@@ -39,10 +39,11 @@ type DateInputProps = {
   min?: string;
   max?: string;
   className?: string;
+  "aria-label"?: string;
   "data-testid"?: string;
 };
 
-export function DateInput({ name, value, defaultValue = "", onChange, required, disabled, readOnly, min, max, className = "", "data-testid": testId }: DateInputProps) {
+export function DateInput({ name, value, defaultValue = "", onChange, required, disabled, readOnly, min, max, className = "", "aria-label": ariaLabel = "Дата в формате ДД.ММ.ГГГГ", "data-testid": testId }: DateInputProps) {
   const initialValue = value ?? defaultValue;
   const [isoValue, setIsoValue] = useState(initialValue);
   const [displayValue, setDisplayValue] = useState(formatIsoDateForInput(initialValue));
@@ -90,7 +91,7 @@ export function DateInput({ name, value, defaultValue = "", onChange, required, 
         value={displayValue}
         disabled={disabled}
         readOnly={readOnly}
-        aria-label="Дата в формате ДД.ММ.ГГГГ"
+        aria-label={ariaLabel}
         placeholder="ДД.ММ.ГГГГ"
         className="min-w-0 flex-1 bg-transparent px-3.5 text-sm text-white outline-none placeholder:text-[#566067]"
         onChange={(event) => {
@@ -109,13 +110,14 @@ export function DateInput({ name, value, defaultValue = "", onChange, required, 
 }
 
 type TimeInputProps = {
-  name: string;
+  name?: string;
   value?: string;
   defaultValue?: string;
   onChange?: (value: string) => void;
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  step?: string | number;
   "data-testid"?: string;
 };
 

@@ -215,7 +215,34 @@ try {
   report.interactions.push({ route: "/settings", action: "button:Новый сотрудник", result: "dialog:Новый сотрудник" });
   await page.keyboard.press("Escape");
 
+  await page.getByRole("tab", { name: "Представление", exact: true }).click();
+  await page.locator("label").filter({ hasText: "Крупный" }).click();
+  await page.locator("label").filter({ hasText: "Табличные цифры" }).click();
+  await page.getByRole("button", { name: "Сохранить представление", exact: true }).click();
+  await page.getByText("Представление сохранено для этого браузера.", { exact: true }).waitFor();
+  await page.waitForFunction(() => document.documentElement.dataset.fontScale === "large" && document.documentElement.dataset.digitStyle === "tabular");
+  report.interactions.push({ route: "/settings", action: "save appearance", result: "large + tabular" });
+  await page.getByRole("tab", { name: "Представление", exact: true }).click();
+  await page.locator("label").filter({ hasText: "Стандартный" }).click();
+  await page.locator("label").filter({ hasText: "Обычные цифры" }).click();
+  await page.getByRole("button", { name: "Сохранить представление", exact: true }).click();
+  await page.waitForFunction(() => document.documentElement.dataset.fontScale === "standard" && document.documentElement.dataset.digitStyle === "proportional");
+
   await openRoute("/clients");
+  await page.getByRole("button", { name: "Новый клиент", exact: true }).click();
+  const clientDialog = page.getByRole("dialog", { name: "Новый клиент", exact: true });
+  const phoneInput = clientDialog.locator('input[name="phone"]');
+  const emailInput = clientDialog.locator('input[name="email"]');
+  await phoneInput.fill("89991234567");
+  await emailInput.fill("1111");
+  const clientValidation = await clientDialog.evaluate((dialog) => ({
+    phone: dialog.querySelector('input[name="phone"]')?.value,
+    emailValid: dialog.querySelector('input[name="email"]')?.checkValidity(),
+  }));
+  if (clientValidation.phone !== "+7 (999) 123-45-67") failures.push(`/clients: phone mask returned ${clientValidation.phone}`);
+  if (clientValidation.emailValid !== false) failures.push("/clients: malformed email passed browser validation");
+  report.interactions.push({ route: "/clients", action: "contact input validation", result: clientValidation });
+  await page.keyboard.press("Escape");
   const clientRow = page.getByRole("link", { name: /Открыть клиента/ }).first();
   await clientRow.waitFor();
   await clientRow.click();

@@ -5,3 +5,11 @@ export type OrganizationOption = {
   current: boolean;
 };
 
+export type OrganizationSummary = OrganizationOption & {
+  clientCount: number;
+  orderCount: number;
+  activeOrderCount: number;
+  upcomingVisitCount: number;
+  openTaskCount: number;
+  receivedMinor: number | null;
+};

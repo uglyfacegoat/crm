@@ -42,6 +42,18 @@ html {
   text-rendering: optimizeLegibility;
 }
 
+html[data-font-scale="compact"] {
+  font-size: clamp(14px, calc(13.5px + 0.08vw), 16px);
+}
+
+html[data-font-scale="large"] {
+  font-size: clamp(16.5px, calc(15.8px + 0.12vw), 20px);
+}
+
+html[data-digit-style="tabular"] body {
+  font-variant-numeric: tabular-nums;
+}
+
 body {
   background:
     radial-gradient(circle at 84% -10%, rgba(237, 244, 59, 0.05), transparent 34rem),

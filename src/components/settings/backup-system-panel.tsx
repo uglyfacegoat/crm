@@ -7,6 +7,8 @@ import {
   FileArchive,
   HardDrive,
   LoaderCircle,
+  MonitorDown,
+  CloudOff,
   ShieldCheck,
 } from "lucide-react";
 import type { BackupRunListItem, BackupSystemSnapshot } from "@/server/backups/types";
@@ -102,6 +104,11 @@ export function BackupSystemPanel({ snapshot, preview }: { snapshot: BackupSyste
     </div>
 
     <aside className="grid content-start gap-4 sm:grid-cols-2 2xl:grid-cols-1">
+      <section className="surface-panel p-5"><p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#68747b]">Места хранения</p><div className="mt-4 space-y-2">{[
+        { icon: HardDrive, label: "Защищённый Docker volume", detail: "Основная проверенная копия", active: true },
+        { icon: MonitorDown, label: "ПК или отдельный диск", detail: snapshot.storage.hostExportEnabled ? `Скопировано: ${formatDate(snapshot.storage.hostExportedAt)}` : "Задайте CRM_BACKUP_EXPORT_PATH", active: snapshot.storage.hostExportEnabled },
+        { icon: CloudOff, label: "Внешнее S3-хранилище", detail: "Не настроено: нужны адрес и ключи", active: false },
+      ].map(({ icon: Icon, label, detail, active }) => <div key={label} className="flex items-center gap-3 rounded-[12px] border border-white/[0.055] bg-black/10 p-3"><span className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${active ? "bg-[#69d3a4]/[0.07] text-[#69d3a4]" : "bg-white/[0.03] text-[#667178]"}`}><Icon className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs text-[#d4dad6]">{label}</p><span className={`size-1.5 shrink-0 rounded-full ${active ? "bg-[#69d3a4]" : "bg-[#59636a]"}`} /></div><p className="mt-1 truncate text-[9px] text-[#606b72]">{detail}</p></div></div>)}</div><p className="mt-4 text-[9px] leading-4 text-[#59646b]">Путь экспорта задаётся на сервере, поэтому браузер не получает файловый путь или доступ к резервным копиям.</p></section>
       <section className="surface-panel p-5"><p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#68747b]">Последний комплект</p><div className="mt-5 space-y-3">{[
         { icon: Database, label: "PostgreSQL", value: formatBytes(latestSuccessfulRun?.databaseBytes ?? null) },
         { icon: FileArchive, label: "Документы", value: formatBytes(latestSuccessfulRun?.documentsBytes ?? null) },
@@ -109,7 +116,7 @@ export function BackupSystemPanel({ snapshot, preview }: { snapshot: BackupSyste
       ].map(({ icon: Icon, label, value }) => <div key={label} className="flex items-center gap-3 rounded-[12px] border border-white/[0.055] bg-black/10 p-3"><span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-white/[0.035] text-[#7a858b]"><Icon className="size-4" /></span><div className="min-w-0"><p className="text-[9px] text-[#606b72]">{label}</p><p className="mt-1 truncate text-xs text-[#d4dad6]">{value}</p></div></div>)}</div></section>
       <section className="surface-panel p-5"><h3 className="font-display text-sm font-semibold text-white">Политика</h3><dl className="mt-4 space-y-3 text-[10px]"><div className="flex justify-between gap-4"><dt className="text-[#68737a]">Периодичность</dt><dd className="text-[#afb7b3]">{formatInterval(snapshot.policy?.backupIntervalMs)}</dd></div><div className="flex justify-between gap-4"><dt className="text-[#68737a]">Хранение</dt><dd className="text-[#afb7b3]">{snapshot.policy ? `${snapshot.policy.retentionDays} дней` : "После первого запуска"}</dd></div><div className="flex justify-between gap-4"><dt className="text-[#68737a]">Повтор после ошибки</dt><dd className="text-[#afb7b3]">{formatInterval(snapshot.policy?.retryIntervalMs)}</dd></div></dl><p className="mt-5 border-l border-[var(--accent)]/30 pl-3 text-[10px] leading-5 text-[#737e84]">Архив сначала пишется во временный каталог и становится доступен только после завершения обеих частей. Неуспешный restore не считается успешной копией.</p></section>
       {latestRun?.status === "failed" || snapshot.workerStatus === "stale" ? <section className="rounded-[15px] border border-[#ef646a]/15 bg-[#ef646a]/[0.045] p-5"><div className="flex items-center gap-2 text-xs font-medium text-[#e39a9d]"><CircleAlert className="size-4" />Требуется внимание</div><p className="mt-2 text-[10px] leading-5 text-[#a77f82]">Проверьте `docker compose logs backup-worker`. Ошибка остаётся видимой и не подменяется старым успешным состоянием.</p></section> : null}
-      <p className="px-1 text-[9px] leading-4 text-[#505c63]">{worker.detail}. Backup volume не публикуется наружу и доступен только инфраструктурному контейнеру.</p>
+      <p className="px-1 text-[9px] leading-4 text-[#505c63]">{worker.detail}. Основной volume закрыт от приложения, а дополнительная копия экспортируется только серверным воркером.</p>
     </aside>
   </div>;
 }

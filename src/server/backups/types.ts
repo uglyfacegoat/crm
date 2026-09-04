@@ -21,5 +21,10 @@ export type BackupSystemSnapshot = {
     retryIntervalMs: number;
     retentionDays: number;
   } | null;
+  storage: {
+    protectedVolume: true;
+    hostExportEnabled: boolean;
+    hostExportedAt: string | null;
+  };
   runs: BackupRunListItem[];
 };

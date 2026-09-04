@@ -13,6 +13,7 @@
 # testing
 /coverage
 /artifacts
+/backups
 
 # next.js
 /.next/
