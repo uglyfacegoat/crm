@@ -39,24 +39,16 @@ export default async function QuickOrderPage({ searchParams }: PageProps<"/quick
     throw error;
   });
 
-  return (
-    <div>
-      <PageHeading
-        eyebrow={prefill ? "Проверка входящей заявки" : "Единый сценарий оформления"}
-        title={prefill ? "Уточнить и принять заявку" : "Создать заказ"}
-        description={prefill ? "Данные с сайта уже подставлены. Проверьте клиента, объект, работы и первый выезд перед сохранением." : "Клиент, объект, работы и первый выезд — в одном понятном потоке без повторного ввода."}
-      />
-      <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-        {canCreate && options ? (
-          <QuickOrderWorkspace options={options} idempotencyKey={randomUUID()} defaultVisitDate={dateInMoscow()} prefill={prefill} />
-        ) : (
-          <section className="surface-panel max-w-2xl p-6">
-            <p className="eyebrow">Доступ ограничен</p>
-            <h2 className="mt-3 font-display text-xl font-semibold text-white">Нужны права на клиентов, заказы и выезды</h2>
-            <p className="mt-3 text-sm leading-6 text-[#7d878d]">Полный сценарий доступен администраторам и диспетчерам. Это защищает CRM от частично созданных заказов.</p>
-          </section>
-        )}
-      </div>
-    </div>
-  );
+  if (canCreate && options) {
+    return <QuickOrderWorkspace options={options} idempotencyKey={randomUUID()} defaultVisitDate={dateInMoscow()} prefill={prefill} />;
+  }
+
+  return <div>
+    <PageHeading eyebrow="Доступ ограничен" title="Оформить заказ" description="Для единого сценария нужны права на клиентов, заказы и выезды." />
+    <section className="surface-panel mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] max-w-2xl p-6">
+      <p className="eyebrow">Доступ ограничен</p>
+      <h2 className="mt-3 font-display text-xl font-semibold text-white">Нужны права на клиентов, заказы и выезды</h2>
+      <p className="mt-3 text-sm leading-6 text-[#7d878d]">Полный сценарий доступен администраторам и диспетчерам. Это защищает CRM от частично созданных заказов.</p>
+    </section>
+  </div>;
 }

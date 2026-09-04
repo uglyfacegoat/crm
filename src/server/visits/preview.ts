@@ -24,6 +24,8 @@ export function getPreviewVisits(): ServiceVisit[] {
       assignedMasterId: `master-${index + 1}`,
       master: visit.master,
       masterPhone: null,
+      masterRegion: "Москва",
+      serviceSummary: index % 2 === 0 ? "Дезинсекция" : "Дератизация",
       cancellationReason: null,
       notes: null,
       completionNotes: null,

@@ -1,7 +1,9 @@
 "use client";
 
-import { Check, ChevronDown, LoaderCircle } from "lucide-react";
+import { Check, ChevronDown, LoaderCircle, Search, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import type { OrderMutationState } from "@/app/(workspace)/orders/actions";
+import { filterPickerOptions } from "@/lib/picker-options";
 
 export const orderInputClass = "focus-ring h-12 w-full rounded-[12px] border border-white/[0.08] bg-black/15 px-3.5 text-sm text-white outline-none placeholder:text-[#566067] disabled:cursor-not-allowed disabled:opacity-45";
 export const orderTextareaClass = "focus-ring min-h-24 w-full resize-y rounded-[12px] border border-white/[0.08] bg-black/15 px-3.5 py-3 text-sm leading-5 text-white outline-none placeholder:text-[#566067]";
@@ -12,7 +14,7 @@ export function OrderField({ label, required, errors, children }: { label: strin
 
 type PickerOption = { value: string; label: string; detail?: string };
 
-export function OrderPicker({ label, value, options, onChange, placeholder, disabled, required, errors, placement }: {
+export function OrderPicker({ label, value, options, onChange, placeholder, disabled, required, errors, placement, searchable = label === "Мастер", searchPlaceholder = label === "Мастер" ? "ФИО или телефон" : "Найти вариант" }: {
   label: string;
   value: string;
   options: PickerOption[];
@@ -22,10 +24,14 @@ export function OrderPicker({ label, value, options, onChange, placeholder, disa
   required?: boolean;
   errors?: string[];
   placement?: "top" | "bottom";
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
+  const [query, setQuery] = useState("");
   const selected = options.find((option) => option.value === value);
+  const visibleOptions = useMemo(() => searchable ? filterPickerOptions(options, query) : options, [options, query, searchable]);
   const menuPosition = (placement ?? (label === "Контакт" ? "top" : "bottom")) === "top" ? "bottom-[3.25rem]" : "top-[3.25rem]";
-  return <div className="grid gap-2 text-[10px] text-[#7b858b]"><span>{label}{required ? " *" : ""}</span><details className="group relative"><summary aria-label={label} aria-disabled={disabled} onClick={(event) => { if (disabled) event.preventDefault(); }} className={`focus-ring flex h-12 list-none items-center justify-between gap-3 rounded-[12px] border border-white/[0.08] bg-black/15 px-3.5 text-left text-sm [&::-webkit-details-marker]:hidden ${disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer"}`}><span className={selected ? "truncate text-white" : "truncate text-[#566067]"}>{selected?.label ?? placeholder}</span><ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" /></summary>{!disabled ? <div className={`absolute left-0 right-0 z-50 max-h-[min(16rem,42dvh)] overflow-y-auto rounded-[13px] border border-white/[0.09] bg-[#11181c] p-1.5 shadow-2xl ${menuPosition}`}>{options.length ? options.map((option) => <button key={option.value} type="button" onClick={(event) => { onChange(option.value); event.currentTarget.closest("details")?.removeAttribute("open"); }} className={`focus-ring block w-full rounded-[10px] px-3 py-2.5 text-left ${option.value === value ? "bg-[var(--accent)]/[0.09] text-white" : "text-[#9aa3a8] hover:bg-white/[0.045] hover:text-white"}`}><span className="block text-xs">{option.label}</span>{option.detail ? <span className="mt-1 block truncate text-[10px] text-[#667078]">{option.detail}</span> : null}</button>) : <p className="px-3 py-4 text-xs text-[#687279]">Нет доступных вариантов</p>}</div> : null}</details>{errors?.length ? <span className="text-[#ef8a8f]">{errors[0]}</span> : null}</div>;
+  return <div className="grid gap-2 text-[10px] text-[#7b858b]"><span>{label}{required ? " *" : ""}</span><details onToggle={(event) => { if (!event.currentTarget.open) setQuery(""); }} className="group relative"><summary aria-label={label} aria-disabled={disabled} onClick={(event) => { if (disabled) event.preventDefault(); }} className={`focus-ring flex h-12 list-none items-center justify-between gap-3 rounded-[12px] border border-white/[0.08] bg-black/15 px-3.5 text-left text-sm [&::-webkit-details-marker]:hidden ${disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer"}`}><span className={selected ? "truncate text-white" : "truncate text-[#566067]"}>{selected?.label ?? placeholder}</span><ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" /></summary>{!disabled ? <div className={`absolute left-0 right-0 z-50 max-h-[min(20rem,52dvh)] overflow-y-auto rounded-[13px] border border-white/[0.09] bg-[#11181c] p-1.5 shadow-2xl ${menuPosition}`}>{searchable ? <label className="sticky top-0 z-10 mb-1.5 flex h-11 items-center gap-2 rounded-[10px] border border-white/[0.08] bg-[#171e22] px-3 shadow-lg"><Search className="size-3.5 shrink-0 text-[var(--accent)]" /><span className="sr-only">Поиск: {label}</span><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") event.currentTarget.closest("details")?.removeAttribute("open"); event.stopPropagation(); }} placeholder={searchPlaceholder} className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-[#59636a]" />{query ? <button type="button" onClick={() => setQuery("")} aria-label="Очистить поиск" className="focus-ring grid size-7 shrink-0 place-items-center rounded-lg text-[#687279] hover:text-white"><X className="size-3.5" /></button> : null}</label> : null}{visibleOptions.length ? visibleOptions.map((option) => <button key={option.value} type="button" onClick={(event) => { onChange(option.value); setQuery(""); event.currentTarget.closest("details")?.removeAttribute("open"); }} className={`focus-ring block w-full rounded-[10px] px-3 py-2.5 text-left ${option.value === value ? "bg-[var(--accent)]/[0.09] text-white" : "text-[#9aa3a8] hover:bg-white/[0.045] hover:text-white"}`}><span className="block text-xs">{option.label}</span>{option.detail ? <span className="mt-1 block truncate text-[10px] text-[#667078]">{option.detail}</span> : null}</button>) : <p className="px-3 py-5 text-center text-xs text-[#687279]">Поиск не дал результатов</p>}</div> : null}</details>{errors?.length ? <span className="text-[#ef8a8f]">{errors[0]}</span> : null}</div>;
 }
 
 export function OrderFormStatus({ state }: { state: Pick<OrderMutationState, "status" | "message"> }) {

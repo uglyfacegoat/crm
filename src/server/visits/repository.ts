@@ -30,6 +30,8 @@ const visitRowSchema = z.object({
   assigned_master_id: uuidSchema.nullable(),
   master_name_snapshot: z.string().nullable(),
   master_phone_snapshot: z.string().nullable(),
+  master_region: z.string().nullable().optional().default(null),
+  service_summary: z.string().nullable().optional().default(null),
   cancellation_reason: z.string().nullable(),
   notes: z.string().nullable(),
   completion_notes: z.string().nullable(),
@@ -142,6 +144,8 @@ function mapVisit(row: unknown): ServiceVisit {
     assignedMasterId: visit.assigned_master_id,
     master: visit.master_name_snapshot,
     masterPhone: visit.master_phone_snapshot,
+    masterRegion: visit.master_region,
+    serviceSummary: visit.service_summary ?? "",
     cancellationReason: visit.cancellation_reason,
     notes: visit.notes,
     completionNotes: visit.completion_notes,
@@ -167,10 +171,18 @@ export async function listOrderVisits(member: AuthenticatedMember, orderId: stri
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
     service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
     service_visits.completion_notes, service_visits.completion_document_id,
-    completion_documents.title AS completion_document_title, service_visits.completed_at, service_visits.version
+    completion_documents.title AS completion_document_title, service_visits.completed_at, service_visits.version,
+    masters.service_region AS master_region, coalesce(services.service_summary, '') AS service_summary
     FROM service_visits
     JOIN organizations ON organizations.id = service_visits.organization_id
     LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
+    LEFT JOIN masters ON masters.organization_id = service_visits.organization_id AND masters.id = service_visits.assigned_master_id
+    LEFT JOIN LATERAL (
+      SELECT string_agg(order_services.service_name_snapshot, ', ' ORDER BY order_services.position) AS service_summary
+      FROM order_services
+      WHERE order_services.organization_id = service_visits.organization_id
+        AND order_services.order_id = service_visits.order_id
+    ) services ON true
     LEFT JOIN documents AS completion_documents ON completion_documents.organization_id = service_visits.organization_id
       AND completion_documents.id = service_visits.completion_document_id
     WHERE service_visits.organization_id = ${member.organizationId} AND service_visits.order_id = ${orderId}
@@ -211,10 +223,18 @@ export async function listVisits(member: AuthenticatedMember, rangeStart: string
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
     service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
     service_visits.completion_notes, service_visits.completion_document_id,
-    completion_documents.title AS completion_document_title, service_visits.completed_at, service_visits.version
+    completion_documents.title AS completion_document_title, service_visits.completed_at, service_visits.version,
+    masters.service_region AS master_region, coalesce(services.service_summary, '') AS service_summary
     FROM service_visits
     JOIN organizations ON organizations.id = service_visits.organization_id
     LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
+    LEFT JOIN masters ON masters.organization_id = service_visits.organization_id AND masters.id = service_visits.assigned_master_id
+    LEFT JOIN LATERAL (
+      SELECT string_agg(order_services.service_name_snapshot, ', ' ORDER BY order_services.position) AS service_summary
+      FROM order_services
+      WHERE order_services.organization_id = service_visits.organization_id
+        AND order_services.order_id = service_visits.order_id
+    ) services ON true
     LEFT JOIN documents AS completion_documents ON completion_documents.organization_id = service_visits.organization_id
       AND completion_documents.id = service_visits.completion_document_id
     WHERE service_visits.organization_id = ${member.organizationId}

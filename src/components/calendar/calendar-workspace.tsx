@@ -3,15 +3,17 @@
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, GripVertical, ListPlus, LoaderCircle, Move, UsersRound } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, GripVertical, ListPlus, LoaderCircle, Move, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { createVisitAction, rescheduleVisitAction } from "@/app/(workspace)/calendar/actions";
+import { OrderPicker } from "@/components/orders/order-form-parts";
 import { Dialog } from "@/components/ui/dialog";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
 import { clientCrypto as crypto } from "@/lib/client-id";
+import { filterCalendarVisits } from "@/lib/visits/calendar-filters";
 import { layoutCalendarIntervals } from "@/lib/visits/calendar-layout";
 import type { OrderListItem } from "@/server/orders/types";
-import type { ServiceVisit } from "@/server/visits/types";
+import { visitStatusLabels, type ServiceVisit } from "@/server/visits/types";
 
 type CalendarView = "day" | "week" | "month" | "list";
 type CalendarDay = { date: string; weekday: string; day: number };
@@ -202,7 +204,13 @@ export function CalendarWorkspace({ visits, unassignedOrders, anchorDate, initia
   const [calendarVisits, setCalendarVisits] = useState(visits);
   const [availableOrders, setAvailableOrders] = useState(unassignedOrders);
   const [view, setView] = useState<CalendarView>(initialView);
-  const [master, setMaster] = useState("Все мастера");
+  const [query, setQuery] = useState("");
+  const [master, setMaster] = useState("all");
+  const [region, setRegion] = useState("all");
+  const [client, setClient] = useState("all");
+  const [objectFilter, setObjectFilter] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [service, setService] = useState("all");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ date: string; minute: number } | null>(null);
@@ -214,8 +222,17 @@ export function CalendarWorkspace({ visits, unassignedOrders, anchorDate, initia
   const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => calendarDay(addDays(weekStart, index))), [weekStart]);
   const [selectedDate, setSelectedDate] = useState(() => days.some((day) => day.date === anchorDate) ? anchorDate : days[0].date);
-  const masterOptions = useMemo(() => ["Все мастера", ...Array.from(new Set(calendarVisits.flatMap((visit) => visit.master ? [visit.master] : []))).sort((left, right) => left.localeCompare(right, "ru"))], [calendarVisits]);
-  const visibleVisits = useMemo(() => calendarVisits.filter((visit) => master === "Все мастера" || visit.master === master), [calendarVisits, master]);
+  const masterOptions = useMemo(() => [{ value: "all", label: "Все мастера" }, { value: "unassigned", label: "Без мастера" }, ...Array.from(new Set(calendarVisits.flatMap((visit) => visit.master ? [visit.master] : []))).sort((left, right) => left.localeCompare(right, "ru")).map((name) => ({ value: name, label: name }))], [calendarVisits]);
+  const regionOptions = useMemo(() => [{ value: "all", label: "Все регионы" }, ...Array.from(new Set(calendarVisits.flatMap((visit) => visit.masterRegion ? [visit.masterRegion] : []))).sort((left, right) => left.localeCompare(right, "ru")).map((name) => ({ value: name, label: name }))], [calendarVisits]);
+  const clientOptions = useMemo(() => [{ value: "all", label: "Все клиенты" }, ...Array.from(new Set(calendarVisits.map((visit) => visit.client))).sort((left, right) => left.localeCompare(right, "ru")).map((name) => ({ value: name, label: name }))], [calendarVisits]);
+  const objectOptions = useMemo(() => [{ value: "all", label: "Все объекты" }, ...Array.from(new Set(calendarVisits.map((visit) => visit.object))).sort((left, right) => left.localeCompare(right, "ru")).map((name) => ({ value: name, label: name }))], [calendarVisits]);
+  const serviceOptions = useMemo(() => {
+    const services = new Set(calendarVisits.flatMap((visit) => visit.serviceSummary.split(",").map((name) => name.trim()).filter(Boolean)));
+    return [{ value: "all", label: "Все услуги" }, ...Array.from(services).sort((left, right) => left.localeCompare(right, "ru")).map((name) => ({ value: name, label: name }))];
+  }, [calendarVisits]);
+  const statusOptions = useMemo(() => [{ value: "all", label: "Все статусы" }, ...Object.entries(visitStatusLabels).map(([value, label]) => ({ value, label }))], []);
+  const visibleVisits = useMemo(() => filterCalendarVisits(calendarVisits, { query, master, region, client, object: objectFilter, status, service }), [calendarVisits, client, master, objectFilter, query, region, service, status]);
+  const activeFilterCount = [query.trim(), master, region, client, objectFilter, status, service].filter((value) => value && value !== "all").length;
   const visitsByDate = useMemo(() => {
     const grouped = new Map<string, CalendarEntry[]>();
     for (const visit of visibleVisits) {
@@ -246,6 +263,16 @@ export function CalendarWorkspace({ visits, unassignedOrders, anchorDate, initia
     const current = localVisitEntry(visit);
     setMessage(null);
     setMoveDraft({ visit, localDate: localDate ?? current.date, localTime: localTime ?? current.time });
+  }
+
+  function resetFilters() {
+    setQuery("");
+    setMaster("all");
+    setRegion("all");
+    setClient("all");
+    setObjectFilter("all");
+    setStatus("all");
+    setService("all");
   }
 
   function moveVisit(visit: ServiceVisit, localDate: string, localTime: string, rescheduleReason: string) {
@@ -347,7 +374,24 @@ export function CalendarWorkspace({ visits, unassignedOrders, anchorDate, initia
       <button type="button" onClick={() => setOrdersPanelOpen((open) => !open)} aria-expanded={ordersPanelOpen} className="focus-ring flex h-11 items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[#25272c]"><ListPlus className="size-4" />Выбрать заказ для выезда</button>
     </div>
 
-    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center"><div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">{masterOptions.map((name, index) => <button key={name} onClick={() => setMaster(name)} className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs ${master === name ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.07] text-white" : "border-white/[0.07] text-[#818b91]"}`}>{index === 0 ? <UsersRound className="size-4 text-[var(--accent)]" /> : <span className="grid size-6 place-items-center rounded-full bg-white/[0.055] font-display text-[8px] text-[#aab1b5]">{name.split(" ").map((part) => part[0]).join("")}</span>}{name}</button>)}</div>{canWrite ? <p className="flex shrink-0 items-center gap-2 text-[10px] text-[#687279]"><GripVertical className="size-3.5 text-[var(--accent)]" />Перетащите карточку на нужный день и время</p> : null}</div>
+    <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(16rem,1fr)_auto_auto] lg:items-start">
+      <label data-calendar-filter="query" className="focus-within:border-[var(--accent)]/30 flex h-11 min-w-0 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 text-[#687279]"><Search className="size-4 shrink-0" /><span className="sr-only">Поиск по календарю</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-[#59636a]" placeholder="Номер, клиент, адрес, мастер или услуга" /></label>
+      <details className="group relative">
+        <summary className="focus-ring flex h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-white/[0.07] px-4 text-xs text-[#899399] hover:text-white [&::-webkit-details-marker]:hidden"><SlidersHorizontal className="size-4 text-[var(--accent)]" />Фильтры{activeFilterCount ? <span className="grid size-5 place-items-center rounded-full bg-[var(--accent)] text-[9px] font-semibold text-[#25272c]">{activeFilterCount}</span> : null}</summary>
+        <div className="absolute right-0 z-40 mt-2 w-[min(44rem,calc(100vw-2rem))] rounded-[16px] border border-white/[0.09] bg-[#151b1f] p-4 shadow-2xl sm:p-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div data-calendar-filter="master"><OrderPicker label="Мастер" value={master} onChange={setMaster} placeholder="Все мастера" options={masterOptions} /></div>
+            <div data-calendar-filter="region"><OrderPicker label="Регион" value={region} onChange={setRegion} placeholder="Все регионы" options={regionOptions} /></div>
+            <div data-calendar-filter="client"><OrderPicker label="Клиент" value={client} onChange={setClient} placeholder="Все клиенты" options={clientOptions} /></div>
+            <div data-calendar-filter="object"><OrderPicker label="Объект" value={objectFilter} onChange={setObjectFilter} placeholder="Все объекты" options={objectOptions} /></div>
+            <div data-calendar-filter="status"><OrderPicker label="Статус" value={status} onChange={setStatus} placeholder="Все статусы" options={statusOptions} /></div>
+            <div data-calendar-filter="service"><OrderPicker label="Услуга" value={service} onChange={setService} placeholder="Все услуги" options={serviceOptions} /></div>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.07] pt-4"><p className="text-[10px] text-[#687279]">Показано {visibleVisits.length} из {calendarVisits.length} выездов</p><button type="button" onClick={resetFilters} disabled={!activeFilterCount} className="focus-ring flex h-9 items-center gap-2 rounded-lg border border-white/[0.07] px-3 text-[10px] text-[#899399] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"><RotateCcw className="size-3.5" />Сбросить</button></div>
+        </div>
+      </details>
+      <div className="flex h-11 items-center justify-center gap-3 rounded-xl border border-white/[0.07] px-3"><span className="text-[10px] text-[#687279]">{visibleVisits.length} из {calendarVisits.length}</span>{canWrite ? <span className="hidden items-center gap-1.5 text-[9px] text-[#687279] lg:flex"><GripVertical className="size-3.5 text-[var(--accent)]" />drag & drop</span> : null}</div>
+    </div>
 
     {message ? <p role={message.tone === "error" ? "alert" : "status"} className={`mt-3 flex items-center gap-2 rounded-[12px] border p-3 text-xs ${message.tone === "success" ? "border-[#b8f7e4]/20 bg-[#b8f7e4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#dc969a]"}`}>{message.tone === "success" ? <Check className="size-4" /> : <Clock3 className="size-4" />}{message.text}</p> : null}
 

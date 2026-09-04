@@ -28,6 +28,8 @@ export type ServiceVisit = {
   assignedMasterId: string | null;
   master: string | null;
   masterPhone: string | null;
+  masterRegion: string | null;
+  serviceSummary: string;
   cancellationReason: string | null;
   notes: string | null;
   completionNotes: string | null;
