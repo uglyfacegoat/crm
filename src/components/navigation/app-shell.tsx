@@ -16,6 +16,7 @@ import {
   FileText,
   FileSignature,
   Globe2,
+  Inbox,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
@@ -41,6 +42,7 @@ import { hasPermission } from "@/server/auth/permissions";
 const officeNavigation = [
   { href: "/", label: "Главная", icon: LayoutDashboard },
   { href: "/orders", label: "Заказы", icon: ClipboardList },
+  { href: "/inbox", label: "Входящие", icon: Inbox },
   { href: "/quick-order", label: "Оформить", icon: Zap },
   { href: "/clients", label: "Клиенты", icon: UsersRound },
   { href: "/calendar", label: "Календарь", icon: CalendarDays },
@@ -64,6 +66,7 @@ type NavigationItem = (typeof officeNavigation)[number];
 
 const navigationIconTones: Record<string, string> = {
   "/orders": "text-[#a892ec]",
+  "/inbox": "text-[#efb56a]",
   "/quick-order": "text-[#f2c95e]",
   "/clients": "text-[#69d3a4]",
   "/calendar": "text-[#66aef3]",
@@ -300,6 +303,7 @@ export function AppShell({ children, currentUser }: { children: React.ReactNode;
   const canUseQuickOrder = currentUser.role === "admin" || currentUser.role === "dispatcher";
   const navigation = currentUser.role === "master" ? masterNavigation : officeNavigation.filter((item) => {
     if (item.href === "/quick-order") return canUseQuickOrder;
+    if (item.href === "/inbox") return hasPermission(currentUser.role, "leads.read");
     if (item.href === "/finance") return hasPermission(currentUser.role, "finance.read");
     return true;
   });

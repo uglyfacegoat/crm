@@ -46,6 +46,13 @@ export class QuickOrderScheduleConflictError extends Error {
   }
 }
 
+export class QuickOrderLeadConflictError extends Error {
+  constructor() {
+    super("The incoming lead was changed or already processed.");
+    this.name = "QuickOrderLeadConflictError";
+  }
+}
+
 function databaseConstraint(error: unknown, expectedCode?: string) {
   if (!error || typeof error !== "object") return null;
   const candidate = error as { code?: unknown; constraint_name?: unknown };
@@ -69,6 +76,7 @@ export async function createQuickOrder(member: AuthenticatedMember, input: Quick
   requirePermission(member, "clients.write");
   requirePermission(member, "orders.write");
   requirePermission(member, "visits.write");
+  if (input.sourceLead) requirePermission(member, "leads.write");
   const sql = getDatabase();
 
   try {
@@ -99,6 +107,15 @@ export async function createQuickOrder(member: AuthenticatedMember, input: Quick
         `;
         if (!existingResult) throw new Error("Idempotent quick order result is incomplete.");
         return mapExistingResult(existingResult);
+      }
+
+      if (input.sourceLead) {
+        const [lead] = await transaction`SELECT moderation_status, version FROM website_leads
+          WHERE organization_id = ${member.organizationId} AND id = ${input.sourceLead.id} FOR UPDATE`;
+        if (!lead || !["new", "reviewing"].includes(z.string().parse(lead.moderation_status))
+          || z.number().int().parse(lead.version) !== input.sourceLead.expectedVersion) {
+          throw new QuickOrderLeadConflictError();
+        }
       }
 
       let clientId: string;
@@ -246,13 +263,13 @@ export async function createQuickOrder(member: AuthenticatedMember, input: Quick
       const orderNumber = `№${z.coerce.string().parse(counter.allocated_number)}`;
       const [order] = await transaction`
         INSERT INTO orders (
-          organization_id, client_id, object_id, client_contact_id, order_number, status, currency,
+          organization_id, client_id, object_id, client_contact_id, source_lead_id, order_number, status, currency,
           agreed_total_minor, assigned_master_id, master_payment_snapshot_minor,
           client_name_snapshot, object_name_snapshot, object_address_snapshot,
           contact_name_snapshot, contact_phone_snapshot, master_name_snapshot, master_phone_snapshot,
           notes, created_by
         ) VALUES (
-          ${member.organizationId}, ${clientId}, ${objectId}, ${contactId}, ${orderNumber}, 'scheduled', 'RUB',
+          ${member.organizationId}, ${clientId}, ${objectId}, ${contactId}, ${input.sourceLead?.id ?? null}, ${orderNumber}, 'scheduled', 'RUB',
           ${agreedTotalMinor.toString()}, ${input.order.assignedMasterId}, ${masterPaymentMinor?.toString() ?? null},
           ${clientName}, ${objectName}, ${objectAddress}, ${contactName}, ${contactPhone},
           ${master?.full_name ?? null}, ${master?.phone ?? null}, ${input.order.notes}, ${member.memberId}
@@ -316,9 +333,17 @@ export async function createQuickOrder(member: AuthenticatedMember, input: Quick
       )`;
       await transaction`UPDATE idempotency_requests SET entity_id = ${orderId}
         WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
+      if (input.sourceLead) {
+        const updatedLeads = await transaction`UPDATE website_leads
+          SET moderation_status = 'accepted', reviewed_by = ${member.memberId}, reviewed_at = now(),
+            review_note = ${`Создан заказ ${orderNumber}`}, updated_at = now(), version = version + 1
+          WHERE organization_id = ${member.organizationId} AND id = ${input.sourceLead.id}
+            AND version = ${input.sourceLead.expectedVersion} AND moderation_status IN ('new', 'reviewing')`;
+        if (updatedLeads.count !== 1) throw new QuickOrderLeadConflictError();
+      }
       await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'order.create', 'order', ${orderId},
-          ${transaction.json({ source: "quick_order", orderNumber, clientId, objectId, serviceCount: serviceLines.length, agreedTotalMinor: agreedTotalMinor.toString() })})`;
+          ${transaction.json({ source: input.sourceLead ? "website_lead" : "quick_order", sourceLeadId: input.sourceLead?.id ?? null, orderNumber, clientId, objectId, serviceCount: serviceLines.length, agreedTotalMinor: agreedTotalMinor.toString() })})`;
       await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'service_visit.create', 'service_visit', ${visitId},
           ${transaction.json({ source: "quick_order", orderId, ...visitAfterState })})`;

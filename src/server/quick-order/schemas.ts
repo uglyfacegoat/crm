@@ -89,6 +89,7 @@ const quickVisitSchema = z.object({
 
 export const quickOrderSchema = z.object({
   idempotencyKey: z.string().uuid(),
+  sourceLead: z.object({ id: z.string().uuid(), expectedVersion: z.coerce.number().int().positive() }).nullable().optional().transform((value) => value ?? null),
   client: z.discriminatedUnion("mode", [newClientSchema, existingClientSchema]),
   order: quickOrderDetailsSchema,
   visit: quickVisitSchema,

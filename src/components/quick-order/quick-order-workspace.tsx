@@ -8,6 +8,7 @@ import { OrderField, OrderPicker, orderInputClass, orderTextareaClass } from "@/
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
 import { formatPhoneInput } from "@/lib/phone-input";
+import type { IncomingLeadPrefill } from "@/server/incoming-leads/types";
 import type { OrderCreationOptions } from "@/server/orders/types";
 
 type ClientMode = "existing" | "new";
@@ -78,38 +79,42 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
   return <div className="flex items-start gap-3 border-b border-white/[0.055] py-3 last:border-0"><dt className="w-24 shrink-0 text-[10px] text-[#626c72]">{label}</dt><dd className="min-w-0 flex-1 break-words text-xs text-[#d4d8d5]">{value || "Не указано"}</dd></div>;
 }
 
-export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate }: {
+export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate, prefill }: {
   options: OrderCreationOptions;
   idempotencyKey: string;
   defaultVisitDate: string;
+  prefill?: IncomingLeadPrefill;
 }) {
-  const initialClientId = options.clients[0]?.id ?? "";
+  const suggestedClientId = prefill?.possibleClientId && options.clients.some((client) => client.id === prefill.possibleClientId)
+    ? prefill.possibleClientId
+    : null;
+  const initialClientId = suggestedClientId ?? options.clients[0]?.id ?? "";
   const initialContactId = options.contacts.find((contact) => contact.clientId === initialClientId && contact.isPrimary)?.id
     ?? options.contacts.find((contact) => contact.clientId === initialClientId)?.id ?? "";
   const initialObjectId = options.objects.find((object) => object.clientId === initialClientId)?.id ?? "";
   const explicitSubmitRef = useRef(false);
   const [state, formAction, pending] = useActionState(createQuickOrderAction, initialQuickOrderState);
   const [step, setStep] = useState(0);
-  const [clientMode, setClientMode] = useState<ClientMode>(options.clients.length ? "existing" : "new");
+  const [clientMode, setClientMode] = useState<ClientMode>(prefill && !suggestedClientId ? "new" : options.clients.length ? "existing" : "new");
   const [clientId, setClientId] = useState(initialClientId);
-  const [clientKind, setClientKind] = useState<"legal_entity" | "individual">("legal_entity");
-  const [clientName, setClientName] = useState("");
+  const [clientKind, setClientKind] = useState<"legal_entity" | "individual">(prefill ? "individual" : "legal_entity");
+  const [clientName, setClientName] = useState(prefill?.contactName || prefill?.phone || prefill?.email || "");
   const [taxId, setTaxId] = useState("");
-  const [contactName, setContactName] = useState("");
+  const [contactName, setContactName] = useState(prefill?.contactName ?? "");
   const [contactPosition, setContactPosition] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState(() => formatPhoneInput(prefill?.phone ?? ""));
+  const [contactEmail, setContactEmail] = useState(prefill?.email ?? "");
   const [contactMode, setContactMode] = useState<ReferenceMode>(initialContactId ? "existing" : "new");
   const [contactId, setContactId] = useState(initialContactId);
   const [objectMode, setObjectMode] = useState<ReferenceMode>(initialObjectId ? "existing" : "new");
   const [objectId, setObjectId] = useState(initialObjectId);
   const [newObject, setNewObject] = useState(emptyObject);
-  const [serviceName, setServiceName] = useState("Дезинсекция и контроль вредителей");
+  const [serviceName, setServiceName] = useState(prefill?.serviceInterest || "Дезинсекция и контроль вредителей");
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
   const [masterId, setMasterId] = useState("");
   const [masterPayment, setMasterPayment] = useState("");
-  const [orderNotes, setOrderNotes] = useState("");
+  const [orderNotes, setOrderNotes] = useState(prefill?.orderNotes ?? "");
   const [visitDate, setVisitDate] = useState(defaultVisitDate);
   const [visitTime, setVisitTime] = useState("10:00");
   const [durationMinutes, setDurationMinutes] = useState("120");
@@ -146,6 +151,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate 
 
   const payload = {
     idempotencyKey,
+    sourceLead: prefill ? { id: prefill.sourceLeadId, expectedVersion: prefill.sourceLeadVersion } : null,
     client: clientMode === "new" ? {
       mode: "new" as const,
       details: { kind: clientKind, legalName: clientName, taxId, contactName, contactPosition, phone: contactPhone, email: contactEmail },
@@ -181,7 +187,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate 
       <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-8">
         <VisitDispatchCardButton visitId={state.result.visitId} className="h-12 bg-[var(--accent)] font-semibold text-[#111509] hover:bg-[#f4f854]" />
         <Link href={`/orders/${state.result.orderId}`} className="focus-ring flex h-12 items-center justify-center rounded-[13px] border border-white/[0.09] text-xs font-medium text-[#c5cbce] hover:bg-white/[0.04]">Открыть заказ</Link>
-        <a href="/quick-order" className="focus-ring flex h-11 items-center justify-center rounded-[13px] text-xs text-[#778187] hover:text-white sm:col-span-2">Оформить ещё один</a>
+        <a href={prefill ? "/inbox" : "/quick-order"} className="focus-ring flex h-11 items-center justify-center rounded-[13px] text-xs text-[#778187] hover:text-white sm:col-span-2">{prefill ? "Вернуться во входящие" : "Оформить ещё один"}</a>
       </div>
     </section>;
   }

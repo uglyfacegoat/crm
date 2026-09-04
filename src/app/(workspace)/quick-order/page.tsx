@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { z } from "zod";
 import { QuickOrderWorkspace } from "@/components/quick-order/quick-order-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
+import { getIncomingLeadPrefill, IncomingLeadNotFoundError } from "@/server/incoming-leads/repository";
 import { getPreviewOrderCreationOptions } from "@/server/orders/preview";
 import { listOrderCreationOptions } from "@/server/orders/repository";
 
@@ -21,25 +24,31 @@ function dateInMoscow() {
   return `${value.year}-${value.month}-${value.day}`;
 }
 
-export default async function QuickOrderPage() {
+export default async function QuickOrderPage({ searchParams }: PageProps<"/quick-order">) {
   const member = await requireOfficeSession();
+  const query = await searchParams;
+  const sourceLeadId = z.string().uuid().safeParse(query.sourceLead).data;
   const canCreate = hasPermission(member.role, "clients.write")
     && hasPermission(member.role, "orders.write")
     && hasPermission(member.role, "visits.write");
-  const options = getAuthMode() === "preview"
-    ? getPreviewOrderCreationOptions()
-    : canCreate ? await listOrderCreationOptions(member) : null;
+  const preview = getAuthMode() === "preview";
+  const optionsPromise = preview ? Promise.resolve(getPreviewOrderCreationOptions()) : canCreate ? listOrderCreationOptions(member) : Promise.resolve(null);
+  const prefillPromise = sourceLeadId && !preview && canCreate ? getIncomingLeadPrefill(member, sourceLeadId) : Promise.resolve(undefined);
+  const [options, prefill] = await Promise.all([optionsPromise, prefillPromise]).catch((error: unknown) => {
+    if (error instanceof IncomingLeadNotFoundError) notFound();
+    throw error;
+  });
 
   return (
     <div>
       <PageHeading
-        eyebrow="Единый сценарий оформления"
-        title="Создать заказ"
-        description="Клиент, объект, работы и первый выезд — в одном понятном потоке без повторного ввода."
+        eyebrow={prefill ? "Проверка входящей заявки" : "Единый сценарий оформления"}
+        title={prefill ? "Уточнить и принять заявку" : "Создать заказ"}
+        description={prefill ? "Данные с сайта уже подставлены. Проверьте клиента, объект, работы и первый выезд перед сохранением." : "Клиент, объект, работы и первый выезд — в одном понятном потоке без повторного ввода."}
       />
       <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
         {canCreate && options ? (
-          <QuickOrderWorkspace options={options} idempotencyKey={randomUUID()} defaultVisitDate={dateInMoscow()} />
+          <QuickOrderWorkspace options={options} idempotencyKey={randomUUID()} defaultVisitDate={dateInMoscow()} prefill={prefill} />
         ) : (
           <section className="surface-panel max-w-2xl p-6">
             <p className="eyebrow">Доступ ограничен</p>

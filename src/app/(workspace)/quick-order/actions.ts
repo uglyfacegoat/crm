@@ -7,6 +7,7 @@ import { requireSession } from "@/server/auth/session";
 import {
   createQuickOrder,
   QuickOrderConflictError,
+  QuickOrderLeadConflictError,
   QuickOrderReferenceError,
   QuickOrderScheduleConflictError,
 } from "@/server/quick-order/repository";
@@ -65,6 +66,7 @@ export async function createQuickOrderAction(_previous: QuickOrderState, formDat
     revalidatePath(`/orders/${result.orderId}`);
     revalidatePath("/calendar");
     revalidatePath("/tasks");
+    revalidatePath("/inbox");
     return { status: "success", message: `${result.orderNumber} и первый выезд созданы.`, fieldErrors: {}, result };
   } catch (error) {
     if (error instanceof QuickOrderConflictError) {
@@ -81,6 +83,9 @@ export async function createQuickOrderAction(_previous: QuickOrderState, formDat
     }
     if (error instanceof QuickOrderScheduleConflictError) {
       return { status: "error", message: "У мастера уже есть выезд в это время. Выберите другое время или мастера.", fieldErrors: { visit: ["Время пересекается с другим выездом"] }, result: null };
+    }
+    if (error instanceof QuickOrderLeadConflictError) {
+      return { status: "error", message: "Входящая заявка уже обработана или изменилась. Вернитесь в очередь и откройте её заново.", fieldErrors: {}, result: null };
     }
     if (error instanceof AuthorizationError) {
       return { status: "error", message: "Недостаточно прав для полного оформления заказа и выезда.", fieldErrors: {}, result: null };

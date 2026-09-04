@@ -29,6 +29,8 @@ const visualCases = [
   { name: "orders-compact", path: "/orders", width: 320, height: 568 },
   { name: "orders-filters-desktop", path: "/orders", width: 1920, height: 1080, openFiltersDialog: "Фильтры заказов" },
   { name: "orders-filters-mobile", path: "/orders", width: 320, height: 568, openFiltersDialog: "Фильтры заказов" },
+  { name: "incoming-leads-desktop", path: "/inbox", width: 1920, height: 1080 },
+  { name: "incoming-leads-mobile", path: "/inbox", width: 320, height: 568 },
   { name: "quick-order-desktop", path: "/quick-order", width: 1920, height: 1080 },
   { name: "quick-order-mobile", path: "/quick-order", width: 320, height: 568 },
   { name: "order-create-dialog-desktop", path: "/orders", width: 1920, height: 1080, openOrderDialog: true },
