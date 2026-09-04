@@ -97,6 +97,7 @@ export async function listOrganizationMembers(member: AuthenticatedMember): Prom
       WHERE organization_id = members.organization_id AND member_id = members.id
     ) permission_overrides ON true
     WHERE members.organization_id = ${member.organizationId}
+      AND members.deleted_at IS NULL
     ORDER BY members.active DESC, members.display_name
     LIMIT 500`;
   return rows.map(mapMember);

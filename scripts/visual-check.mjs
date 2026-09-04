@@ -111,8 +111,8 @@ const visualCases = [
   { name: "site-infrastructure-dialog-mobile", path: "/sites/site-1", width: 320, height: 568, openSiteInfrastructureDialog: true },
   { name: "settings-desktop", path: "/settings", width: 1920, height: 1080 },
   { name: "settings-mobile", path: "/settings", width: 320, height: 568 },
-  { name: "settings-access-desktop", path: "/settings", width: 1920, height: 1080, openMemberAccessDialog: true },
-  { name: "settings-access-mobile", path: "/settings", width: 320, height: 568, openMemberAccessDialog: true },
+  { name: "settings-user-desktop", path: "/settings/users/member-1", width: 1920, height: 1080 },
+  { name: "settings-user-mobile", path: "/settings/users/member-1", width: 320, height: 568 },
   { name: "settings-companies-desktop", path: "/settings", width: 1920, height: 1080, openSettingsTab: "Компании" },
   { name: "settings-companies-mobile", path: "/settings", width: 320, height: 568, openSettingsTab: "Компании" },
   { name: "settings-appearance-desktop", path: "/settings", width: 1920, height: 1080, openSettingsTab: "Представление" },
@@ -149,13 +149,19 @@ try {
   const authenticationPage = await authenticatedContext.newPage();
   await authenticationPage.goto(baseUrl, { waitUntil: "networkidle" });
   if (new URL(authenticationPage.url()).pathname === "/login") {
-    if (!identity || !password) {
-      throw new Error("Visual checks require VISUAL_CHECK_IDENTITY and VISUAL_CHECK_PASSWORD when authentication is enabled.");
+    const previewEntry = authenticationPage.getByRole("button", { name: "Открыть CRM", exact: true });
+    if (await previewEntry.count()) {
+      await previewEntry.click();
+      await authenticationPage.waitForURL((url) => url.pathname !== "/login");
+    } else {
+      if (!identity || !password) {
+        throw new Error("Visual checks require VISUAL_CHECK_IDENTITY and VISUAL_CHECK_PASSWORD when authentication is enabled.");
+      }
+      await authenticationPage.getByPlaceholder("Email или телефон").fill(identity);
+      await authenticationPage.getByPlaceholder("Пароль").fill(password);
+      await authenticationPage.getByRole("button", { name: "Войти в CRM", exact: true }).click();
+      await authenticationPage.waitForURL((url) => url.pathname !== "/login");
     }
-    await authenticationPage.getByPlaceholder("Email или телефон").fill(identity);
-    await authenticationPage.getByPlaceholder("Пароль").fill(password);
-    await authenticationPage.getByRole("button", { name: "Войти в CRM", exact: true }).click();
-    await authenticationPage.waitForURL((url) => url.pathname !== "/login");
   }
 
   async function discoverDetailPath(listPath, hrefPrefix) {
@@ -191,6 +197,7 @@ try {
   const clientDetailPath = await discoverInteractiveDetailPath("/clients", /Открыть клиента/, "/clients/");
   const orderDetailPath = await discoverDetailPath("/orders", "/orders/");
   const masterDetailPath = await discoverInteractiveDetailPath("/masters", /Открыть карточку мастера/, "/masters/");
+  const memberDetailPath = await discoverDetailPath("/settings", "/settings/users/");
   const siteDetailPath = await discoverDetailPath("/sites", "/sites/");
   const editableVisitOrderPath = await discoverOrderWithEditableVisit();
   await authenticationPage.close();
@@ -213,6 +220,8 @@ try {
       ? clientDetailPath
       : visualCase.path === "/masters/master-1"
         ? masterDetailPath
+      : visualCase.path === "/settings/users/member-1"
+        ? memberDetailPath
       : visualCase.path === "/sites/site-1"
         ? siteDetailPath
       : visualCase.path === "/orders/ord-1248"
@@ -222,10 +231,6 @@ try {
     if (visualCase.openSettingsTab) {
       await page.getByRole("tab", { name: visualCase.openSettingsTab, exact: true }).click();
       await page.getByRole("tabpanel").waitFor();
-    }
-    if (visualCase.openMemberAccessDialog) {
-      await page.locator('button[aria-label^="Изменить доступ:"]:not([disabled])').first().click();
-      await page.getByRole("dialog", { name: "Доступ сотрудника", exact: true }).waitFor();
     }
     if (visualCase.openClientDialog) {
       await page.getByRole("button", { name: "Новый клиент", exact: true }).click();

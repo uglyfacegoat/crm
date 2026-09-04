@@ -3,14 +3,13 @@
 import {
   Check,
   KeyRound,
-  Link2,
   Plus,
   Search,
-  ShieldCheck,
   UserRoundCog,
   UsersRound,
 } from "lucide-react";
 import { clientCrypto as crypto } from "@/lib/client-id";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
@@ -38,7 +37,7 @@ const roleLabels: Record<OrganizationRole, string> = {
 function MutationStatus({ state }: { state: MemberMutationState }) {
   if (!state.message) return null;
   return (
-    <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#69d3a4]/20 bg-[#69d3a4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#d89599]"}`}>
+    <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#b8f7e4]/20 bg-[#b8f7e4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#d89599]"}`}>
       {state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}
       {state.message}
     </p>
@@ -53,7 +52,7 @@ function PermissionMatrix({ role, overrides, onChange }: {
   return <section>
     <div className="flex flex-wrap items-end justify-between gap-2">
       <div><h3 className="text-sm font-medium text-white">Детальные разрешения</h3><p className="mt-1 text-[10px] leading-4 text-[#6f7a80]">«По роли» использует безопасный базовый набор. Исключения применяются сервером к каждому защищённому действию.</p></div>
-      <span className="rounded-full border border-[#65b7ee]/15 bg-[#65b7ee]/[0.04] px-2.5 py-1 text-[9px] text-[#78add0]">{Object.keys(overrides).length} исключений</span>
+      <span className="rounded-full border border-[#b8f7e4]/15 bg-[#b8f7e4]/[0.04] px-2.5 py-1 text-[9px] text-[#b8f7e4]">{Object.keys(overrides).length} исключений</span>
     </div>
     <input type="hidden" name="permissionOverrides" value={JSON.stringify(overrides)} />
     <div className="mt-4 grid gap-3 xl:grid-cols-2">
@@ -64,7 +63,7 @@ function PermissionMatrix({ role, overrides, onChange }: {
           const value = explicit === undefined ? "inherit" : explicit ? "allow" : "deny";
           return <label key={permission} className="flex min-h-12 items-center gap-3 px-3 py-2">
             <span className="min-w-0 flex-1"><span className="block text-[11px] text-[#b7bec1]">{label}</span><span className="mt-0.5 block text-[9px] text-[#5e696f]">По роли: {hasPermission(role, permission) ? "разрешено" : "запрещено"}</span></span>
-            <select aria-label={`${section.label}: ${label}`} value={value} onChange={(event) => onChange(permission, event.target.value as typeof value)} className="focus-ring h-9 w-28 rounded-[10px] border border-white/[0.075] bg-[#10171b] px-2 text-[10px] text-[#9da6aa] outline-none">
+            <select aria-label={`${section.label}: ${label}`} value={value} onChange={(event) => onChange(permission, event.target.value as typeof value)} className="focus-ring h-9 w-28 rounded-[10px] border border-white/[0.075] bg-[#2b2e34] px-2 text-[10px] text-[#9da6aa] outline-none">
               <option value="inherit">По роли</option><option value="allow">Разрешить</option><option value="deny">Запретить</option>
             </select>
           </label>;
@@ -150,14 +149,14 @@ function CreateMemberForm({ requestKey, masterOptions, onComplete }: { requestKe
   );
 }
 
-function MemberAccessForm({ member, masterOptions, onComplete }: { member: OrganizationMemberListItem; masterOptions: MemberMasterOption[]; onComplete: () => void }) {
+export function MemberAccessForm({ member, masterOptions, onComplete, embedded = false }: { member: OrganizationMemberListItem; masterOptions: MemberMasterOption[]; onComplete?: () => void; embedded?: boolean }) {
   const [state, formAction, pending] = useActionState(updateMemberAccessAction, initialState);
   const [role, setRole] = useState<OrganizationRole>(member.role);
   const [permissionOverrides, setPermissionOverrides] = useState(member.permissionOverrides);
   const router = useRouter();
   useEffect(() => {
     if (state.status !== "success") return;
-    const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 650);
+    const timeout = window.setTimeout(() => { onComplete?.(); router.refresh(); }, 650);
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status]);
   const updatePermission = useCallback((permission: Permission, value: "inherit" | "allow" | "deny") => {
@@ -191,17 +190,17 @@ function MemberAccessForm({ member, masterOptions, onComplete }: { member: Organ
         <PermissionMatrix role={role} overrides={permissionOverrides} onChange={updatePermission} />
         <MutationStatus state={state} />
       </div>
-      <OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={onComplete} submitLabel="Сохранить доступ" />
+      {embedded ? <footer className="flex justify-end border-t border-white/[0.08] p-5"><button type="submit" disabled={pending} className="focus-ring h-11 rounded-[9px] bg-[var(--accent)] px-5 text-xs font-semibold text-[#25272c] disabled:opacity-50">{pending ? "Сохраняем…" : "Сохранить доступ"}</button></footer> : <OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={() => onComplete?.()} submitLabel="Сохранить доступ" />}
     </form>
   );
 }
 
-function ResetMemberPasswordForm({ member, requestKey, onComplete }: { member: OrganizationMemberListItem; requestKey: string; onComplete: () => void }) {
+export function ResetMemberPasswordForm({ member, requestKey, onComplete, embedded = false }: { member: OrganizationMemberListItem; requestKey: string; onComplete?: () => void; embedded?: boolean }) {
   const [state, formAction, pending] = useActionState(resetMemberPasswordAction, initialState);
   const router = useRouter();
   useEffect(() => {
     if (state.status !== "success") return;
-    const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 850);
+    const timeout = window.setTimeout(() => { onComplete?.(); router.refresh(); }, 850);
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status]);
 
@@ -229,7 +228,7 @@ function ResetMemberPasswordForm({ member, requestKey, onComplete }: { member: O
         </div>
         <MutationStatus state={state} />
       </div>
-      <OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={onComplete} submitLabel="Заменить пароль" />
+      {embedded ? <footer className="flex justify-end border-t border-white/[0.08] p-5"><button type="submit" disabled={pending} className="focus-ring h-11 rounded-[9px] border border-[var(--accent)]/40 px-5 text-xs font-semibold text-[var(--accent)] disabled:opacity-50">{pending ? "Сохраняем…" : "Заменить пароль"}</button></footer> : <OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={() => onComplete?.()} submitLabel="Заменить пароль" />}
     </form>
   );
 }
@@ -239,41 +238,11 @@ function CreateMemberButton({ masterOptions, preview }: { masterOptions: MemberM
   const close = useCallback(() => setRequestKey(null), []);
   return (
     <>
-      <button type="button" disabled={preview} onClick={() => setRequestKey(crypto.randomUUID())} className="focus-ring flex min-h-11 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-45">
+      <button type="button" disabled={preview} onClick={() => setRequestKey(crypto.randomUUID())} className="focus-ring flex min-h-11 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#25272c] disabled:cursor-not-allowed disabled:opacity-45">
         <Plus className="size-4" />Новый сотрудник
       </button>
       <Dialog open={requestKey !== null} onClose={close} title="Новый сотрудник" description="Создание учётной записи, назначение роли и доступов.">
         {requestKey ? <CreateMemberForm requestKey={requestKey} masterOptions={masterOptions} onComplete={close} /> : null}
-      </Dialog>
-    </>
-  );
-}
-
-function EditAccessButton({ member, masterOptions, disabled }: { member: OrganizationMemberListItem; masterOptions: MemberMasterOption[]; disabled: boolean }) {
-  const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
-  return (
-    <>
-      <button type="button" disabled={disabled} onClick={() => setOpen(true)} aria-label={`Изменить доступ: ${member.displayName}`} title={disabled ? "Собственный доступ изменяется другим администратором" : "Изменить роль и статус"} className="focus-ring grid size-10 shrink-0 place-items-center rounded-[12px] border border-white/[0.07] text-[#788288] transition-colors hover:bg-white/[0.045] hover:text-white disabled:cursor-not-allowed disabled:opacity-35">
-        <UserRoundCog className="size-4" />
-      </button>
-      <Dialog open={open} onClose={close} title="Доступ сотрудника" description="Роль определяет серверные разрешения во всех разделах CRM.">
-        {open ? <MemberAccessForm member={member} masterOptions={masterOptions} onComplete={close} /> : null}
-      </Dialog>
-    </>
-  );
-}
-
-function ResetPasswordButton({ member, disabled }: { member: OrganizationMemberListItem; disabled: boolean }) {
-  const [requestKey, setRequestKey] = useState<string | null>(null);
-  const close = useCallback(() => setRequestKey(null), []);
-  return (
-    <>
-      <button type="button" disabled={disabled} onClick={() => setRequestKey(crypto.randomUUID())} aria-label={`Сбросить пароль: ${member.displayName}`} title={disabled ? "Собственный пароль меняется в профиле" : "Заменить пароль и завершить сессии"} className="focus-ring grid size-10 shrink-0 place-items-center rounded-[12px] border border-white/[0.07] text-[#788288] transition-colors hover:bg-white/[0.045] hover:text-white disabled:cursor-not-allowed disabled:opacity-35">
-        <KeyRound className="size-4" />
-      </button>
-      <Dialog open={requestKey !== null} onClose={close} title="Новый пароль" description="Административная замена пароля с немедленным отзывом активных сессий.">
-        {requestKey ? <ResetMemberPasswordForm member={member} requestKey={requestKey} onComplete={close} /> : null}
       </Dialog>
     </>
   );
@@ -286,31 +255,16 @@ function formatLastLogin(value: string | null) {
 
 export function MemberAdminPanel({ members, masterOptions, currentMemberId, preview }: { members: OrganizationMemberListItem[]; masterOptions: MemberMasterOption[]; currentMemberId: string; preview: boolean }) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<"all" | "active" | "inactive">("all");
+  const [status, setStatus] = useState<"all" | "active" | "inactive">("active");
   const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase("ru"));
   const filteredMembers = useMemo(() => members.filter((member) => {
     const matchesQuery = !deferredQuery || [member.displayName, member.email, member.phone ?? "", member.masterName ?? "", roleLabels[member.role]].some((value) => value.toLocaleLowerCase("ru").includes(deferredQuery));
     const matchesStatus = status === "all" || (status === "active" ? member.active : !member.active);
     return matchesQuery && matchesStatus;
   }), [deferredQuery, members, status]);
-  const activeCount = members.filter((member) => member.active).length;
-  const linkedMasters = members.filter((member) => member.masterId).length;
-  const adminCount = members.filter((member) => member.active && member.role === "admin").length;
-
   return (
     <div className="mt-5 space-y-4">
       {preview ? <p className="rounded-[13px] border border-[#d7a85e]/20 bg-[#d7a85e]/[0.05] px-4 py-3 text-xs text-[#d7b985]">Предпросмотр показывает структуру раздела. Создание и изменение учётных записей отключено.</p> : null}
-      <section className="grid gap-3 sm:grid-cols-3">
-        {[
-          [UsersRound, "Активные сотрудники", String(activeCount), "Рабочие учётные записи"],
-          [Link2, "Привязано мастеров", String(linkedMasters), "Мобильное рабочее место"],
-          [ShieldCheck, "Администраторы", String(adminCount), "Полный системный доступ"],
-        ].map(([Icon, label, value, meta]) => {
-          const MetricIcon = Icon as typeof UsersRound;
-          return <article key={String(label)} className="surface-panel flex min-w-0 items-center gap-4 p-4 sm:p-5"><span className="grid size-11 shrink-0 place-items-center rounded-[13px] bg-[var(--accent)]/[0.08] text-[var(--accent)]"><MetricIcon className="size-5" /></span><div className="min-w-0"><p className="text-[10px] uppercase tracking-[0.12em] text-[#707a80]">{String(label)}</p><p className="mt-1 font-display text-2xl font-semibold text-white">{String(value)}</p><p className="mt-1 truncate text-[10px] text-[#687279]">{String(meta)}</p></div></article>;
-        })}
-      </section>
-
       <section className="surface-panel overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-white/[0.06] p-4 sm:flex-row sm:items-center sm:p-5">
           <label className="focus-within:border-white/[0.13] flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-[13px] border border-white/[0.07] bg-black/10 px-3 sm:max-w-md">
@@ -339,7 +293,7 @@ export function MemberAdminPanel({ members, masterOptions, currentMemberId, prev
               </div>
               <div>
                 <p className="text-[9px] uppercase tracking-[0.12em] text-[#5f696f]">Роль и статус</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2"><span className="rounded-[8px] border border-[#9c82e8]/20 bg-[#9c82e8]/[0.07] px-2 py-1 text-[10px] text-[#b5a1ef]">{roleLabels[member.role]}</span><span className={`rounded-full px-2 py-1 text-[9px] ${member.active ? "bg-[#69d3a4]/[0.08] text-[#78cfa8]" : "bg-[#ef646a]/[0.08] text-[#d68489]"}`}>{member.active ? "Активен" : "Отключён"}</span></div>
+                <div className="mt-2 flex flex-wrap items-center gap-2"><span className="rounded-[8px] border border-[#b8f7e4]/20 bg-[#b8f7e4]/[0.07] px-2 py-1 text-[10px] text-[#b8f7e4]">{roleLabels[member.role]}</span><span className={`rounded-full px-2 py-1 text-[9px] ${member.active ? "bg-[#b8f7e4]/[0.08] text-[#78cfa8]" : "bg-[#ef646a]/[0.08] text-[#d68489]"}`}>{member.active ? "Активен" : "Отключён"}</span></div>
               </div>
               <div className="min-w-0">
                 <p className="text-[9px] uppercase tracking-[0.12em] text-[#5f696f]">Привязка / вход</p>
@@ -347,8 +301,7 @@ export function MemberAdminPanel({ members, masterOptions, currentMemberId, prev
                 <p className="mt-1 text-[10px] text-[#626c72]">{formatLastLogin(member.lastLoginAt)}</p>
               </div>
               <div className="flex items-center gap-2 lg:justify-end">
-                <ResetPasswordButton member={member} disabled={preview || member.id === currentMemberId} />
-                <EditAccessButton member={member} masterOptions={masterOptions} disabled={preview || member.id === currentMemberId} />
+                <Link href={`/settings/users/${member.id}`} aria-label={`Открыть настройки: ${member.displayName}`} className="focus-ring flex h-10 items-center gap-2 rounded-[9px] border border-white/[0.09] px-3 text-[10px] text-[#9ca5a3] transition-colors hover:border-[var(--accent)]/30 hover:text-white"><UserRoundCog className="size-4" />Открыть</Link>
               </div>
             </article>
           ))}

@@ -5,8 +5,8 @@ export function TeamOnlineCard({ active, total }: { active: number; total: numbe
   return (
     <article className="surface-panel animate-rise flex min-h-[9rem] min-w-0 flex-col justify-between p-4 2xl:min-h-[9.5rem]" style={{ animationDelay: "260ms" }}>
       <p className="text-[11px] font-medium text-[#c8ced1]">Мастера на линии</p>
-      <div className="relative mx-auto grid size-[4.7rem] place-items-center rounded-full" style={{ background: `conic-gradient(#9c82e8 0 ${share}%, rgba(255,255,255,0.06) ${share}% 100%)` }}>
-        <div className="grid size-[3.7rem] place-items-center rounded-full bg-[#10171b] text-center">
+      <div className="relative mx-auto grid size-[4.7rem] place-items-center rounded-full" style={{ background: `conic-gradient(#b8f7e4 0 ${share}%, rgba(255,255,255,0.06) ${share}% 100%)` }}>
+        <div className="grid size-[3.7rem] place-items-center rounded-full bg-[#2b2e34] text-center">
           <div><strong className="block font-display text-xl text-white">{active}</strong><span className="block text-[9px] text-[#717b81]">из {total}</span></div>
         </div>
       </div>

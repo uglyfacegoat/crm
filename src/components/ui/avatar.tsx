@@ -7,8 +7,8 @@ type AvatarProps = {
 };
 
 const tones = {
-  lime: "bg-[#dce64a] text-[#11150d]",
-  violet: "bg-[#7866b8] text-white",
+  lime: "bg-[#b8f7e4] text-[#11150d]",
+  violet: "bg-[#25272c] text-white",
   mint: "bg-[#5ca990] text-[#08120e]",
 };
 

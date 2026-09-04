@@ -18,7 +18,7 @@ const initialState: MasterMutationState = { status: "idle", message: null, field
 
 function MutationStatus({ state }: { state: MasterMutationState }) {
   if (!state.message) return null;
-  return <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#69d3a4]/20 bg-[#69d3a4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#d89599]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p>;
+  return <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#b8f7e4]/20 bg-[#b8f7e4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#d89599]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p>;
 }
 
 function MasterFields({ state, master }: { state: MasterMutationState; master?: MasterListItem }) {
@@ -36,20 +36,22 @@ function MasterFields({ state, master }: { state: MasterMutationState; master?: 
 }
 
 const workDays = [[1, "Пн"], [2, "Вт"], [3, "Ср"], [4, "Чт"], [5, "Пт"], [6, "Сб"], [7, "Вс"]] as const;
-const operationalStatuses: Array<{ value: MasterOperationalStatus; label: string; note: string; tone: string }> = [
-  { value: "working", label: "Работает", note: "Можно назначать", tone: "#69d3a4" },
-  { value: "vacation", label: "В отпуске", note: "Временно недоступен", tone: "#9c82e8" },
-  { value: "unavailable", label: "Не работает", note: "ЧП, больничный, выходной", tone: "#efb454" },
-  { value: "terminated", label: "Уволен", note: "Только исторические данные", tone: "#ef646a" },
+const operationalStatuses: Array<{ value: MasterOperationalStatus; label: string; note: string }> = [
+  { value: "working", label: "Работает", note: "Доступен для новых назначений" },
+  { value: "vacation", label: "В отпуске", note: "Недоступен до указанной даты" },
+  { value: "unavailable", label: "Временно не работает", note: "Больничный, выходной или ЧП" },
+  { value: "terminated", label: "Уволен", note: "Остаётся только в истории" },
 ];
 
 function MasterAvailabilityFields({ state, master }: { state: MasterMutationState; master?: MasterListItem }) {
   const initialStatus = master?.operationalStatus ?? "working";
-  return <section className="space-y-5 rounded-[15px] border border-white/[0.07] bg-white/[0.018] p-4">
-    <fieldset><legend className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#687279]">Статус мастера</legend><div className="mt-3 grid gap-2 sm:grid-cols-2">{operationalStatuses.map((status) => <label key={status.value} className="relative cursor-pointer"><input type="radio" name="operationalStatus" value={status.value} defaultChecked={initialStatus === status.value} className="peer sr-only" /><span className="flex min-h-14 items-center gap-3 rounded-[12px] border border-white/[0.07] px-3 transition-colors peer-checked:border-[var(--status-tone)]/40 peer-checked:bg-white/[0.04]" style={{ "--status-tone": status.tone } as React.CSSProperties}><span className="size-2.5 rounded-full" style={{ backgroundColor: status.tone }} /><span><strong className="block text-xs text-white">{status.label}</strong><span className="mt-1 block text-[9px] text-[#687279]">{status.note}</span></span></span></label>)}</div></fieldset>
-    <fieldset><legend className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#687279]">Рабочие дни</legend><div className="mt-3 grid grid-cols-7 gap-1.5">{workDays.map(([value, label]) => <label key={value} className="cursor-pointer"><input type="checkbox" name="workingDays" value={value} defaultChecked={master?.workingDays.includes(value) ?? value <= 5} className="peer sr-only" /><span className="grid aspect-square place-items-center rounded-[10px] border border-white/[0.07] text-[10px] text-[#6f797f] peer-checked:border-[var(--accent)]/30 peer-checked:bg-[var(--accent)]/[0.08] peer-checked:text-white">{label}</span></label>)}</div>{state.fieldErrors.workingDays?.length ? <p className="mt-2 text-[10px] text-[#ef8a8f]">{state.fieldErrors.workingDays[0]}</p> : null}</fieldset>
-    <div className="grid gap-4 sm:grid-cols-2"><OrderField label="Статус действует до" errors={state.fieldErrors.statusUntil}><DateInput name="statusUntil" defaultValue={master?.statusUntil ?? ""} /></OrderField><OrderField label="Причина / комментарий" errors={state.fieldErrors.statusNote}><input name="statusNote" maxLength={1000} defaultValue={master?.statusNote ?? ""} placeholder="Отпуск до даты, больничный, причина увольнения" className={orderInputClass} /></OrderField></div>
-    <p className="text-[10px] leading-4 text-[#687279]">«Уволен» скрывает мастера из новых назначений, но не удаляет его выезды, заказы, начисления и историю.</p>
+  return <section className="overflow-hidden border border-white/[0.09] bg-[#202227]">
+    <div className="grid gap-px bg-white/[0.08] lg:grid-cols-[0.9fr_1.1fr]">
+      <fieldset className="bg-[var(--surface)] p-5"><legend className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#8d9694]">Статус мастера</legend><div className="mt-4 divide-y divide-white/[0.07]">{operationalStatuses.map((status) => <label key={status.value} className="group grid cursor-pointer grid-cols-[1rem_minmax(0,1fr)] gap-3 py-3"><input type="radio" name="operationalStatus" value={status.value} defaultChecked={initialStatus === status.value} className="peer mt-1 size-3.5 appearance-none rounded-full border border-white/20 checked:border-[5px] checked:border-[var(--accent)]" /><span><strong className="block text-xs font-medium text-[#dfe5e3] peer-checked:text-white">{status.label}</strong><span className="mt-1 block text-[9px] text-[#747d7b]">{status.note}</span></span></label>)}</div></fieldset>
+      <fieldset className="bg-[var(--surface)] p-5"><legend className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#8d9694]">Рабочая неделя</legend><div className="mt-4 grid grid-cols-7 border-y border-white/[0.08]">{workDays.map(([value, label]) => <label key={value} className="cursor-pointer border-l border-white/[0.08] first:border-l-0"><input type="checkbox" name="workingDays" value={value} defaultChecked={master?.workingDays.includes(value) ?? value <= 5} className="peer sr-only" /><span className="flex h-16 flex-col items-center justify-center text-[10px] text-[#68716f] peer-checked:bg-[var(--accent)] peer-checked:font-semibold peer-checked:text-[#25272c]"><span>{label}</span><span className="mt-1 text-[8px] opacity-65">{value <= 5 ? "будни" : "выходной"}</span></span></label>)}</div>{state.fieldErrors.workingDays?.length ? <p className="mt-2 text-[10px] text-[#ef8a8f]">{state.fieldErrors.workingDays[0]}</p> : null}<p className="mt-4 text-[10px] leading-4 text-[#747d7b]">Отмеченные дни участвуют в подборе мастера и проверке доступности календаря.</p></fieldset>
+    </div>
+    <div className="grid gap-4 p-5 sm:grid-cols-2"><OrderField label="Статус действует до" errors={state.fieldErrors.statusUntil}><DateInput name="statusUntil" defaultValue={master?.statusUntil ?? ""} /></OrderField><OrderField label="Причина / комментарий" errors={state.fieldErrors.statusNote}><input name="statusNote" maxLength={1000} defaultValue={master?.statusNote ?? ""} placeholder="Отпуск до даты, больничный, причина увольнения" className={orderInputClass} /></OrderField></div>
+    <p className="border-t border-white/[0.08] px-5 py-4 text-[10px] leading-4 text-[#747d7b]">«Уволен» скрывает мастера из новых назначений, но сохраняет выезды, заказы, начисления и историю.</p>
   </section>;
 }
 
@@ -81,7 +83,7 @@ export function CreateMasterButton() {
   const [requestKey, setRequestKey] = useState<string | null>(null);
   const close = useCallback(() => setRequestKey(null), []);
   return <>
-    <button type="button" onClick={() => setRequestKey(crypto.randomUUID())} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#101308]"><Plus className="size-4" />Новый мастер</button>
+    <button type="button" onClick={() => setRequestKey(crypto.randomUUID())} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#25272c]"><Plus className="size-4" />Новый мастер</button>
     <Dialog open={requestKey !== null} onClose={close} title="Новый мастер" description="Контакты, зона и условия оплаты сохранятся в справочнике.">{requestKey ? <MasterForm requestKey={requestKey} onComplete={close} /> : null}</Dialog>
   </>;
 }

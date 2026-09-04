@@ -92,10 +92,10 @@ export function NotificationCenter() {
     <div className="relative">
       <button onClick={() => setOpen((current) => !current)} className="focus-ring soft-button relative grid size-10 place-items-center rounded-[13px] text-[#8b9499]" aria-label={unreadCount ? `Уведомления: ${unreadCount} непрочитанных` : "Уведомления"} aria-expanded={open}>
         <Bell className="size-[18px]" />
-        {unreadCount ? <span className={`absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full px-1 text-[9px] font-bold leading-5 text-white ring-2 ring-[#0b0f12] ${snapshot?.criticalUnreadCount ? "bg-[var(--danger)]" : "bg-[#7f69cb]"}`}>{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
+        {unreadCount ? <span className={`absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full px-1 text-[9px] font-bold leading-5 text-white ring-2 ring-[#0b0f12] ${snapshot?.criticalUnreadCount ? "bg-[var(--danger)]" : "bg-[#b8f7e4]"}`}>{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
       </button>
       {open ? (
-        <div className="surface-panel fixed inset-x-2 top-[4.5rem] z-50 max-h-[calc(100dvh-5.5rem)] overflow-hidden bg-[#10171b] shadow-[0_26px_80px_rgba(0,0,0,0.58)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[24rem]">
+        <div className="surface-panel fixed inset-x-2 top-[4.5rem] z-50 max-h-[calc(100dvh-5.5rem)] overflow-hidden bg-[#2b2e34] shadow-[0_26px_80px_rgba(0,0,0,0.58)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[24rem]">
           <header className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3">
             <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-white">Оперативная лента</p><p className="mt-0.5 text-[9px] uppercase tracking-[0.13em] text-[#5f696f]">Выезды · задачи · документы</p></div>
             {unreadCount ? <button type="button" disabled={pendingId !== null} onClick={markAll} aria-label="Отметить все уведомления прочитанными" title="Прочитать всё" className="focus-ring grid size-9 place-items-center rounded-[10px] text-[#7d878c] hover:bg-white/[0.045] hover:text-white disabled:opacity-45">{pendingId === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}</button> : null}

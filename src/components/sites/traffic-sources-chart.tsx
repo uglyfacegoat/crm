@@ -2,7 +2,7 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-const colors = ["#9c82e8", "#65b7ee", "#69d3a4", "#edf43b", "#efb454", "#ef7f86"];
+const colors = ["#b8f7e4", "#f4f7f6", "#8a9499", "#d8ddda", "#efb454", "#ef7f86"];
 
 export function TrafficSourcesChart({ entries }: { entries: Array<{ label: string; value: number; amount: number }> }) {
   if (!entries.length) return <div className="grid min-h-56 place-items-center text-center text-[10px] leading-5 text-[#626d74]">UTM-источники появятся после приёма первых заявок.</div>;

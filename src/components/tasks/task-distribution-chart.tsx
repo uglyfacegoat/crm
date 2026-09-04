@@ -5,8 +5,8 @@ import type { TaskCard, TaskColumn } from "@/server/tasks/types";
 
 const segments: Array<{ id: TaskColumn; label: string; color: string }> = [
   { id: "overdue", label: "Просроченные", color: "#ef646a" },
-  { id: "today", label: "На сегодня", color: "#edf43b" },
-  { id: "upcoming", label: "Ближайшие", color: "#65b7ee" },
+  { id: "today", label: "На сегодня", color: "#b8f7e4" },
+  { id: "upcoming", label: "Ближайшие", color: "#b8f7e4" },
   { id: "unscheduled", label: "Без срока", color: "#849097" },
 ];
 

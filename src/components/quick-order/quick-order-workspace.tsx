@@ -54,7 +54,7 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
 }) {
   return <div className="grid grid-cols-2 gap-1 rounded-[14px] border border-white/[0.07] bg-black/15 p-1">
     {([["existing", existingLabel], ["new", newLabel]] as const).map(([mode, label]) => (
-      <button key={mode} type="button" onClick={() => onChange(mode)} aria-pressed={value === mode} className={`focus-ring min-h-11 rounded-[11px] px-3 text-xs font-medium transition-colors ${value === mode ? "bg-[var(--accent)] text-[#111509]" : "text-[#778188] hover:bg-white/[0.04] hover:text-white"}`}>{label}</button>
+      <button key={mode} type="button" onClick={() => onChange(mode)} aria-pressed={value === mode} className={`focus-ring min-h-11 rounded-[11px] px-3 text-xs font-medium transition-colors ${value === mode ? "bg-[var(--accent)] text-[#25272c]" : "text-[#778188] hover:bg-white/[0.04] hover:text-white"}`}>{label}</button>
     ))}
   </div>;
 }
@@ -177,15 +177,15 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
   };
 
   if (state.status === "success" && state.result) {
-    return <section data-testid="quick-order-success" className="mx-auto max-w-3xl overflow-hidden rounded-[22px] border border-[#69d3a4]/20 bg-[#0e1518] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
+    return <section data-testid="quick-order-success" className="mx-auto max-w-3xl overflow-hidden rounded-[22px] border border-[#b8f7e4]/20 bg-[#25272c] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
       <div className="border-b border-white/[0.065] p-5 sm:p-8">
-        <span className="grid size-12 place-items-center rounded-[15px] bg-[#69d3a4]/10 text-[#69d3a4]"><CheckCircle2 className="size-6" /></span>
+        <span className="grid size-12 place-items-center rounded-[15px] bg-[#b8f7e4]/10 text-[#b8f7e4]"><CheckCircle2 className="size-6" /></span>
         <p className="eyebrow mt-5">Операция завершена</p>
         <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.04em] text-white">{state.result.orderNumber} готов к работе</h2>
         <p className="mt-3 max-w-xl text-sm leading-6 text-[#7f898e]">Клиент, объект, заказ, выезд и напоминание сохранены. Теперь можно открыть карточку и сразу отправить её мастеру.</p>
       </div>
       <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-8">
-        <VisitDispatchCardButton visitId={state.result.visitId} className="h-12 bg-[var(--accent)] font-semibold text-[#111509] hover:bg-[#f4f854]" />
+        <VisitDispatchCardButton visitId={state.result.visitId} className="h-12 bg-[var(--accent)] font-semibold text-[#25272c] hover:bg-[#b8f7e4]" />
         <Link href={`/orders/${state.result.orderId}`} className="focus-ring flex h-12 items-center justify-center rounded-[13px] border border-white/[0.09] text-xs font-medium text-[#c5cbce] hover:bg-white/[0.04]">Открыть заказ</Link>
         <a href={prefill ? "/inbox" : "/quick-order"} className="focus-ring flex h-11 items-center justify-center rounded-[13px] text-xs text-[#778187] hover:text-white sm:col-span-2">{prefill ? "Вернуться во входящие" : "Оформить ещё один"}</a>
       </div>
@@ -208,16 +208,16 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
     }}
   >
     <input type="hidden" name="payload" value={JSON.stringify(payload)} />
-    <div className="grid items-start gap-3 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-4">
-      <aside className="surface-panel p-2 lg:sticky lg:top-[calc(var(--header-height)+1rem)] lg:p-4">
+    <div className="grid items-start border-y border-white/[0.09] lg:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside className="border-b border-white/[0.09] bg-[#202227] p-2 lg:sticky lg:top-[calc(var(--header-height)+1rem)] lg:border-b-0 lg:border-r lg:p-5">
         <div className="hidden px-2 pb-4 lg:block"><p className="eyebrow">Маршрут</p><p className="mt-2 text-[10px] leading-5 text-[#687279]">Заполняйте по порядку. Уже пройденные шаги можно открыть снова.</p></div>
         <ol aria-label="Этапы оформления" className="grid grid-cols-4 gap-1.5 lg:grid-cols-1 lg:gap-2">
-          {steps.map((entry, index) => { const Icon = entry.icon; const active = index === step; const done = index < step; return <li key={entry.title}><button type="button" onClick={() => { if (index <= step) setStep(index); }} disabled={index > step} aria-current={active ? "step" : undefined} className={`focus-ring flex min-h-14 w-full min-w-0 items-center justify-center gap-2 rounded-[12px] px-1.5 transition-colors lg:justify-start lg:px-3 ${active ? "bg-[var(--accent)] text-[#111509]" : done ? "bg-[#69d3a4]/[0.055] text-[#aab4b1]" : "text-[#4e585e] hover:bg-white/[0.025]"}`}><span className={`grid size-7 shrink-0 place-items-center rounded-[9px] ${active ? "bg-black/10" : done ? "bg-[#69d3a4]/10 text-[#69d3a4]" : "bg-white/[0.035]"}`}>{done ? <Check className="size-3.5" /> : <Icon className="size-3.5" />}</span><span className="hidden truncate text-[10px] font-medium min-[420px]:block">{entry.title}</span><span className={`ml-auto hidden font-display text-[9px] lg:block ${active ? "text-black/45" : "text-[#525d63]"}`}>0{index + 1}</span></button></li>; })}
+          {steps.map((entry, index) => { const Icon = entry.icon; const active = index === step; const done = index < step; return <li key={entry.title}><button type="button" onClick={() => { if (index <= step) setStep(index); }} disabled={index > step} aria-current={active ? "step" : undefined} className={`focus-ring flex min-h-14 w-full min-w-0 items-center justify-center gap-2 rounded-[12px] px-1.5 transition-colors lg:justify-start lg:px-3 ${active ? "bg-[var(--accent)] text-[#25272c]" : done ? "bg-[#b8f7e4]/[0.055] text-[#aab4b1]" : "text-[#4e585e] hover:bg-white/[0.025]"}`}><span className={`grid size-7 shrink-0 place-items-center rounded-[9px] ${active ? "bg-black/10" : done ? "bg-[#b8f7e4]/10 text-[#b8f7e4]" : "bg-white/[0.035]"}`}>{done ? <Check className="size-3.5" /> : <Icon className="size-3.5" />}</span><span className="hidden truncate text-[10px] font-medium min-[420px]:block">{entry.title}</span><span className={`ml-auto hidden font-display text-[9px] lg:block ${active ? "text-black/45" : "text-[#525d63]"}`}>0{index + 1}</span></button></li>; })}
         </ol>
       </aside>
 
       <div className="min-w-0">
-        <section className="surface-panel min-h-[31rem] overflow-hidden p-4 sm:p-6 lg:p-8">
+        <section className="min-h-[31rem] overflow-hidden bg-[var(--surface)] p-4 sm:p-6 lg:p-8 lg:pl-10">
       {step === 0 ? <>
         <SectionIntro number="01" title="Кто заказывает" description="Найдите клиента или заведите нового вместе с основным контактом." />
         <ModeSwitch value={clientMode} onChange={(mode) => { setClientMode(mode); if (mode === "existing" && clientId) selectClient(clientId); }} existingLabel="Из CRM" newLabel="Новый клиент" />
@@ -273,9 +273,9 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
       {state.status === "error" && state.message ? <p data-testid="quick-order-error" role="alert" className="mt-5 rounded-[13px] border border-[#ef646a]/20 bg-[#ef646a]/[0.05] p-3 text-xs leading-5 text-[#d89599]">{state.message}</p> : null}
         </section>
 
-        <footer className="sticky bottom-[calc(max(0.5rem,env(safe-area-inset-bottom))+4.3rem)] z-20 mt-3 flex gap-2 rounded-[17px] border border-white/[0.08] bg-[#0b1013]/92 p-2 shadow-[0_16px_48px_rgba(0,0,0,0.35)] backdrop-blur-xl md:bottom-3 sm:p-3">
+        <footer className="sticky bottom-[calc(max(0.5rem,env(safe-area-inset-bottom))+4.3rem)] z-20 flex gap-2 border-t border-white/[0.09] bg-[#202227]/96 p-2 backdrop-blur-xl md:bottom-3 sm:p-3">
           <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0 || pending} className="focus-ring flex h-12 min-w-12 items-center justify-center gap-2 rounded-[13px] border border-white/[0.08] px-3 text-xs text-[#929b9f] disabled:opacity-35"><ArrowLeft className="size-4" /><span className="hidden min-[390px]:inline">Назад</span></button>
-          {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))} disabled={!stepValid} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] text-xs font-semibold text-[#111509] disabled:cursor-not-allowed disabled:opacity-40">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="button" onClick={(event) => { explicitSubmitRef.current = true; event.currentTarget.form?.requestSubmit(); }} disabled={!stepValid || pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] px-3 text-xs font-semibold text-[#111509] disabled:cursor-not-allowed disabled:opacity-40">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
+          {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))} disabled={!stepValid} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] text-xs font-semibold text-[#25272c] disabled:cursor-not-allowed disabled:opacity-40">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="button" onClick={(event) => { explicitSubmitRef.current = true; event.currentTarget.form?.requestSubmit(); }} disabled={!stepValid || pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] px-3 text-xs font-semibold text-[#25272c] disabled:cursor-not-allowed disabled:opacity-40">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
         </footer>
       </div>
     </div>

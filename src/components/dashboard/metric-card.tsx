@@ -13,22 +13,22 @@ type MetricCardProps = {
 
 const tones = {
   yellow: {
-    card: "from-[#566017] to-[#22290d] text-white border-[#dce63c]/20",
-    subtle: "text-[#c9cf9e]",
-    chart: "#dfe944",
-    icon: "bg-[#dce63c]/10 text-[#e3ec4b] ring-[#dce63c]/10",
+    card: "bg-[#29302e] text-white border-[#b8f7e4]/20",
+    subtle: "text-[#a9b8b3]",
+    chart: "#b8f7e4",
+    icon: "bg-[#b8f7e4]/10 text-[#b8f7e4] ring-[#b8f7e4]/10",
   },
   violet: {
-    card: "from-[#4b386a] to-[#211a33] text-white border-[#9c82e8]/20",
-    subtle: "text-[#c8bde8]",
-    chart: "#a88cef",
-    icon: "bg-[#9c82e8]/12 text-[#b49cf3] ring-[#9c82e8]/10",
+    card: "bg-[#2b2e34] text-white border-[#b8f7e4]/15",
+    subtle: "text-[#a5aeac]",
+    chart: "#91e9ce",
+    icon: "bg-[#b8f7e4]/10 text-[#b8f7e4] ring-[#b8f7e4]/10",
   },
   mint: {
-    card: "from-[#12676a] to-[#082e33] text-white border-[#55d5ca]/20",
-    subtle: "text-[#9bc9c6]",
-    chart: "#55d5ca",
-    icon: "bg-[#55d5ca]/10 text-[#65ddd2] ring-[#55d5ca]/10",
+    card: "bg-[#24332f] text-white border-[#b8f7e4]/20",
+    subtle: "text-[#a7c6bd]",
+    chart: "#91e9ce",
+    icon: "bg-[#b8f7e4]/10 text-[#b8f7e4] ring-[#b8f7e4]/10",
   },
   red: {
     card: "from-[#812d39] to-[#3e171e] text-white border-[#ef646a]/20",
@@ -41,7 +41,7 @@ const tones = {
 export function MetricCard({ label, value, change, icon: Icon, tone, bars, delay }: MetricCardProps) {
   const palette = tones[tone];
   return (
-    <article style={{ animationDelay: delay }} className={`noise animate-rise relative min-h-[9rem] overflow-hidden rounded-[var(--radius-panel)] border bg-gradient-to-br p-[clamp(1rem,0.8rem+0.45vw,1.45rem)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_50px_rgba(0,0,0,0.12)] 2xl:min-h-[9.5rem] ${palette.card}`}>
+    <article style={{ animationDelay: delay }} className={`animate-rise relative min-h-[9rem] overflow-hidden rounded-[var(--radius-panel)] border p-[clamp(1rem,0.8rem+0.45vw,1.45rem)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_50px_rgba(0,0,0,0.12)] 2xl:min-h-[9.5rem] ${palette.card}`}>
       <div className="relative z-10 flex items-start justify-between gap-3">
         <div>
           <p className={`text-[clamp(0.7rem,0.66rem+0.12vw,0.82rem)] font-semibold ${palette.subtle}`}>{label}</p>
