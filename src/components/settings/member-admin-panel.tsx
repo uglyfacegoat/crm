@@ -22,6 +22,7 @@ import {
 import { OrderField, OrderFormFooter, orderInputClass } from "@/components/orders/order-form-parts";
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
+import { hasPermission, permissionSections, type Permission } from "@/server/auth/permissions";
 import type { OrganizationRole } from "@/server/auth/types";
 import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
 
@@ -42,6 +43,35 @@ function MutationStatus({ state }: { state: MemberMutationState }) {
       {state.message}
     </p>
   );
+}
+
+function PermissionMatrix({ role, overrides, onChange }: {
+  role: OrganizationRole;
+  overrides: Partial<Record<Permission, boolean>>;
+  onChange: (permission: Permission, value: "inherit" | "allow" | "deny") => void;
+}) {
+  return <section>
+    <div className="flex flex-wrap items-end justify-between gap-2">
+      <div><h3 className="text-sm font-medium text-white">Детальные разрешения</h3><p className="mt-1 text-[10px] leading-4 text-[#6f7a80]">«По роли» использует безопасный базовый набор. Исключения применяются сервером к каждому защищённому действию.</p></div>
+      <span className="rounded-full border border-[#65b7ee]/15 bg-[#65b7ee]/[0.04] px-2.5 py-1 text-[9px] text-[#78add0]">{Object.keys(overrides).length} исключений</span>
+    </div>
+    <input type="hidden" name="permissionOverrides" value={JSON.stringify(overrides)} />
+    <div className="mt-4 grid gap-3 xl:grid-cols-2">
+      {permissionSections.map((section) => <div key={section.label} className="overflow-hidden rounded-[13px] border border-white/[0.07] bg-black/10">
+        <p className="border-b border-white/[0.055] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.13em] text-[#68737a]">{section.label}</p>
+        <div className="divide-y divide-white/[0.05]">{section.permissions.map(([permission, label]) => {
+          const explicit = overrides[permission];
+          const value = explicit === undefined ? "inherit" : explicit ? "allow" : "deny";
+          return <label key={permission} className="flex min-h-12 items-center gap-3 px-3 py-2">
+            <span className="min-w-0 flex-1"><span className="block text-[11px] text-[#b7bec1]">{label}</span><span className="mt-0.5 block text-[9px] text-[#5e696f]">По роли: {hasPermission(role, permission) ? "разрешено" : "запрещено"}</span></span>
+            <select aria-label={`${section.label}: ${label}`} value={value} onChange={(event) => onChange(permission, event.target.value as typeof value)} className="focus-ring h-9 w-28 rounded-[10px] border border-white/[0.075] bg-[#10171b] px-2 text-[10px] text-[#9da6aa] outline-none">
+              <option value="inherit">По роли</option><option value="allow">Разрешить</option><option value="deny">Запретить</option>
+            </select>
+          </label>;
+        })}</div>
+      </div>)}
+    </div>
+  </section>;
 }
 
 function RoleAndMasterFields({
@@ -123,12 +153,21 @@ function CreateMemberForm({ requestKey, masterOptions, onComplete }: { requestKe
 function MemberAccessForm({ member, masterOptions, onComplete }: { member: OrganizationMemberListItem; masterOptions: MemberMasterOption[]; onComplete: () => void }) {
   const [state, formAction, pending] = useActionState(updateMemberAccessAction, initialState);
   const [role, setRole] = useState<OrganizationRole>(member.role);
+  const [permissionOverrides, setPermissionOverrides] = useState(member.permissionOverrides);
   const router = useRouter();
   useEffect(() => {
     if (state.status !== "success") return;
     const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 650);
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status]);
+  const updatePermission = useCallback((permission: Permission, value: "inherit" | "allow" | "deny") => {
+    setPermissionOverrides((current) => {
+      const next = { ...current };
+      if (value === "inherit") delete next[permission];
+      else next[permission] = value === "allow";
+      return next;
+    });
+  }, []);
 
   return (
     <form action={formAction} className="flex min-h-full flex-1 flex-col">
@@ -149,6 +188,7 @@ function MemberAccessForm({ member, masterOptions, onComplete }: { member: Organ
             <span className="mt-1 block text-[10px] leading-4 text-[#727c82]">При отключении или смене роли все активные сессии сотрудника будут завершены.</span>
           </span>
         </label>
+        <PermissionMatrix role={role} overrides={permissionOverrides} onChange={updatePermission} />
         <MutationStatus state={state} />
       </div>
       <OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={onComplete} submitLabel="Сохранить доступ" />

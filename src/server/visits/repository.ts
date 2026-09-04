@@ -277,7 +277,7 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
       AND (${assignedMasterId === null} OR service_visits.assigned_master_id = ${assignedMasterId})`;
   if (!rows.length) throw new VisitNotFoundError();
   const row = dispatchCardRowSchema.parse(rows[0]);
-  const canViewMasterPayment = hasPermission(member.role, "finance.read") || member.role === "master";
+  const canViewMasterPayment = hasPermission(member, "finance.read") || member.role === "master";
   const masterPaymentMatchesVisit = row.assigned_master_id !== null && row.assigned_master_id === row.order_master_id;
   return {
     visitId: row.id,

@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { getDatabase } from "@/server/database";
+import { permissions } from "./permissions";
 import { organizationRoles } from "./types";
 
 const credentialRowSchema = z.object({
@@ -21,6 +22,7 @@ const sessionRowSchema = z.object({
   email: z.string().email(),
   role: z.enum(organizationRoles),
   master_id: z.string().uuid().nullable(),
+  permission_overrides: z.partialRecord(z.enum(permissions), z.boolean()),
 });
 
 export type CredentialRecord = z.infer<typeof credentialRowSchema>;
@@ -119,22 +121,35 @@ export async function findSessionByTokenHash(tokenHash: string) {
   const rows = await sql`
     SELECT
       sessions.id AS session_id,
-      sessions.organization_id,
+      COALESCE(sessions.active_organization_id, sessions.organization_id) AS organization_id,
       organizations.name AS organization_name,
-      sessions.member_id,
+      COALESCE(sessions.active_member_id, sessions.member_id) AS member_id,
       members.display_name,
       members.email,
       members.role,
-      members.master_id
+      members.master_id,
+      COALESCE(permission_overrides.values, '{}'::jsonb) AS permission_overrides
     FROM auth_sessions sessions
     JOIN organization_members members
-      ON members.organization_id = sessions.organization_id
-      AND members.id = sessions.member_id
-    JOIN organizations ON organizations.id = sessions.organization_id
+      ON members.organization_id = COALESCE(sessions.active_organization_id, sessions.organization_id)
+      AND members.id = COALESCE(sessions.active_member_id, sessions.member_id)
+    JOIN organizations ON organizations.id = COALESCE(sessions.active_organization_id, sessions.organization_id)
+    LEFT JOIN LATERAL (
+      SELECT jsonb_object_agg(permission, allowed) AS values
+      FROM member_permission_overrides
+      WHERE organization_id = members.organization_id AND member_id = members.id
+    ) permission_overrides ON true
     WHERE sessions.token_hash = ${tokenHash}
       AND sessions.revoked_at IS NULL
       AND sessions.expires_at > now()
       AND members.active
+      AND (sessions.active_organization_id IS NULL OR EXISTS (
+        SELECT 1 FROM organization_access_grants grants
+        WHERE grants.principal_organization_id = sessions.organization_id
+          AND grants.principal_member_id = sessions.member_id
+          AND grants.target_organization_id = sessions.active_organization_id
+          AND grants.target_member_id = sessions.active_member_id
+      ))
     LIMIT 1
   `;
   return rows[0] ? sessionRowSchema.parse(rows[0]) : null;

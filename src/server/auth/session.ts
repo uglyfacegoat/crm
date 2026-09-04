@@ -17,6 +17,7 @@ const previewMember: AuthenticatedMember = {
   email: "preview@crm.local",
   role: "admin",
   masterId: null,
+  permissionOverrides: {},
 };
 
 export async function requireOfficeSession() {

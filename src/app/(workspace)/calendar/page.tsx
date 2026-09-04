@@ -41,7 +41,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   return (
     <div>
       <PageHeading eyebrow="Планирование" title="Календарь выездов" description="Все заказы и даты выездов в одном расписании без ручных списков в комментариях." />
-      <CalendarWorkspace key={`${anchorDate}:${initialView}:${visits.map((visit) => `${visit.id}:${visit.version}`).join(",")}`} visits={visits} unassignedOrders={unassignedOrders} anchorDate={anchorDate} initialView={initialView} canWrite={hasPermission(member.role, "visits.write")} />
+      <CalendarWorkspace key={`${anchorDate}:${initialView}:${visits.map((visit) => `${visit.id}:${visit.version}`).join(",")}`} visits={visits} unassignedOrders={unassignedOrders} anchorDate={anchorDate} initialView={initialView} canWrite={hasPermission(member, "visits.write")} />
     </div>
   );
 }

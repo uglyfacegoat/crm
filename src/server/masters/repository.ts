@@ -112,7 +112,7 @@ export async function listMasters(member: AuthenticatedMember): Promise<MasterLi
       ORDER BY service_visits.scheduled_start_at ASC`,
   ]);
   const visitsByMaster = groupVisits(visitRows);
-  const canReadFinance = hasPermission(member.role, "finance.read");
+  const canReadFinance = hasPermission(member, "finance.read");
 
   return masterRows.map((row) => {
     const master = masterRowSchema.parse(row);
@@ -148,7 +148,7 @@ export async function getMasterDetail(member: AuthenticatedMember, masterId: str
   requirePermission(member, "masters.read");
   const parsedMasterId = z.string().uuid().parse(masterId);
   const sql = getDatabase();
-  const canReadFinance = hasPermission(member.role, "finance.read");
+  const canReadFinance = hasPermission(member, "finance.read");
   const [masterRows, todayVisitRows, recentVisitRows, statsRows, earningsRows] = await Promise.all([
     sql`SELECT id, full_name, phone, messenger, service_region, service_zone, base_payment_minor,
       daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active, version

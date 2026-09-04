@@ -39,7 +39,9 @@ test("enforces role grants and organization boundaries", () => {
   assert.equal(hasPermission("master", "visits.write"), true);
   assert.equal(hasPermission("master", "document_templates.read"), true);
   assert.equal(hasPermission("master", "document_templates.write"), false);
-  const member: AuthenticatedMember = { sessionId: crypto.randomUUID(), organizationId: crypto.randomUUID(), organizationName: "CRM", memberId: crypto.randomUUID(), displayName: "Admin", email: "admin@example.com", role: "admin", masterId: null };
+  const member: AuthenticatedMember = { sessionId: crypto.randomUUID(), organizationId: crypto.randomUUID(), organizationName: "CRM", memberId: crypto.randomUUID(), displayName: "Admin", email: "admin@example.com", role: "admin", masterId: null, permissionOverrides: {} };
+  assert.equal(hasPermission({ ...member, role: "dispatcher", permissionOverrides: { "orders.write": false } }, "orders.write"), false);
+  assert.equal(hasPermission({ ...member, role: "accountant", permissionOverrides: { "orders.write": true } }, "orders.write"), true);
   assert.doesNotThrow(() => requireSameOrganization(member, member.organizationId));
   assert.throws(() => requireSameOrganization(member, crypto.randomUUID()), AuthorizationError);
 });

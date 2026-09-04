@@ -49,7 +49,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
   const phonePattern = searchDigits ? `%${searchDigits}%` : null;
   const searches: PromiseLike<readonly unknown[]>[] = [];
 
-  if (hasPermission(member.role, "clients.read")) {
+  if (hasPermission(member, "clients.read")) {
     searches.push(sql`
       SELECT clients.id, 'client' AS entity_type, clients.legal_name AS title,
         coalesce(nullif(concat_ws(' · ', CASE WHEN clients.tax_id IS NOT NULL THEN 'ИНН ' || clients.tax_id END, clients.primary_phone), ''), 'Карточка клиента') AS subtitle,
@@ -110,7 +110,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
     `);
   }
 
-  if (hasPermission(member.role, "orders.read")) {
+  if (hasPermission(member, "orders.read")) {
     searches.push(sql`
       SELECT orders.id, 'order' AS entity_type, 'Заказ №' || orders.order_number AS title,
         orders.client_name_snapshot AS subtitle, orders.object_address_snapshot AS detail,
@@ -140,7 +140,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
     `);
   }
 
-  if (hasPermission(member.role, "contracts.read")) {
+  if (hasPermission(member, "contracts.read")) {
     searches.push(sql`
       SELECT contracts.id, 'contract' AS entity_type, 'Договор ' || contracts.contract_number AS title,
         clients.legal_name || ' · ' || client_objects.name AS subtitle, client_objects.address AS detail,
@@ -167,7 +167,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
     `);
   }
 
-  if (hasPermission(member.role, "documents.read")) {
+  if (hasPermission(member, "documents.read")) {
     searches.push(sql`
       SELECT documents.id, 'document' AS entity_type, documents.title AS title,
         clients.legal_name || ' · заказ №' || orders.order_number AS subtitle,
@@ -198,7 +198,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
     `);
   }
 
-  if (hasPermission(member.role, "masters.read")) {
+  if (hasPermission(member, "masters.read")) {
     searches.push(sql`
       SELECT masters.id, 'master' AS entity_type, masters.full_name AS title,
         concat_ws(' · ', masters.phone, masters.messenger) AS subtitle,
@@ -227,7 +227,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
     `);
   }
 
-  if (hasPermission(member.role, "visits.read")) {
+  if (hasPermission(member, "visits.read")) {
     searches.push(sql`
       SELECT service_visits.id, 'visit' AS entity_type,
         'Выезд · ' || service_visits.client_name_snapshot AS title,

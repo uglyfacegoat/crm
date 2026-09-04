@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Задачи" };
 export default async function TasksPage() {
   const member = await requireOfficeSession();
   const snapshot = getAuthMode() === "preview" ? getPreviewTasks() : await listTasks(member);
-  const canWrite = hasPermission(member.role, "tasks.write");
+  const canWrite = hasPermission(member, "tasks.write");
   return (
     <div>
       <PageHeading eyebrow="Контроль исполнения" title="Задачи" description="Следующие действия, напоминания и просроченные обязательства." action={canWrite ? <CreateTaskButton assigneeOptions={snapshot.assigneeOptions} currentMemberId={snapshot.currentMemberId} /> : undefined} />

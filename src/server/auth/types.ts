@@ -10,6 +10,7 @@ export type AuthenticatedMember = {
   email: string;
   role: OrganizationRole;
   masterId: string | null;
+  permissionOverrides: Record<string, boolean>;
 };
 
 export type SessionCookie = { token: string; expiresAt: Date };

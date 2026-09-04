@@ -28,9 +28,9 @@ export default async function QuickOrderPage({ searchParams }: PageProps<"/quick
   const member = await requireOfficeSession();
   const query = await searchParams;
   const sourceLeadId = z.string().uuid().safeParse(query.sourceLead).data;
-  const canCreate = hasPermission(member.role, "clients.write")
-    && hasPermission(member.role, "orders.write")
-    && hasPermission(member.role, "visits.write");
+  const canCreate = hasPermission(member, "clients.write")
+    && hasPermission(member, "orders.write")
+    && hasPermission(member, "visits.write");
   const preview = getAuthMode() === "preview";
   const optionsPromise = preview ? Promise.resolve(getPreviewOrderCreationOptions()) : canCreate ? listOrderCreationOptions(member) : Promise.resolve(null);
   const prefillPromise = sourceLeadId && !preview && canCreate ? getIncomingLeadPrefill(member, sourceLeadId) : Promise.resolve(undefined);

@@ -62,7 +62,7 @@ function mapTemplate(value: unknown): DocumentTemplateListItem {
 
 export async function listDocumentTemplates(member: AuthenticatedMember): Promise<DocumentTemplateListItem[]> {
   requirePermission(member, "document_templates.read");
-  const includeInactive = hasPermission(member.role, "document_templates.write");
+  const includeInactive = hasPermission(member, "document_templates.write");
   const sql = getDatabase();
   const rows = await sql`SELECT document_templates.id, document_templates.title, document_templates.description,
       document_templates.template_kind, document_templates.active, document_templates.version,
@@ -137,7 +137,7 @@ export async function updateDocumentTemplateStatus(member: AuthenticatedMember, 
 
 export async function getDocumentTemplateDownload(member: AuthenticatedMember, templateId: string): Promise<DocumentTemplateDownload> {
   requirePermission(member, "document_templates.read");
-  const canReadInactive = hasPermission(member.role, "document_templates.write");
+  const canReadInactive = hasPermission(member, "document_templates.write");
   const sql = getDatabase();
   const rows = await sql`SELECT document_templates.id, document_template_versions.original_filename,
       document_template_versions.mime_type, document_template_versions.size_bytes,

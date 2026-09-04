@@ -14,9 +14,9 @@ export const metadata: Metadata = { title: "Чат" };
 export default async function ChatPage({ searchParams }: { searchParams: Promise<{ channel?: string }> }) {
   const member = await requireOfficeSession();
   const { channel = null } = await searchParams;
-  const canRead = hasPermission(member.role, "chat.read");
-  const canWrite = hasPermission(member.role, "chat.write");
-  const canManage = hasPermission(member.role, "chat.manage");
+  const canRead = hasPermission(member, "chat.read");
+  const canWrite = hasPermission(member, "chat.write");
+  const canManage = hasPermission(member, "chat.manage");
   if (!canRead) return <div><PageHeading eyebrow="Коммуникации" title="Внутренний чат" description="Рабочие группы и история переписки офиса." /><section className="surface-panel mt-7 p-8 text-sm text-[#8b959b]">Для этой роли внутренний чат пока недоступен.</section></div>;
   const data = getAuthMode() === "preview" ? getPreviewChatWorkspace(member) : await getChatWorkspace(member, channel);
   const currentMemberId = data.members.find((chatMember) => chatMember.current)?.id ?? member.memberId;

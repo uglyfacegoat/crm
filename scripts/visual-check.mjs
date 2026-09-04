@@ -111,6 +111,10 @@ const visualCases = [
   { name: "site-infrastructure-dialog-mobile", path: "/sites/site-1", width: 320, height: 568, openSiteInfrastructureDialog: true },
   { name: "settings-desktop", path: "/settings", width: 1920, height: 1080 },
   { name: "settings-mobile", path: "/settings", width: 320, height: 568 },
+  { name: "settings-access-desktop", path: "/settings", width: 1920, height: 1080, openMemberAccessDialog: true },
+  { name: "settings-access-mobile", path: "/settings", width: 320, height: 568, openMemberAccessDialog: true },
+  { name: "settings-companies-desktop", path: "/settings", width: 1920, height: 1080, openSettingsTab: "Компании" },
+  { name: "settings-companies-mobile", path: "/settings", width: 320, height: 568, openSettingsTab: "Компании" },
   { name: "help-desktop", path: "/help", width: 1920, height: 1080 },
   { name: "help-mobile", path: "/help", width: 320, height: 568 },
   { name: "help-support-dialog-desktop", path: "/help", width: 1920, height: 1080, openSupportDialog: true },
@@ -211,6 +215,14 @@ try {
         ? orderDetailPath
         : visualCase.path;
     await page.goto(`${baseUrl}${resolvedPath}`, { waitUntil: "networkidle" });
+    if (visualCase.openSettingsTab) {
+      await page.getByRole("tab", { name: visualCase.openSettingsTab, exact: true }).click();
+      await page.getByRole("tabpanel").waitFor();
+    }
+    if (visualCase.openMemberAccessDialog) {
+      await page.locator('button[aria-label^="Изменить доступ:"]:not([disabled])').first().click();
+      await page.getByRole("dialog", { name: "Доступ сотрудника", exact: true }).waitFor();
+    }
     if (visualCase.openClientDialog) {
       await page.getByRole("button", { name: "Новый клиент", exact: true }).click();
       await page.getByRole("dialog", { name: "Новый клиент" }).waitFor();

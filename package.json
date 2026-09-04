@@ -21,6 +21,7 @@
     "backup:ui-check": "node --env-file-if-exists=.env.local scripts/backup-ui-check.mjs",
     "import:check": "node --env-file-if-exists=.env.local scripts/import-ui-check.mjs",
     "sites:check": "node --env-file-if-exists=.env.local scripts/sites-flow-check.mjs",
+    "companies:check": "node --env-file-if-exists=.env.local scripts/company-flow-check.mjs",
     "support:check": "node --env-file-if-exists=.env.local scripts/support-flow-check.mjs",
     "reminders:worker": "node --env-file-if-exists=.env.local scripts/reminder-worker.mjs",
     "db:down": "docker compose --env-file .env.local down",

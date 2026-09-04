@@ -35,11 +35,11 @@ export default async function OrderDetailPage({ params, searchParams }: { params
   const openNewVisit = (await searchParams).newVisit === "1";
   const member = await requireOfficeSession();
   const preview = getAuthMode() === "preview";
-  const canWrite = hasPermission(member.role, "orders.write");
-  const canReadVisits = hasPermission(member.role, "visits.read") && member.role !== "master";
-  const canWriteVisits = hasPermission(member.role, "visits.write");
-  const canReadDocuments = hasPermission(member.role, "documents.read");
-  const canWriteDocuments = hasPermission(member.role, "documents.write");
+  const canWrite = hasPermission(member, "orders.write");
+  const canReadVisits = hasPermission(member, "visits.read") && member.role !== "master";
+  const canWriteVisits = hasPermission(member, "visits.write");
+  const canReadDocuments = hasPermission(member, "documents.read");
+  const canWriteDocuments = hasPermission(member, "documents.write");
   let order;
   let options: OrderCreationOptions = { clients: [], objects: [], contacts: [], masters: [] };
   let orderVisits: ServiceVisit[] = [];

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { organizationRoles } from "../auth/types.ts";
+import { permissions } from "../auth/permissions.ts";
 import { isValidContactPhone, normalizeContactPhone } from "../clients/phone.ts";
 
 const optionalMasterId = z.union([z.literal(""), z.string().uuid()]).transform((value) => value || null);
@@ -30,6 +31,7 @@ export const updateMemberAccessSchema = z.object({
   memberId: z.string().uuid(),
   expectedVersion: z.coerce.number().int().positive(),
   active: z.boolean(),
+  permissionOverrides: z.partialRecord(z.enum(permissions), z.boolean()).default({}),
   ...roleAndMaster,
 }).superRefine(validateMasterLink);
 

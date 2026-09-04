@@ -13,5 +13,5 @@ export default async function SitesPage() {
   const preview = getAuthMode() === "preview";
   const snapshot = preview ? getPreviewWebsiteSnapshot() : await getWebsiteSnapshot(member);
 
-  return <SitesWorkspace snapshot={snapshot} canWrite={hasPermission(member.role, "sites.write")} preview={preview} />;
+  return <SitesWorkspace snapshot={snapshot} canWrite={hasPermission(member, "sites.write")} preview={preview} />;
 }

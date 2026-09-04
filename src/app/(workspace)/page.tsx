@@ -78,7 +78,7 @@ export default async function DashboardPage() {
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <TodayVisits visits={upcomingVisits} dateLabel={formatDashboardDate(now, dashboardTimeZone)} />
-        <TaskList tasks={visibleTasks} canWrite={!preview && hasPermission(member.role, "tasks.write")} />
+        <TaskList tasks={visibleTasks} canWrite={!preview && hasPermission(member, "tasks.write")} />
       </div>
 
       <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-[1.05fr_0.92fr_1fr]">

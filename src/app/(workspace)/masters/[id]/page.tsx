@@ -42,7 +42,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
     throw error;
   }
   if (!master) notFound();
-  const canWrite = hasPermission(member.role, "masters.write");
+  const canWrite = hasPermission(member, "masters.write");
   const canReadFinance = master.paidMinor !== undefined;
 
   return <div>

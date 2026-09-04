@@ -21,10 +21,9 @@ export default async function IncomingLeadsPage({ searchParams }: PageProps<"/in
     status: Array.isArray(query.status) ? query.status[0] : query.status,
     query: Array.isArray(query.query) ? query.query[0] : query.query,
   });
-  const canRead = hasPermission(member.role, "leads.read");
-  const canWrite = hasPermission(member.role, "leads.write");
+  const canRead = hasPermission(member, "leads.read");
+  const canWrite = hasPermission(member, "leads.write");
   const preview = getAuthMode() === "preview";
   const snapshot = canRead && !preview ? await getIncomingLeadSnapshot(member, filter) : emptySnapshot;
   return <IncomingLeadsWorkspace snapshot={snapshot} filter={filter} canWrite={canWrite && !preview} preview={preview} />;
 }
-

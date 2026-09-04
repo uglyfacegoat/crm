@@ -1,4 +1,5 @@
 import type { OrganizationRole } from "@/server/auth/types";
+import type { Permission } from "@/server/auth/permissions";
 
 export type OrganizationMemberListItem = {
   id: string;
@@ -11,6 +12,7 @@ export type OrganizationMemberListItem = {
   masterName: string | null;
   lastLoginAt: string | null;
   version: number;
+  permissionOverrides: Partial<Record<Permission, boolean>>;
 };
 
 export type MemberMasterOption = {

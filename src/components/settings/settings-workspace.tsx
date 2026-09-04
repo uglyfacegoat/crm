@@ -5,13 +5,16 @@ import { BackupSystemPanel } from "@/components/settings/backup-system-panel";
 import { DocumentTemplatePanel } from "@/components/settings/document-template-panel";
 import { ImportPanel } from "@/components/settings/import-panel";
 import { MemberAdminPanel } from "@/components/settings/member-admin-panel";
+import { OrganizationPanel } from "@/components/settings/organization-panel";
 import type { BackupSystemSnapshot } from "@/server/backups/types";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
 import type { ImportJobListItem } from "@/server/imports/types";
 import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
+import type { OrganizationOption } from "@/server/organizations/types";
 
 const settingTabs = [
   { id: "members", label: "Пользователи" },
+  { id: "organizations", label: "Компании" },
   { id: "templates", label: "Шаблоны документов" },
   { id: "import", label: "Импорт данных" },
   { id: "system", label: "Резервные копии" },
@@ -27,9 +30,10 @@ type SettingsWorkspaceProps = {
   importJobs: ImportJobListItem[];
   currentMemberId: string;
   preview: boolean;
+  organizations: OrganizationOption[];
 };
 
-export function SettingsWorkspace({ members, masterOptions, templates, backupSnapshot, importJobs, currentMemberId, preview }: SettingsWorkspaceProps) {
+export function SettingsWorkspace({ members, masterOptions, templates, backupSnapshot, importJobs, currentMemberId, preview, organizations }: SettingsWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<SettingTab>("members");
 
   return (
@@ -44,6 +48,7 @@ export function SettingsWorkspace({ members, masterOptions, templates, backupSna
 
       <section id={`settings-${activeTab}`} role="tabpanel">
         {activeTab === "members" ? <MemberAdminPanel members={members} masterOptions={masterOptions} currentMemberId={currentMemberId} preview={preview} /> : null}
+        {activeTab === "organizations" ? <OrganizationPanel organizations={organizations} preview={preview} /> : null}
         {activeTab === "templates" ? <DocumentTemplatePanel templates={templates} preview={preview} /> : null}
         {activeTab === "import" ? <ImportPanel jobs={importJobs} preview={preview} /> : null}
         {activeTab === "system" ? <BackupSystemPanel snapshot={backupSnapshot} preview={preview} /> : null}

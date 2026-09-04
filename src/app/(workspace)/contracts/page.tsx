@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Договоры" };
 export default async function ContractsPage() {
   const member = await requireOfficeSession();
   const snapshot = getAuthMode() === "preview" ? getPreviewContracts() : await listContracts(member);
-  const canWrite = hasPermission(member.role, "contracts.write");
+  const canWrite = hasPermission(member, "contracts.write");
   return <div>
     <PageHeading eyebrow="Долгосрочное обслуживание" title="Договоры" description="Периоды, продления и все плановые выезды — в одной непрерывной истории клиента." />
     <ContractsWorkspace key={snapshot.contracts.map((contract) => `${contract.id}:${contract.version}`).join("|")} snapshot={snapshot} canWrite={canWrite} />

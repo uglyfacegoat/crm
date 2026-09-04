@@ -61,6 +61,7 @@ export async function resolveSession(token: string): Promise<AuthenticatedMember
     email: session.email,
     role: session.role,
     masterId: session.master_id,
+    permissionOverrides: session.permission_overrides,
   };
 }
 

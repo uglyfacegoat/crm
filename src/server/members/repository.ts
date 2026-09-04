@@ -2,7 +2,7 @@ import "server-only";
 import type postgres from "postgres";
 import { z } from "zod";
 import { normalizeLoginIdentity } from "@/server/auth/identity";
-import { requirePermission } from "@/server/auth/permissions";
+import { permissions, requirePermission, type Permission } from "@/server/auth/permissions";
 import { hashPassword } from "@/server/auth/password";
 import { organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
@@ -20,6 +20,7 @@ const memberRowSchema = z.object({
   master_name: z.string().nullable(),
   last_login_at: z.coerce.date().nullable(),
   version: z.number().int().positive(),
+  permission_overrides: z.partialRecord(z.enum(permissions), z.boolean()),
 });
 
 const masterOptionRowSchema = z.object({
@@ -70,6 +71,7 @@ function mapMember(row: unknown): OrganizationMemberListItem {
     masterName: member.master_name,
     lastLoginAt: member.last_login_at?.toISOString() ?? null,
     version: member.version,
+    permissionOverrides: member.permission_overrides,
   };
 }
 
@@ -78,7 +80,8 @@ export async function listOrganizationMembers(member: AuthenticatedMember): Prom
   const sql = getDatabase();
   const rows = await sql`SELECT members.id, members.display_name, members.email, phone_identity.normalized_value AS phone,
       members.role, members.active, members.master_id, masters.full_name AS master_name,
-      last_session.last_login_at, members.version
+      last_session.last_login_at, members.version,
+      COALESCE(permission_overrides.values, '{}'::jsonb) AS permission_overrides
     FROM organization_members members
     LEFT JOIN member_login_identities phone_identity
       ON phone_identity.organization_id = members.organization_id AND phone_identity.member_id = members.id
@@ -88,6 +91,11 @@ export async function listOrganizationMembers(member: AuthenticatedMember): Prom
       SELECT max(created_at) AS last_login_at FROM auth_sessions
       WHERE organization_id = members.organization_id AND member_id = members.id
     ) last_session ON true
+    LEFT JOIN LATERAL (
+      SELECT jsonb_object_agg(permission, allowed) AS values
+      FROM member_permission_overrides
+      WHERE organization_id = members.organization_id AND member_id = members.id
+    ) permission_overrides ON true
     WHERE members.organization_id = ${member.organizationId}
     ORDER BY members.active DESC, members.display_name
     LIMIT 500`;
@@ -176,11 +184,14 @@ export async function updateOrganizationMemberAccess(member: AuthenticatedMember
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
-      const [existing] = await transaction`SELECT role, active, master_id, version FROM organization_members
+      const [existing] = await transaction`SELECT role, active, master_id, version,
+          COALESCE((SELECT jsonb_object_agg(permission, allowed) FROM member_permission_overrides
+            WHERE organization_id = organization_members.organization_id AND member_id = organization_members.id), '{}'::jsonb) AS permission_overrides
+        FROM organization_members
         WHERE organization_id = ${member.organizationId} AND id = ${input.memberId}
         FOR UPDATE`;
       if (!existing) throw new MemberNotFoundError();
-      const current = z.object({ role: z.enum(organizationRoles), active: z.boolean(), master_id: z.string().uuid().nullable(), version: z.number().int().positive() }).parse(existing);
+      const current = z.object({ role: z.enum(organizationRoles), active: z.boolean(), master_id: z.string().uuid().nullable(), version: z.number().int().positive(), permission_overrides: z.partialRecord(z.enum(permissions), z.boolean()) }).parse(existing);
       if (current.version !== input.expectedVersion) throw new MemberVersionConflictError();
       if (input.masterId) await requireAvailableMaster(transaction, member.organizationId, input.masterId);
 
@@ -190,16 +201,28 @@ export async function updateOrganizationMemberAccess(member: AuthenticatedMember
         RETURNING version`;
       if (!updated) throw new MemberVersionConflictError();
       const version = z.number().int().positive().parse(updated.version);
-      if (!input.active || current.role !== input.role || current.master_id !== input.masterId) {
-        await transaction`UPDATE auth_sessions SET revoked_at = coalesce(revoked_at, now())
-          WHERE organization_id = ${member.organizationId} AND member_id = ${input.memberId} AND revoked_at IS NULL`;
+      await transaction`DELETE FROM member_permission_overrides
+        WHERE organization_id = ${member.organizationId} AND member_id = ${input.memberId}`;
+      const overrides = Object.entries(input.permissionOverrides).map(([permission, allowed]) => ({
+        organization_id: member.organizationId,
+        member_id: input.memberId,
+        permission: permission as Permission,
+        allowed,
+      }));
+      if (overrides.length) {
+        await transaction`INSERT INTO member_permission_overrides ${transaction(overrides, "organization_id", "member_id", "permission", "allowed")}`;
       }
+      await transaction`UPDATE auth_sessions SET revoked_at = coalesce(revoked_at, now())
+        WHERE revoked_at IS NULL AND (
+          (organization_id = ${member.organizationId} AND member_id = ${input.memberId})
+          OR (active_organization_id = ${member.organizationId} AND active_member_id = ${input.memberId})
+        )`;
       await transaction`INSERT INTO audit_events
         (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'organization_member.access_update',
           'organization_member', ${input.memberId}, ${transaction.json({
-            before: { role: current.role, active: current.active, masterId: current.master_id, version: current.version },
-            after: { role: input.role, active: input.active, masterId: input.masterId, version },
+            before: { role: current.role, active: current.active, masterId: current.master_id, permissionOverrides: current.permission_overrides, version: current.version },
+            after: { role: input.role, active: input.active, masterId: input.masterId, permissionOverrides: input.permissionOverrides, version },
           })})`;
       return version;
     });
@@ -245,7 +268,10 @@ export async function resetOrganizationMemberPassword(member: AuthenticatedMembe
       RETURNING member_id`;
     if (!updatedCredentials.length) throw new Error("The organization member has no password credential.");
     const revokedSessions = await transaction`UPDATE auth_sessions SET revoked_at = coalesce(revoked_at, now())
-      WHERE organization_id = ${member.organizationId} AND member_id = ${input.memberId} AND revoked_at IS NULL
+      WHERE revoked_at IS NULL AND (
+        (organization_id = ${member.organizationId} AND member_id = ${input.memberId})
+        OR (active_organization_id = ${member.organizationId} AND active_member_id = ${input.memberId})
+      )
       RETURNING id`;
     const [updatedMember] = await transaction`UPDATE organization_members SET version = version + 1, updated_at = now()
       WHERE organization_id = ${member.organizationId} AND id = ${input.memberId} AND version = ${input.expectedVersion}

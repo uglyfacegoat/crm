@@ -30,9 +30,16 @@ const previewState: MemberMutationState = {
 };
 
 function accessFields(formData: FormData) {
+  let permissionOverrides: unknown = {};
+  try {
+    permissionOverrides = JSON.parse(String(formData.get("permissionOverrides") ?? "{}")) as unknown;
+  } catch {
+    permissionOverrides = null;
+  }
   return {
     role: formData.get("role"),
     masterId: formData.get("masterId"),
+    permissionOverrides,
   };
 }
 

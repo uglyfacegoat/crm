@@ -12,5 +12,5 @@ export const metadata: Metadata = { title: "Финансы" };
 export default async function FinancePage() {
   const member = await requireOfficeSession();
   const snapshot = getAuthMode() === "preview" ? getPreviewFinanceSnapshot() : await getFinanceSnapshot(member);
-  return <div><PageHeading eyebrow="Денежный поток" title="Финансы" description="Счета, частичные оплаты, дебиторская задолженность и выплаты мастерам в едином неизменяемом реестре." /><FinanceWorkspace snapshot={snapshot} canWrite={hasPermission(member.role, "finance.write")} /></div>;
+  return <div><PageHeading eyebrow="Денежный поток" title="Финансы" description="Счета, частичные оплаты, дебиторская задолженность и выплаты мастерам в едином неизменяемом реестре." /><FinanceWorkspace snapshot={snapshot} canWrite={hasPermission(member, "finance.write")} /></div>;
 }

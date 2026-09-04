@@ -13,18 +13,21 @@ import { listDocumentTemplates } from "@/server/document-templates/repository";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
 import { listMemberMasterOptions, listOrganizationMembers } from "@/server/members/repository";
 import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
+import { listAccessibleOrganizations } from "@/server/organizations/repository";
+import type { OrganizationOption } from "@/server/organizations/types";
 
 export const metadata: Metadata = { title: "Настройки" };
 
 export default async function SettingsPage() {
   const member = await requireOfficeSession();
-  if (!hasPermission(member.role, "settings.write")) redirect("/");
+  if (!hasPermission(member, "settings.write")) redirect("/");
   const preview = getAuthMode() === "preview";
   let members: OrganizationMemberListItem[];
   let masterOptions: MemberMasterOption[];
   let templates: DocumentTemplateListItem[];
   let backupSnapshot: BackupSystemSnapshot;
   let importJobs: ImportJobListItem[];
+  let organizations: OrganizationOption[];
   if (preview) {
     members = [{
         id: member.memberId,
@@ -37,14 +40,16 @@ export default async function SettingsPage() {
         masterName: null,
         lastLoginAt: null,
         version: 1,
+        permissionOverrides: {},
       }];
     masterOptions = [];
     templates = [];
     backupSnapshot = getPreviewBackupSystemSnapshot();
     importJobs = [];
+    organizations = [{ id: member.organizationId, name: "Центр компаний", kind: "center", current: true }];
   } else {
-    [members, masterOptions, templates, backupSnapshot, importJobs] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listRecentImportJobs(member)]);
+    [members, masterOptions, templates, backupSnapshot, importJobs, organizations] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listRecentImportJobs(member), listAccessibleOrganizations(member)]);
   }
 
-  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, организацией, пользователями и будущими интеграциями." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} /></div>;
+  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} organizations={organizations} /></div>;
 }

@@ -31,13 +31,14 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { globalSearchResponseSchema, type GlobalSearchResult } from "@/lib/global-search";
 import { Avatar } from "@/components/ui/avatar";
 import { NotificationCenter } from "@/components/notifications/notification-center";
-import { logoutAction } from "@/app/(workspace)/actions";
+import { logoutAction, switchOrganizationAction } from "@/app/(workspace)/actions";
 import type { OrganizationRole } from "@/server/auth/types";
 import { hasPermission } from "@/server/auth/permissions";
+import type { OrganizationOption } from "@/server/organizations/types";
 
 const officeNavigation = [
   { href: "/", label: "Главная", icon: LayoutDashboard },
@@ -85,21 +86,46 @@ function isActivePath(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
-function CompanySwitcher({ visible }: { visible: boolean }) {
+function CompanySwitcher({ visible, organizations }: { visible: boolean; organizations: OrganizationOption[] }) {
   if (!visible) return null;
+  const current = organizations.find((organization) => organization.current) ?? organizations[0];
 
   return (
     <div className="px-3 pt-3">
-      <div className="flex min-h-11 items-center gap-2.5 rounded-[13px] border border-white/[0.07] bg-white/[0.025] px-3 text-xs text-[#a1aaaf]">
-        <Building2 className="size-4 text-[var(--accent)]" />
-        <span className="min-w-0 flex-1 truncate">Основная компания</span>
-        <span className="size-1.5 rounded-full bg-[#69d3a4] shadow-[0_0_8px_rgba(105,211,164,0.5)]" />
-      </div>
+      <details className="group relative">
+        <summary className="focus-ring flex min-h-11 cursor-pointer list-none items-center gap-2.5 rounded-[13px] border border-white/[0.07] bg-white/[0.025] px-3 text-xs text-[#a1aaaf] marker:hidden">
+          <Building2 className="size-4 shrink-0 text-[var(--accent)]" />
+          <span className="min-w-0 flex-1 truncate">{current?.name ?? "Компания"}</span>
+          <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" />
+        </summary>
+        {organizations.length > 1 ? <div className="absolute left-0 right-0 top-[calc(100%+0.4rem)] z-50 overflow-hidden rounded-[13px] border border-white/[0.09] bg-[#10171b] p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+          {organizations.map((organization) => <OrganizationSwitchForm key={organization.id} organization={organization} />)}
+        </div> : null}
+      </details>
     </div>
   );
 }
 
-function SidebarContent({ pathname, navigation, role, onNavigate, expanded = false }: { pathname: string; navigation: NavigationItem[]; role: OrganizationRole; onNavigate?: () => void; expanded?: boolean }) {
+function OrganizationSwitchForm({ organization }: { organization: OrganizationOption }) {
+  const [pending, startTransition] = useTransition();
+  return <form onSubmit={(event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(async () => {
+      await switchOrganizationAction(formData);
+      window.location.reload();
+    });
+  }}>
+    <input type="hidden" name="organizationId" value={organization.id} />
+    <button type="submit" disabled={organization.current || pending} className="focus-ring flex min-h-10 w-full items-center gap-2 rounded-[10px] px-2.5 text-left text-[10px] text-[#929ca1] hover:bg-white/[0.045] hover:text-white disabled:bg-[var(--accent)]/[0.07] disabled:text-[var(--accent)]">
+      {pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <span className={`size-1.5 shrink-0 rounded-full ${organization.kind === "center" ? "bg-[var(--accent)]" : "bg-[#65b7ee]"}`} />}
+      <span className="min-w-0 flex-1 truncate">{organization.name}</span>
+      {organization.current ? <span className="text-[8px] uppercase tracking-wider">сейчас</span> : null}
+    </button>
+  </form>;
+}
+
+function SidebarContent({ pathname, navigation, role, organizations, onNavigate, expanded = false }: { pathname: string; navigation: NavigationItem[]; role: OrganizationRole; organizations: OrganizationOption[]; onNavigate?: () => void; expanded?: boolean }) {
   const labelClass = expanded ? "block" : "hidden xl:block";
 
   return (
@@ -112,7 +138,7 @@ function SidebarContent({ pathname, navigation, role, onNavigate, expanded = fal
         </div>
       ) : null}
 
-      {role !== "master" ? <><CompanySwitcher visible={expanded} /><div className="hidden xl:block"><CompanySwitcher visible={!expanded} /></div></> : null}
+      {role !== "master" ? <><CompanySwitcher visible={expanded} organizations={organizations} /><div className="hidden xl:block"><CompanySwitcher visible={!expanded} organizations={organizations} /></div></> : null}
 
       <nav aria-label="Основная навигация" className="flex flex-1 flex-col gap-1 px-3 py-4 md:pt-5">
         {navigation.map((item) => {
@@ -298,13 +324,13 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
 
 const roleLabels: Record<OrganizationRole, string> = { admin: "Администратор", dispatcher: "Диспетчер", manager: "Менеджер", accountant: "Бухгалтер", master: "Мастер" };
 
-export function AppShell({ children, currentUser }: { children: React.ReactNode; currentUser: { displayName: string; email: string; role: OrganizationRole } }) {
+export function AppShell({ children, currentUser, organizations }: { children: React.ReactNode; currentUser: { displayName: string; email: string; role: OrganizationRole; permissionOverrides: Record<string, boolean> }; organizations: OrganizationOption[] }) {
   const pathname = usePathname();
   const canUseQuickOrder = currentUser.role === "admin" || currentUser.role === "dispatcher";
   const navigation = currentUser.role === "master" ? masterNavigation : officeNavigation.filter((item) => {
     if (item.href === "/quick-order") return canUseQuickOrder;
-    if (item.href === "/inbox") return hasPermission(currentUser.role, "leads.read");
-    if (item.href === "/finance") return hasPermission(currentUser.role, "finance.read");
+    if (item.href === "/inbox") return hasPermission(currentUser, "leads.read");
+    if (item.href === "/finance") return hasPermission(currentUser, "finance.read");
     return true;
   });
   const mobileNavigation = navigation.slice(0, 4);
@@ -329,13 +355,13 @@ export function AppShell({ children, currentUser }: { children: React.ReactNode;
   return (
     <div className="min-h-screen bg-transparent">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-20 flex-col border-r border-white/[0.06] bg-[radial-gradient(circle_at_20%_0%,rgba(102,174,243,0.055),transparent_22rem),radial-gradient(circle_at_100%_70%,rgba(156,130,232,0.035),transparent_24rem),rgba(9,13,16,0.96)] shadow-[18px_0_60px_rgba(0,0,0,0.08)] backdrop-blur-xl md:flex xl:w-56">
-        <SidebarContent pathname={pathname} navigation={navigation} role={currentUser.role} />
+        <SidebarContent pathname={pathname} navigation={navigation} role={currentUser.role} organizations={organizations} />
       </aside>
 
       {mobileMenuOpen ? (
         <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm md:hidden" onClick={() => setMobileMenuOpen(false)} role="presentation">
           <aside className="flex h-full w-[min(19rem,88vw)] flex-col border-r border-white/10 bg-[#090d10] shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <SidebarContent pathname={pathname} navigation={navigation} role={currentUser.role} onNavigate={() => setMobileMenuOpen(false)} expanded />
+            <SidebarContent pathname={pathname} navigation={navigation} role={currentUser.role} organizations={organizations} onNavigate={() => setMobileMenuOpen(false)} expanded />
           </aside>
         </div>
       ) : null}

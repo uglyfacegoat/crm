@@ -14,6 +14,6 @@ export default async function MastersPage() {
   const member = await requireOfficeSession();
   const preview = getAuthMode() === "preview";
   const masters = preview ? getPreviewMasters() : await listMasters(member);
-  const canWrite = hasPermission(member.role, "masters.write");
+  const canWrite = hasPermission(member, "masters.write");
   return <div><PageHeading eyebrow="Исполнители" title="Мастера" description="Зоны работы, контакты и текущая загрузка специалистов." action={canWrite ? <CreateMasterButton /> : undefined} /><MastersWorkspace masters={masters} /></div>;
 }

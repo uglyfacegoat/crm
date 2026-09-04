@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     if (!member) return Response.json({ error: { code: "unauthenticated", message: "Требуется вход." } }, { status: 401 });
     const { id } = await params;
     if (getAuthMode() === "preview") {
-      const card = getPreviewVisitDispatchCard(id, hasPermission(member.role, "finance.read"));
+      const card = getPreviewVisitDispatchCard(id, hasPermission(member, "finance.read"));
       if (!card) return Response.json({ error: { code: "not_found", message: "Выезд не найден." } }, { status: 404 });
       return Response.json({ data: card }, { headers: { "Cache-Control": "private, no-store" } });
     }

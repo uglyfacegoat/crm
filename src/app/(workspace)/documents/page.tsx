@@ -24,8 +24,8 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   const parsedDocumentId = documentIdSchema.safeParse(firstSearchValue(resolvedSearchParams.document));
   const initialDocumentId = parsedDocumentId.success ? parsedDocumentId.data : null;
   const preview = getAuthMode() === "preview";
-  const canRead = hasPermission(member.role, "documents.read");
-  const canWrite = hasPermission(member.role, "documents.write");
+  const canRead = hasPermission(member, "documents.read");
+  const canWrite = hasPermission(member, "documents.write");
   const [documents, archive, uploadOptions] = preview || !canRead
     ? [[], emptyDocumentArchiveTree, { orders: [], visits: [] }]
     : await Promise.all([
