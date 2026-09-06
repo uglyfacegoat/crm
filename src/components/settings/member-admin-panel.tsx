@@ -2,6 +2,7 @@
 
 import {
   Check,
+  ChevronDown,
   KeyRound,
   Plus,
   Search,
@@ -11,7 +12,7 @@ import {
 import { clientCrypto as crypto } from "@/lib/client-id";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useActionState, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   createMemberAction,
   resetMemberPasswordAction,
@@ -21,6 +22,7 @@ import {
 import { OrderField, OrderFormFooter, orderInputClass } from "@/components/orders/order-form-parts";
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
+import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 import { hasPermission, permissionSections, type Permission } from "@/server/auth/permissions";
 import type { OrganizationRole } from "@/server/auth/types";
 import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
@@ -44,6 +46,37 @@ function MutationStatus({ state }: { state: MemberMutationState }) {
   );
 }
 
+const permissionChoiceOptions = [
+  { value: "inherit", label: "По роли" },
+  { value: "allow", label: "Разрешить" },
+  { value: "deny", label: "Запретить" },
+] as const;
+
+function PermissionChoice({ label, value, onChange }: {
+  label: string;
+  value: (typeof permissionChoiceOptions)[number]["value"];
+  onChange: (value: (typeof permissionChoiceOptions)[number]["value"]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const choiceRef = useRef<HTMLDivElement>(null);
+  const selected = permissionChoiceOptions.find((option) => option.value === value) ?? permissionChoiceOptions[0];
+
+  useDismissableLayer(choiceRef, open, () => setOpen(false));
+
+  return (
+    <div ref={choiceRef} className="relative shrink-0">
+      <button type="button" aria-label={label} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)} className="focus-ring flex h-9 min-w-28 items-center justify-between gap-2 rounded-full border border-white/[0.09] bg-[#10171b] px-3 text-[10px] text-[#c2c9ca] transition-colors hover:border-white/[0.16] hover:bg-white/[0.045]">
+        <span>{selected.label}</span><ChevronDown className={`size-3 text-[#778187] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? <div role="listbox" aria-label={label} className="absolute right-0 top-[calc(100%+0.4rem)] z-30 w-32 overflow-hidden rounded-[14px] border border-white/[0.1] bg-[#141c20] p-1 shadow-[0_16px_36px_rgba(0,0,0,0.34)]">
+        {permissionChoiceOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={option.value === value} onClick={() => { onChange(option.value); setOpen(false); }} className={`focus-ring flex min-h-9 w-full items-center justify-between rounded-[10px] px-2.5 text-left text-[10px] transition-colors ${option.value === value ? "bg-[var(--accent)]/[0.11] text-white" : "text-[#98a2a6] hover:bg-white/[0.05] hover:text-white"}`}>
+          {option.label}{option.value === value ? <Check className="size-3.5 text-[var(--accent)]" /> : null}
+        </button>)}
+      </div> : null}
+    </div>
+  );
+}
+
 function PermissionMatrix({ role, overrides, onChange }: {
   role: OrganizationRole;
   overrides: Partial<Record<Permission, boolean>>;
@@ -61,12 +94,10 @@ function PermissionMatrix({ role, overrides, onChange }: {
         <div className="divide-y divide-white/[0.05]">{section.permissions.map(([permission, label]) => {
           const explicit = overrides[permission];
           const value = explicit === undefined ? "inherit" : explicit ? "allow" : "deny";
-          return <label key={permission} className="flex min-h-12 items-center gap-3 px-3 py-2">
+          return <div key={permission} className="flex min-h-12 items-center gap-3 px-3 py-2">
             <span className="min-w-0 flex-1"><span className="block text-[11px] text-[#b7bec1]">{label}</span><span className="mt-0.5 block text-[9px] text-[#5e696f]">По роли: {hasPermission(role, permission) ? "разрешено" : "запрещено"}</span></span>
-            <select aria-label={`${section.label}: ${label}`} value={value} onChange={(event) => onChange(permission, event.target.value as typeof value)} className="focus-ring h-9 w-28 rounded-[10px] border border-white/[0.075] bg-[#10171b] px-2 text-[10px] text-[#9da6aa] outline-none">
-              <option value="inherit">По роли</option><option value="allow">Разрешить</option><option value="deny">Запретить</option>
-            </select>
-          </label>;
+            <PermissionChoice label={`${section.label}: ${label}`} value={value} onChange={(nextValue) => onChange(permission, nextValue)} />
+          </div>;
         })}</div>
       </div>)}
     </div>

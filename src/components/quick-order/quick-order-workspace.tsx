@@ -88,7 +88,7 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
         type="button"
         onClick={() => onChange(mode)}
         aria-pressed={value === mode}
-        className={`focus-ring min-h-12 rounded-[11px] px-4 text-left text-xs font-semibold transition-colors ${value === mode ? "bg-[var(--accent)] text-[#101308] shadow-[0_5px_16px_rgba(0,0,0,0.18)]" : "text-[#8b969c] hover:bg-white/[0.055] hover:text-white"}`}
+        className={`focus-ring min-h-11 rounded-[11px] border px-4 text-left text-xs font-semibold transition-colors ${value === mode ? "border-[var(--accent)]/35 bg-[var(--accent)]/[0.11] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" : "border-transparent text-[#8b969c] hover:bg-white/[0.055] hover:text-white"}`}
       >
         {label}
       </button>
@@ -98,7 +98,7 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
 
 function SectionIntro({ number, title, description }: { number: string; title: string; description: string }) {
   return <header className="mb-8">
-    <p className="inline-flex rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/[0.08] px-3 py-1.5 font-display text-[10px] font-semibold tracking-[0.14em] text-[var(--accent)]">ШАГ {number} ИЗ 04</p>
+    <p className="inline-flex rounded-full border border-white/[0.09] bg-white/[0.025] px-3 py-1.5 font-display text-[10px] font-semibold tracking-[0.14em] text-[#aab5b7]"><span className="mr-1.5 text-[var(--accent)]">{number}</span>ШАГ ИЗ 04</p>
     <h2 className="mt-4 font-display text-[clamp(1.6rem,1.25rem+0.9vw,2.15rem)] font-medium tracking-[-0.045em] text-white">{title}</h2>
     <p className="mt-2 max-w-2xl text-sm leading-6 text-[#899399]">{description}</p>
   </header>;
@@ -313,10 +313,10 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
               onClick={() => goToSection(index)}
               disabled={!available}
               aria-current={active ? "step" : undefined}
-              className={`focus-ring flex min-h-[5.25rem] w-full min-w-0 items-center gap-3 rounded-[16px] px-3 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-35 sm:px-4 ${active ? "bg-[var(--accent)] text-[#101308] shadow-[0_5px_18px_rgba(0,0,0,0.18)]" : "bg-white/[0.025] text-[#9ca5a9] hover:bg-white/[0.06] hover:text-white"}`}
+              className={`focus-ring flex min-h-[4.35rem] w-full min-w-0 items-center gap-3 rounded-[15px] border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-35 sm:px-4 ${active ? "border-[var(--accent)]/35 bg-[var(--accent)]/[0.1] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" : "border-transparent bg-white/[0.025] text-[#9ca5a9] hover:bg-white/[0.06] hover:text-white"}`}
             >
-              <span className={`grid size-8 shrink-0 place-items-center rounded-full border text-xs font-semibold ${active ? "border-[#101308]/15 bg-[#101308]/10" : done ? "border-[#69d3a4]/25 bg-[#69d3a4]/10 text-[#80d8b2]" : "border-white/[0.1] bg-black/[0.12] text-[#6f7a80]"}`}>{done && !active ? <Check className="size-4" aria-label="Раздел заполнен" /> : `0${index + 1}`}</span>
-              <span className="min-w-0"><span className="block truncate text-xs font-semibold">{entry.title}</span><span className={`mt-1 hidden truncate text-[10px] sm:block ${active ? "text-[#101308]/65" : "text-[#667178]"}`}>{entry.description}</span></span>
+              <span className={`grid size-8 shrink-0 place-items-center rounded-full border text-xs font-semibold ${active ? "border-[var(--accent)]/40 bg-[var(--accent)] text-[#101308]" : done ? "border-[#69d3a4]/25 bg-[#69d3a4]/10 text-[#80d8b2]" : "border-white/[0.1] bg-black/[0.12] text-[#6f7a80]"}`}>{done && !active ? <Check className="size-4" aria-label="Раздел заполнен" /> : `0${index + 1}`}</span>
+              <span className="min-w-0"><span className="block truncate text-xs font-semibold">{entry.title}</span><span className={`mt-1 hidden truncate text-[10px] sm:block ${active ? "text-[#abb6b9]" : "text-[#667178]"}`}>{entry.description}</span></span>
             </button>
           </li>;
         })}
@@ -375,7 +375,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           {state.status === "error" && state.message ? <p data-testid="quick-order-error" role="alert" className="mb-4 flex items-start gap-2 rounded-[14px] border border-[#ef646a]/20 bg-[#ef646a]/[0.07] px-4 py-3 text-xs leading-5 text-[#e29a9f]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{state.message}</p> : null}
           <div className="flex gap-2">
             <button type="button" onClick={() => goToSection(Math.max(0, step - 1))} disabled={step === 0 || pending} className="focus-ring flex h-12 items-center justify-center gap-2 rounded-[14px] border border-white/[0.08] px-4 text-xs text-[#899399] hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"><ArrowLeft className="size-4" /><span className="hidden sm:inline">Назад</span></button>
-            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] transition-colors hover:bg-[#f4f854] disabled:cursor-not-allowed disabled:opacity-50">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="submit" disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] transition-colors hover:bg-[#f4f854] disabled:cursor-not-allowed disabled:opacity-50">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
+            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] bg-[var(--accent)] px-5 text-xs font-semibold text-[#101308] transition-colors hover:bg-[#f4f854] disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-64 sm:flex-none sm:min-w-56">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="submit" disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] bg-[var(--accent)] px-5 text-xs font-semibold text-[#101308] transition-colors hover:bg-[#f4f854] disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-72 sm:flex-none sm:min-w-64">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
           </div>
         </footer>
       </div>

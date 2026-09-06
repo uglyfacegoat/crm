@@ -37,13 +37,26 @@ function LedgerStatus({ status, reversalReason }: { status: "posted" | "reversed
 }
 
 function PaymentRow({ payment, canWrite, onReverse }: { payment: FinancePayment; canWrite: boolean; onReverse: () => void }) {
-  return <div className="grid gap-2 rounded-[14px] bg-black/[0.13] px-3.5 py-3 sm:grid-cols-[7rem_minmax(0,1fr)_auto_auto] sm:items-center sm:gap-3"><div><p className="font-display text-xs text-white">{formatMoneyMinor(payment.amountMinor)}</p><p className="mt-1 text-[9px] text-[#687279]">{formatDate(payment.receivedOn)}</p></div><div className="min-w-0"><p className="truncate text-[10px] text-[#a0a9ad]">{methodLabels[payment.method]}{payment.reference ? ` · ${payment.reference}` : ""}</p>{payment.note ? <p className="mt-1 truncate text-[9px] text-[#646e74]">{payment.note}</p> : null}</div><LedgerStatus status={payment.status} reversalReason={payment.reversalReason} />{canWrite && payment.status === "posted" ? <button type="button" onClick={onReverse} className="focus-ring flex h-8 items-center justify-center gap-1.5 rounded-full border border-white/[0.08] px-3 text-[9px] text-[#c18487] hover:border-[#ef646a]/25 hover:bg-[#ef646a]/[0.05]"><Ban className="size-3.5" />Сторно</button> : null}</div>;
+  return (
+    <div className="grid gap-2 rounded-[15px] border border-white/[0.045] bg-[#0a0f12] px-3.5 py-3 sm:grid-cols-[7rem_minmax(0,1fr)_auto_auto] sm:items-center sm:gap-3">
+      <div>
+        <p className="font-display text-xs text-white">{formatMoneyMinor(payment.amountMinor)}</p>
+        <p className="mt-1 text-[9px] text-[#687279]">{formatDate(payment.receivedOn)}</p>
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-[10px] text-[#a0a9ad]">{methodLabels[payment.method]}{payment.reference ? ` · ${payment.reference}` : ""}</p>
+        {payment.note ? <p className="mt-1 truncate text-[9px] text-[#646e74]">{payment.note}</p> : null}
+      </div>
+      <LedgerStatus status={payment.status} reversalReason={payment.reversalReason} />
+      {canWrite && payment.status === "posted" ? <button type="button" onClick={onReverse} className="focus-ring flex h-8 items-center justify-center gap-1.5 rounded-full border border-white/[0.08] px-3 text-[9px] text-[#c18487] hover:border-[#ef646a]/25 hover:bg-[#ef646a]/[0.05]"><Ban className="size-3.5" />Сторно</button> : null}
+    </div>
+  );
 }
 
 function InvoiceCard({ order, invoice, canWrite, onDialog }: { order: FinanceOrder; invoice: FinanceInvoice; canWrite: boolean; onDialog: (dialog: FinanceDialog) => void }) {
   const paymentProgress = invoice.amountMinor ? Math.min(100, Math.round(invoice.paidMinor / invoice.amountMinor * 100)) : 0;
   return (
-    <article className={`rounded-[18px] border border-white/[0.055] bg-white/[0.018] p-4 ${invoice.status === "void" ? "opacity-60" : ""}`}>
+    <article className={`rounded-[18px] border border-white/[0.065] bg-[#10171b] p-4 ${invoice.status === "void" ? "opacity-60" : ""}`}>
       <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -69,28 +82,29 @@ function OrderLedgerCard({ order, canWrite, onDialog }: { order: FinanceOrder; c
   const remainingToInvoice = Math.max(0, order.agreedMinor - order.invoicedMinor);
   const settled = order.receivableMinor === 0 && order.invoicedMinor > 0;
   return (
-    <article className="border-b border-white/[0.055] px-4 py-5 transition-colors last:border-b-0 hover:bg-white/[0.018] sm:px-5">
-      <div className="grid gap-4 xl:grid-cols-[minmax(13rem,0.88fr)_minmax(29rem,1.5fr)_auto] xl:items-center">
+    <article className="rounded-[22px] border border-white/[0.07] bg-[#11191d] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.11)] transition-colors hover:border-white/[0.12] sm:p-5">
+      <div className="grid gap-5 xl:grid-cols-[minmax(13rem,0.82fr)_minmax(29rem,1.42fr)_auto] xl:items-center">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><Link href={`/orders/${order.id}`} className="focus-ring rounded-md font-display text-sm font-semibold text-white hover:text-[var(--accent)]">{order.number}</Link><span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[9px] text-[#8a9499]">{statusLabels[order.status] ?? order.status}</span></div>
+          <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#6f797e]">Заказ</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2"><Link href={`/orders/${order.id}`} className="focus-ring rounded-full font-display text-sm font-semibold text-white hover:text-[var(--accent)]">{order.number}</Link><span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[9px] text-[#8a9499]">{statusLabels[order.status] ?? order.status}</span></div>
           <p className="mt-2 truncate text-xs font-medium text-[#d2d7d5]">{order.client}</p>
           <p className="mt-1 truncate text-[10px] text-[#6d777d]">{order.object}</p>
         </div>
-        <dl className="grid grid-cols-2 gap-x-5 gap-y-4 rounded-[18px] bg-black/[0.11] px-4 py-3.5 min-[520px]:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-4 rounded-[18px] border border-white/[0.045] bg-[#0b1013] px-4 py-4 min-[520px]:grid-cols-4">
           <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Согласовано</dt><dd className="mt-1.5 font-display text-xs text-white">{formatMoneyMinor(order.agreedMinor)}</dd></div>
-          <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Выставлено</dt><dd className="mt-1.5 font-display text-xs text-[#7fc5ef]">{formatMoneyMinor(order.invoicedMinor)}</dd></div>
-          <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Получено</dt><dd className="mt-1.5 font-display text-xs text-[#78d4aa]">{formatMoneyMinor(order.paidMinor)}</dd></div>
-          <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Долг</dt><dd className={`mt-1.5 font-display text-xs ${order.receivableMinor > 0 ? "text-[#e8b666]" : "text-[var(--accent)]"}`}>{formatMoneyMinor(order.receivableMinor)}</dd></div>
+          <div className="min-[520px]:border-l min-[520px]:border-white/[0.06] min-[520px]:pl-4"><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Выставлено</dt><dd className="mt-1.5 font-display text-xs text-[#7fc5ef]">{formatMoneyMinor(order.invoicedMinor)}</dd></div>
+          <div className="min-[520px]:border-l min-[520px]:border-white/[0.06] min-[520px]:pl-4"><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Получено</dt><dd className="mt-1.5 font-display text-xs text-[#78d4aa]">{formatMoneyMinor(order.paidMinor)}</dd></div>
+          <div className="min-[520px]:border-l min-[520px]:border-white/[0.06] min-[520px]:pl-4"><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Долг</dt><dd className={`mt-1.5 font-display text-xs ${order.receivableMinor > 0 ? "text-[#e8b666]" : "text-[var(--accent)]"}`}>{formatMoneyMinor(order.receivableMinor)}</dd></div>
         </dl>
         <div className="flex items-center gap-2 xl:justify-end">{settled ? <span className="rounded-full border border-[#69d3a4]/15 bg-[#69d3a4]/[0.055] px-3 py-2 text-[10px] text-[#78d4aa]">Расчёт закрыт</span> : null}{canWrite && remainingToInvoice > 0 ? <button type="button" onClick={() => onDialog({ kind: "invoice", order })} className="focus-ring flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 text-[10px] font-semibold text-[#101308] active:translate-y-px"><FilePlus2 className="size-4" />Новый счёт</button> : null}</div>
       </div>
-      <details className="group mt-4 rounded-[18px] bg-black/[0.11] px-3.5 py-1"><summary className="focus-ring flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-[11px] text-[10px] text-[#8b959a] [&::-webkit-details-marker]:hidden"><ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />Счета и оплаты <span className="rounded-full bg-white/[0.055] px-2 py-0.5 text-[8px]">{order.invoices.length}</span></summary><div className="mt-2 space-y-3 pb-3">{order.invoices.length ? order.invoices.map((invoice) => <InvoiceCard key={invoice.id} order={order} invoice={invoice} canWrite={canWrite} onDialog={onDialog} />) : <p className="py-3 text-xs text-[#626c72]">По заказу ещё нет счетов.</p>}</div></details>
+      <details className="group mt-5 overflow-hidden rounded-[18px] border border-white/[0.045] bg-[#0b1013] px-3.5 py-1"><summary className="focus-ring flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-[13px] text-[10px] text-[#8b959a] [&::-webkit-details-marker]:hidden"><ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />Счета и оплаты <span className="rounded-full bg-white/[0.055] px-2 py-0.5 text-[8px]">{order.invoices.length}</span></summary><div className="mt-2 space-y-3 border-t border-white/[0.045] pb-3 pt-3">{order.invoices.length ? order.invoices.map((invoice) => <InvoiceCard key={invoice.id} order={order} invoice={invoice} canWrite={canWrite} onDialog={onDialog} />) : <p className="py-3 text-xs text-[#626c72]">По заказу ещё нет счетов.</p>}</div></details>
     </article>
   );
 }
 
 function PayoutRow({ payout, canWrite, onReverse }: { payout: FinancePayout; canWrite: boolean; onReverse: () => void }) {
-  return <article className="border-b border-white/[0.055] px-4 py-4 transition-colors last:border-0 hover:bg-white/[0.018] sm:grid sm:grid-cols-[minmax(10rem,1.3fr)_8rem_minmax(9rem,1fr)_auto_auto] sm:items-center sm:gap-4 sm:px-5"><div className="min-w-0"><p className="truncate text-xs font-medium text-white">{payout.masterName}</p><Link href={`/orders/${payout.orderId}`} className="mt-1 block text-[10px] text-[#79838a] hover:text-[var(--accent)]">Заказ {payout.orderNumber}</Link></div><p className="mt-3 text-[10px] text-[#7c868b] sm:mt-0">{formatDate(payout.paidOn)}</p><p className="mt-2 truncate text-[10px] text-[#929b9f] sm:mt-0">{methodLabels[payout.method]}{payout.reference ? ` · ${payout.reference}` : ""}</p><div className="mt-3 sm:mt-0"><LedgerStatus status={payout.status} reversalReason={payout.reversalReason} /></div><div className="mt-3 flex items-center justify-between gap-3 sm:mt-0 sm:justify-end"><strong className="font-display text-xs text-white">{formatMoneyMinor(payout.amountMinor)}</strong>{canWrite && payout.status === "posted" ? <button type="button" onClick={onReverse} aria-label={`Сторнировать выплату ${payout.masterName}`} className="focus-ring flex h-8 items-center gap-1.5 rounded-full border border-white/[0.08] px-3 text-[9px] text-[#c18487] hover:border-[#ef646a]/25 hover:bg-[#ef646a]/[0.05]"><Ban className="size-3.5" />Сторно</button> : null}</div></article>;
+  return <article className="rounded-[19px] border border-white/[0.065] bg-[#11191d] px-4 py-4 shadow-[0_10px_24px_rgba(0,0,0,0.08)] transition-colors hover:border-white/[0.11] sm:grid sm:grid-cols-[minmax(10rem,1.3fr)_8rem_minmax(9rem,1fr)_auto_auto] sm:items-center sm:gap-4 sm:px-5"><div className="min-w-0"><p className="truncate text-xs font-medium text-white">{payout.masterName}</p><Link href={`/orders/${payout.orderId}`} className="mt-1 block text-[10px] text-[#79838a] hover:text-[var(--accent)]">Заказ {payout.orderNumber}</Link></div><p className="mt-3 text-[10px] text-[#7c868b] sm:mt-0">{formatDate(payout.paidOn)}</p><p className="mt-2 truncate text-[10px] text-[#929b9f] sm:mt-0">{methodLabels[payout.method]}{payout.reference ? ` · ${payout.reference}` : ""}</p><div className="mt-3 sm:mt-0"><LedgerStatus status={payout.status} reversalReason={payout.reversalReason} /></div><div className="mt-3 flex items-center justify-between gap-3 sm:mt-0 sm:justify-end"><strong className="font-display text-xs text-white">{formatMoneyMinor(payout.amountMinor)}</strong>{canWrite && payout.status === "posted" ? <button type="button" onClick={onReverse} aria-label={`Сторнировать выплату ${payout.masterName}`} className="focus-ring flex h-8 items-center gap-1.5 rounded-full border border-white/[0.08] px-3 text-[9px] text-[#c18487] hover:border-[#ef646a]/25 hover:bg-[#ef646a]/[0.05]"><Ban className="size-3.5" />Сторно</button> : null}</div></article>;
 }
 
 export function FinanceWorkspace({ snapshot, canWrite }: { snapshot: FinanceSnapshot; canWrite: boolean }) {
@@ -172,13 +186,13 @@ export function FinanceWorkspace({ snapshot, canWrite }: { snapshot: FinanceSnap
   }
 
   return <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-    <section className="surface-panel overflow-hidden rounded-[1.5rem]">
+    <section className="surface-panel overflow-hidden rounded-[1.5rem]" style={{ background: "#0d1215" }}>
       <header className="grid gap-5 border-b border-white/[0.065] px-4 py-5 sm:px-6 lg:grid-cols-[minmax(17rem,0.9fr)_minmax(0,1.1fr)] lg:items-end">
         <div>
           <p className="eyebrow">Денежный реестр</p>
-          <div role="tablist" aria-label="Разделы финансов" className="mt-4 inline-flex rounded-full border border-white/[0.07] bg-black/[0.16] p-1">
-            <button id="finance-receivables-tab" type="button" role="tab" aria-selected={tab === "receivables"} aria-controls="finance-receivables-panel" onClick={() => switchTab("receivables")} className={"focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " + (tab === "receivables" ? "bg-white/[0.08] text-white" : "text-[#7f898e] hover:text-white")}>Дебиторка</button>
-            <button id="finance-payouts-tab" type="button" role="tab" aria-selected={tab === "payouts"} aria-controls="finance-payouts-panel" onClick={() => switchTab("payouts")} className={"focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " + (tab === "payouts" ? "bg-white/[0.08] text-white" : "text-[#7f898e] hover:text-white")}>Мастера</button>
+          <div role="tablist" aria-label="Разделы финансов" className="mt-4 inline-flex rounded-full border border-white/[0.07] bg-[#0a0f12] p-1">
+            <button id="finance-receivables-tab" type="button" role="tab" aria-selected={tab === "receivables"} aria-controls="finance-receivables-panel" onClick={() => switchTab("receivables")} className={"focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " + (tab === "receivables" ? "bg-[#202b30] text-white shadow-[0_5px_12px_rgba(0,0,0,0.16)]" : "text-[#7f898e] hover:bg-white/[0.035] hover:text-white")}>Дебиторка</button>
+            <button id="finance-payouts-tab" type="button" role="tab" aria-selected={tab === "payouts"} aria-controls="finance-payouts-panel" onClick={() => switchTab("payouts")} className={"focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " + (tab === "payouts" ? "bg-[#202b30] text-white shadow-[0_5px_12px_rgba(0,0,0,0.16)]" : "text-[#7f898e] hover:bg-white/[0.035] hover:text-white")}>Мастера</button>
           </div>
           <p className="mt-3 max-w-md text-[10px] leading-5 text-[#717b81]">Счета, оплаты и выплаты хранятся в одной последовательности операций.</p>
         </div>
@@ -189,24 +203,27 @@ export function FinanceWorkspace({ snapshot, canWrite }: { snapshot: FinanceSnap
       </header>
 
       {tab === "receivables" ? <div id="finance-receivables-panel" role="tabpanel" aria-labelledby="finance-receivables-tab">
-        <section>
-          <header className="flex flex-col gap-4 px-4 py-5 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
+        <section className="px-4 pb-5 pt-6 sm:px-6">
+          <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div><h2 className="text-base font-semibold text-white">Расчёты по заказам</h2><p className="mt-1.5 text-[10px] leading-5 text-[#69737a]">Откройте заказ, чтобы выставить счёт, провести оплату или отменить операцию.</p></div>
             <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-2 text-[10px]">{receivableOverview.map((item) => <div key={item.label} className="flex items-baseline gap-2"><dt className="text-[#707a80]">{item.label}</dt><dd className={"font-display text-base " + item.tone}>{item.value}</dd></div>)}<div className="flex items-baseline gap-2"><dt className="text-[#707a80]">В реестре</dt><dd className="font-display text-base text-white">{visibleOrders.length}</dd></div></dl>
           </header>
-          {visibleOrders.length ? <div>{visibleOrders.map((order) => <OrderLedgerCard key={order.id} order={order} canWrite={canWrite} onDialog={setDialog} />)}</div> : <div className="grid min-h-64 place-items-center px-6 py-10 text-center"><div><ReceiptText className="mx-auto size-8 text-[#485259]" /><p className="mt-4 text-sm text-[#8a9499]">Ничего не найдено</p><p className="mt-2 text-xs text-[#5f696f]">Измените условия или сбросьте фильтры.</p><button type="button" onClick={resetFilters} className="focus-ring mt-5 rounded-full border border-white/[0.08] px-4 py-2.5 text-xs text-white hover:bg-white/[0.04]">Сбросить фильтры</button></div></div>}
+          {visibleOrders.length ? <div className="mt-5 space-y-3">{visibleOrders.map((order) => <OrderLedgerCard key={order.id} order={order} canWrite={canWrite} onDialog={setDialog} />)}</div> : <div className="grid min-h-64 place-items-center px-6 py-10 text-center"><div><ReceiptText className="mx-auto size-8 text-[#485259]" /><p className="mt-4 text-sm text-[#8a9499]">Ничего не найдено</p><p className="mt-2 text-xs text-[#5f696f]">Измените условия или сбросьте фильтры.</p><button type="button" onClick={resetFilters} className="focus-ring mt-5 rounded-full border border-white/[0.08] px-4 py-2.5 text-xs text-white hover:bg-white/[0.04]">Сбросить фильтры</button></div></div>}
         </section>
       </div> : <div id="finance-payouts-panel" role="tabpanel" aria-labelledby="finance-payouts-tab">
-        <section className="border-b border-white/[0.065]">
-          <header className="flex flex-col gap-3 px-4 py-5 sm:px-6 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-base font-semibold text-white">К выплате мастерам</h2><p className="mt-1.5 text-[10px] leading-5 text-[#69737a]">Невыплаченный остаток по заказам с закреплённым исполнителем.</p></div><p className="text-[10px] text-[#858f94]"><span className="font-display text-lg text-[#b6a2ea]">{payoutOrders.length}</span> {payoutOrders.length === 1 ? "заказ ожидает выплату" : "заказов ожидают выплаты"}</p></header>
-          {payoutOrders.length ? <div>{payoutOrders.map((order) => <article key={order.id} className="grid gap-4 border-t border-white/[0.055] px-4 py-4 transition-colors first:border-t-0 hover:bg-white/[0.018] sm:px-6 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,1.25fr)_auto] lg:items-center"><div className="min-w-0"><p className="truncate text-xs font-medium text-white">{order.masterName}</p><p className="mt-1 truncate text-[10px] text-[#6e777d]">{order.number} · {order.client}</p></div><p className="text-[10px] leading-5 text-[#778187]">Остаток к выплате по заказу. Проведённая сумма сразу попадёт в неизменяемую историю.</p><div className="flex items-center justify-between gap-4 lg:justify-end"><strong className="font-display text-sm text-[#b6a2ea]">{formatMoneyMinor(order.masterDueMinor)}</strong>{canWrite ? <button type="button" onClick={() => setDialog({ kind: "payout", order })} className="focus-ring flex h-10 items-center gap-2 rounded-full border border-[#9c82e8]/25 bg-[#9c82e8]/[0.07] px-4 text-[10px] font-medium text-[#c3b1ee] active:translate-y-px"><WalletCards className="size-3.5" />Провести выплату</button> : null}</div></article>)}</div> : <p className="px-4 py-12 text-center text-xs text-[#626c72]">Задолженности перед мастерами нет.</p>}
-        </section>
-        <section>
-          <header className="flex items-center justify-between gap-4 px-4 py-5 sm:px-6"><div><h2 className="text-base font-semibold text-white">История выплат</h2><p className="mt-1.5 text-[10px] text-[#69737a]">Проведённые и сторнированные операции.</p></div><span className="text-[10px] text-[#758087]">{visiblePayouts.length} записей</span></header>
-          {visiblePayouts.length ? visiblePayouts.map((payout) => <PayoutRow key={payout.id} payout={payout} canWrite={canWrite} onReverse={() => setDialog({ kind: "reverse-payout", payout })} />) : <p className="px-4 py-14 text-center text-xs text-[#626c72]">Выплат по выбранным условиям нет.</p>}
-        </section>
-      </div>}
-      <footer className="flex items-center justify-between gap-3 border-t border-white/[0.055] bg-black/[0.045] px-4 py-3 text-[10px] text-[#667077] sm:px-6"><span>Показано {tab === "receivables" ? visibleOrders.length : visiblePayouts.length}</span><span>{activeFilterCount ? String(activeFilterCount) + " активных условий" : "Без ограничений"}</span></footer>
+        <div className="space-y-8 px-4 py-6 sm:px-6">
+          <section>
+            <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-base font-semibold text-white">К выплате мастерам</h2><p className="mt-1.5 text-[10px] leading-5 text-[#69737a]">Невыплаченный остаток по заказам с закреплённым исполнителем.</p></div><p className="text-[10px] text-[#858f94]"><span className="font-display text-lg text-[#b6a2ea]">{payoutOrders.length}</span> {payoutOrders.length === 1 ? "заказ ожидает выплату" : "заказов ожидают выплаты"}</p></header>
+            {payoutOrders.length ? <div className="mt-5 space-y-3">{payoutOrders.map((order) => <article key={order.id} className="grid gap-4 rounded-[20px] border border-white/[0.065] bg-[#11191d] px-4 py-4 shadow-[0_10px_24px_rgba(0,0,0,0.08)] transition-colors hover:border-white/[0.11] lg:grid-cols-[minmax(12rem,1fr)_minmax(0,1.25fr)_auto] lg:items-center"><div className="min-w-0"><p className="truncate text-xs font-medium text-white">{order.masterName}</p><p className="mt-1 truncate text-[10px] text-[#6e777d]">{order.number} · {order.client}</p></div><p className="text-[10px] leading-5 text-[#778187]">Остаток к выплате по заказу. Проведённая сумма сразу попадёт в неизменяемую историю.</p><div className="flex items-center justify-between gap-4 lg:justify-end"><strong className="font-display text-sm text-[#b6a2ea]">{formatMoneyMinor(order.masterDueMinor)}</strong>{canWrite ? <button type="button" onClick={() => setDialog({ kind: "payout", order })} className="focus-ring flex h-10 items-center gap-2 rounded-full border border-[#9c82e8]/25 bg-[#9c82e8]/[0.07] px-4 text-[10px] font-medium text-[#c3b1ee] active:translate-y-px"><WalletCards className="size-3.5" />Провести выплату</button> : null}</div></article>)}</div> : <p className="py-12 text-center text-xs text-[#626c72]">Задолженности перед мастерами нет.</p>}
+          </section>
+          <section>
+            <header className="flex items-center justify-between gap-4"><div><h2 className="text-base font-semibold text-white">История выплат</h2><p className="mt-1.5 text-[10px] text-[#69737a]">Проведённые и сторнированные операции.</p></div><span className="text-[10px] text-[#758087]">{visiblePayouts.length} записей</span></header>
+            {visiblePayouts.length ? <div className="mt-5 space-y-3">{visiblePayouts.map((payout) => <PayoutRow key={payout.id} payout={payout} canWrite={canWrite} onReverse={() => setDialog({ kind: "reverse-payout", payout })} />)}</div> : <p className="py-14 text-center text-xs text-[#626c72]">Выплат по выбранным условиям нет.</p>}
+          </section>
+        </div>
+        </div>
+      }
+      <footer className="mx-4 mb-4 flex items-center justify-between gap-3 rounded-[16px] border border-white/[0.05] bg-[#0a0f12] px-4 py-3 text-[10px] text-[#667077] sm:mx-6"><span>Показано {tab === "receivables" ? visibleOrders.length : visiblePayouts.length}</span><span>{activeFilterCount ? String(activeFilterCount) + " активных условий" : "Без ограничений"}</span></footer>
     </section>
 
     <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title={tab === "receivables" ? "Фильтры дебиторки" : "Фильтры выплат"} description={tab === "receivables" ? "Отберите заказы по состоянию расчётов, размеру долга и порядку отображения." : "Найдите выплаты по мастеру, способу, состоянию проводки и дате."}>

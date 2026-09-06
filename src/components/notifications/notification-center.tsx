@@ -6,6 +6,7 @@ import { Bell, CheckCheck, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { NotificationItem, NotificationSnapshot } from "@/lib/notifications";
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications-client";
+import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 import { NotificationListItem } from "./notification-item";
 
 const POLL_INTERVAL_MS = 60_000;
@@ -17,6 +18,9 @@ export function NotificationCenter() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const requestRef = useRef<AbortController | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useDismissableLayer(menuRef, open, () => setOpen(false));
 
   async function load() {
     requestRef.current?.abort();
@@ -89,7 +93,7 @@ export function NotificationCenter() {
 
   const unreadCount = snapshot?.unreadCount ?? 0;
   return (
-    <div className="relative">
+    <div ref={menuRef} className="relative">
       <button onClick={() => setOpen((current) => !current)} className="focus-ring soft-button relative grid size-10 place-items-center rounded-[13px] text-[#8b9499]" aria-label={unreadCount ? `Уведомления: ${unreadCount} непрочитанных` : "Уведомления"} aria-expanded={open}>
         <Bell className="size-[18px]" />
         {unreadCount ? <span className={`absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full px-1 text-[9px] font-bold leading-5 text-white ring-2 ring-[#0b0f12] ${snapshot?.criticalUnreadCount ? "bg-[var(--danger)]" : "bg-[#7f69cb]"}`}>{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
@@ -98,8 +102,8 @@ export function NotificationCenter() {
         <div className="surface-panel fixed inset-x-2 top-[4.5rem] z-50 max-h-[calc(100dvh-5.5rem)] overflow-hidden bg-[#10171b] shadow-[0_26px_80px_rgba(0,0,0,0.58)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[24rem]">
           <header className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3">
             <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-white">Оперативная лента</p><p className="mt-0.5 text-[9px] uppercase tracking-[0.13em] text-[#5f696f]">Выезды · задачи · документы</p></div>
-            {unreadCount ? <button type="button" disabled={pendingId !== null} onClick={markAll} aria-label="Отметить все уведомления прочитанными" title="Прочитать всё" className="focus-ring grid size-9 place-items-center rounded-[10px] text-[#7d878c] hover:bg-white/[0.045] hover:text-white disabled:opacity-45">{pendingId === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}</button> : null}
-            <button onClick={() => setOpen(false)} className="focus-ring grid size-9 place-items-center rounded-[10px] text-[#778087] hover:bg-white/[0.045] hover:text-white" aria-label="Закрыть уведомления"><X className="size-4" /></button>
+            {unreadCount ? <button type="button" disabled={pendingId !== null} onClick={markAll} aria-label="Отметить все уведомления прочитанными" title="Прочитать всё" className="focus-ring grid size-9 place-items-center rounded-full text-[#7d878c] hover:bg-white/[0.045] hover:text-white disabled:opacity-45">{pendingId === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}</button> : null}
+            <button onClick={() => setOpen(false)} className="focus-ring grid size-9 place-items-center rounded-full text-[#778087] hover:bg-white/[0.045] hover:text-white" aria-label="Закрыть уведомления"><X className="size-4" /></button>
           </header>
           <div className="max-h-[calc(100dvh-12rem)] overflow-y-auto p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {status === "loading" && !snapshot ? <div className="flex min-h-52 items-center justify-center gap-2 text-xs text-[#788288]"><LoaderCircle className="size-4 animate-spin text-[var(--accent)]" />Загружаю события…</div> : null}

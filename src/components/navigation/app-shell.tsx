@@ -22,6 +22,8 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
   Settings,
   UserRound,
@@ -34,6 +36,7 @@ import {
 import { useEffect, useRef, useState, useTransition } from "react";
 import { globalSearchResponseSchema, type GlobalSearchResult } from "@/lib/global-search";
 import { Avatar } from "@/components/ui/avatar";
+import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { logoutAction, switchOrganizationAction } from "@/app/(workspace)/actions";
 import type { OrganizationRole } from "@/server/auth/types";
@@ -125,8 +128,10 @@ function OrganizationSwitchForm({ organization }: { organization: OrganizationOp
   </form>;
 }
 
-function SidebarContent({ pathname, navigation, role, organizations, onNavigate, expanded = false }: { pathname: string; navigation: NavigationItem[]; role: OrganizationRole; organizations: OrganizationOption[]; onNavigate?: () => void; expanded?: boolean }) {
-  const labelClass = expanded ? "block" : "hidden xl:block";
+function SidebarContent({ pathname, navigation, role, organizations, onNavigate, expanded = false, collapsed = false, onToggleCollapsed }: { pathname: string; navigation: NavigationItem[]; role: OrganizationRole; organizations: OrganizationOption[]; onNavigate?: () => void; expanded?: boolean; collapsed?: boolean; onToggleCollapsed?: () => void }) {
+  const compact = collapsed && !expanded;
+  const labelClass = compact ? "hidden" : "block";
+  const itemAlignment = compact ? "justify-center px-0" : "px-3";
 
   return (
     <>
@@ -138,7 +143,15 @@ function SidebarContent({ pathname, navigation, role, organizations, onNavigate,
         </div>
       ) : null}
 
-      {role !== "master" ? <><CompanySwitcher visible={expanded} organizations={organizations} /><div className="hidden xl:block"><CompanySwitcher visible={!expanded} organizations={organizations} /></div></> : null}
+      {role !== "master" ? <CompanySwitcher visible={expanded || !collapsed} organizations={organizations} /> : null}
+
+      {!expanded && onToggleCollapsed ? (
+        <div className={`flex px-3 pt-2 ${compact ? "justify-center" : "justify-end"}`}>
+          <button type="button" onClick={onToggleCollapsed} aria-label={compact ? "Развернуть меню" : "Свернуть меню"} title={compact ? "Развернуть меню" : "Свернуть меню"} className="focus-ring grid size-9 place-items-center rounded-full border border-white/[0.07] text-[#7e888e] transition-colors hover:border-white/[0.14] hover:bg-white/[0.045] hover:text-white">
+            {compact ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </button>
+        </div>
+      ) : null}
 
       <nav aria-label="Основная навигация" className="flex flex-1 flex-col gap-1 px-3 py-4 md:pt-5">
         {navigation.map((item) => {
@@ -149,7 +162,7 @@ function SidebarContent({ pathname, navigation, role, organizations, onNavigate,
               href={item.href}
               onClick={onNavigate}
               aria-current={active ? "page" : undefined}
-              className={`focus-ring group flex min-h-11 items-center gap-3 rounded-[14px] px-3 text-sm transition-[background-color,color,transform,box-shadow] duration-200 ease-out ${
+              className={`focus-ring group flex min-h-11 items-center gap-3 rounded-[14px] ${itemAlignment} text-sm transition-[background-color,color,transform,box-shadow] duration-200 ease-out ${
                 active
                   ? "bg-[var(--accent)] text-[#101308] shadow-[0_8px_24px_rgba(237,244,59,0.08)]"
                   : "text-[#818a90] hover:translate-x-0.5 hover:bg-white/[0.045] hover:text-white"
@@ -163,15 +176,15 @@ function SidebarContent({ pathname, navigation, role, organizations, onNavigate,
       </nav>
 
       <div className="space-y-1 border-t border-white/[0.06] p-3">
-        <Link href="/help" onClick={onNavigate} aria-current={isActivePath(pathname, "/help") ? "page" : undefined} className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm transition-colors ${isActivePath(pathname, "/help") ? "bg-white/[0.06] text-white" : "text-[#818a90] hover:bg-white/[0.04] hover:text-white"}`}>
+        <Link href="/help" onClick={onNavigate} aria-current={isActivePath(pathname, "/help") ? "page" : undefined} className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl ${itemAlignment} text-sm transition-colors ${isActivePath(pathname, "/help") ? "bg-white/[0.06] text-white" : "text-[#818a90] hover:bg-white/[0.04] hover:text-white"}`}>
           <CircleHelp className="size-[18px]" strokeWidth={1.7} />
           <span className={labelClass}>Помощь</span>
         </Link>
-        {role === "admin" ? <Link href="/settings" onClick={onNavigate} aria-current={isActivePath(pathname, "/settings") ? "page" : undefined} className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm transition-colors ${isActivePath(pathname, "/settings") ? "bg-white/[0.06] text-white" : "text-[#818a90] hover:bg-white/[0.04] hover:text-white"}`}>
+        {role === "admin" ? <Link href="/settings" onClick={onNavigate} aria-current={isActivePath(pathname, "/settings") ? "page" : undefined} className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl ${itemAlignment} text-sm transition-colors ${isActivePath(pathname, "/settings") ? "bg-white/[0.06] text-white" : "text-[#818a90] hover:bg-white/[0.04] hover:text-white"}`}>
           <Settings className="size-[18px]" strokeWidth={1.7} />
           <span className={labelClass}>Настройки</span>
         </Link> : null}
-        <form action={logoutAction}><button className="focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-[#c8797e] transition-colors hover:bg-[#ef646a]/[0.06] hover:text-[#e4979b]"><LogOut className="size-[18px]" strokeWidth={1.7} /><span className={labelClass}>Выйти</span></button></form>
+        <form action={logoutAction}><button className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl ${itemAlignment} text-left text-sm text-[#c8797e] transition-colors hover:bg-[#ef646a]/[0.06] hover:text-[#e4979b]`}><LogOut className="size-[18px]" strokeWidth={1.7} /><span className={labelClass}>Выйти</span></button></form>
       </div>
     </>
   );
@@ -324,7 +337,31 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
 
 const roleLabels: Record<OrganizationRole, string> = { admin: "Администратор", dispatcher: "Диспетчер", manager: "Менеджер", accountant: "Бухгалтер", master: "Мастер" };
 
-export function AppShell({ children, currentUser, organizations }: { children: React.ReactNode; currentUser: { displayName: string; email: string; role: OrganizationRole; permissionOverrides: Record<string, boolean> }; organizations: OrganizationOption[] }) {
+type ShellUser = { displayName: string; email: string; role: OrganizationRole; permissionOverrides: Record<string, boolean> };
+
+function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useDismissableLayer(menuRef, open, () => setOpen(false));
+
+  return (
+    <div ref={menuRef} className="relative hidden lg:block">
+      <button type="button" onClick={() => setOpen((current) => !current)} aria-haspopup="menu" aria-expanded={open} className="focus-ring flex items-center gap-2 rounded-[13px] p-1 pr-2 transition-colors hover:bg-white/[0.04]">
+        <Avatar name={currentUser.displayName} size="sm" tone="lime" />
+        <span className="text-left"><span className="block max-w-32 truncate text-xs font-medium text-white">{currentUser.displayName}</span><span className="block text-[10px] text-[#737c82]">{roleLabels[currentUser.role]}</span></span>
+        <ChevronDown className={`size-3.5 text-[#626c72] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? <div role="menu" className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-64 rounded-[14px] border border-white/[0.09] bg-[#12191d] p-2 shadow-[0_22px_60px_rgba(0,0,0,0.45)]">
+        <p className="truncate px-2.5 py-2 text-[10px] text-[#758087]">{currentUser.email}</p>
+        {currentUser.role === "admin" ? <Link href="/settings" onClick={() => setOpen(false)} role="menuitem" className="focus-ring flex min-h-10 items-center gap-2.5 rounded-[11px] px-2.5 text-xs text-[#a8b0b4] hover:bg-white/[0.045] hover:text-white"><Settings className="size-4" />Настройки системы</Link> : null}
+        <form action={logoutAction}><button role="menuitem" className="focus-ring flex min-h-10 w-full items-center gap-2.5 rounded-[11px] px-2.5 text-left text-xs text-[#d8888c] hover:bg-[#ef646a]/[0.06]"><X className="size-4" />Выйти</button></form>
+      </div> : null}
+    </div>
+  );
+}
+
+export function AppShell({ children, currentUser, organizations }: { children: React.ReactNode; currentUser: ShellUser; organizations: OrganizationOption[] }) {
   const pathname = usePathname();
   const canUseQuickOrder = currentUser.role === "admin" || currentUser.role === "dispatcher";
   const navigation = currentUser.role === "master" ? masterNavigation : officeNavigation.filter((item) => {
@@ -336,6 +373,11 @@ export function AppShell({ children, currentUser, organizations }: { children: R
   const mobileNavigation = navigation.slice(0, 4);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => !current);
+  }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -354,8 +396,8 @@ export function AppShell({ children, currentUser, organizations }: { children: R
 
   return (
     <div className="min-h-screen bg-transparent">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-20 flex-col border-r border-white/[0.06] bg-[radial-gradient(circle_at_20%_0%,rgba(102,174,243,0.055),transparent_22rem),radial-gradient(circle_at_100%_70%,rgba(156,130,232,0.035),transparent_24rem),rgba(9,13,16,0.96)] shadow-[18px_0_60px_rgba(0,0,0,0.08)] backdrop-blur-xl md:flex xl:w-56">
-        <SidebarContent pathname={pathname} navigation={navigation} role={currentUser.role} organizations={organizations} />
+      <aside className={`fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-white/[0.06] bg-[radial-gradient(circle_at_20%_0%,rgba(102,174,243,0.055),transparent_22rem),radial-gradient(circle_at_100%_70%,rgba(156,130,232,0.035),transparent_24rem),rgba(9,13,16,0.96)] shadow-[18px_0_60px_rgba(0,0,0,0.08)] backdrop-blur-xl transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-20" : "w-56"}`}>
+        <SidebarContent pathname={pathname} navigation={navigation} role={currentUser.role} organizations={organizations} collapsed={sidebarCollapsed} onToggleCollapsed={toggleSidebar} />
       </aside>
 
       {mobileMenuOpen ? (
@@ -366,7 +408,7 @@ export function AppShell({ children, currentUser, organizations }: { children: R
         </div>
       ) : null}
 
-      <div className="md:pl-20 xl:pl-56">
+      <div className={`transition-[padding-left] duration-200 ${sidebarCollapsed ? "md:pl-20" : "md:pl-56"}`}>
         <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#070a0c]/82 backdrop-blur-2xl">
           <div className="topbar-inner flex h-16 min-w-0 items-center gap-2.5 sm:gap-3 2xl:h-[4.5rem]">
             <button onClick={() => setMobileMenuOpen(true)} className="focus-ring soft-button grid size-10 shrink-0 place-items-center rounded-[13px] text-[#8b9499] md:hidden" aria-label="Открыть меню">
@@ -380,18 +422,7 @@ export function AppShell({ children, currentUser, organizations }: { children: R
             <div className="ml-auto flex shrink-0 items-center gap-2">
               {currentUser.role !== "master" ? <Link href="/chat" className="focus-ring soft-button hidden size-10 place-items-center rounded-[13px] text-[#8b9499] hover:text-white sm:grid" aria-label="Внутренний чат"><MessageSquare className="size-[18px]" /></Link> : null}
               <NotificationCenter />
-              <details className="group relative hidden lg:block">
-                <summary className="focus-ring flex cursor-pointer list-none items-center gap-2 rounded-[13px] p-1 pr-2 transition-colors hover:bg-white/[0.04] [&::-webkit-details-marker]:hidden">
-                  <Avatar name={currentUser.displayName} size="sm" tone="lime" />
-                  <span className="text-left"><span className="block max-w-32 truncate text-xs font-medium text-white">{currentUser.displayName}</span><span className="block text-[10px] text-[#737c82]">{roleLabels[currentUser.role]}</span></span>
-                  <ChevronDown className="size-3.5 text-[#626c72] transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-64 rounded-[14px] border border-white/[0.09] bg-[#12191d] p-2 shadow-[0_22px_60px_rgba(0,0,0,0.45)]">
-                  <p className="truncate px-2.5 py-2 text-[10px] text-[#758087]">{currentUser.email}</p>
-                  {currentUser.role === "admin" ? <Link href="/settings" className="focus-ring flex min-h-10 items-center gap-2.5 rounded-[10px] px-2.5 text-xs text-[#a8b0b4] hover:bg-white/[0.045] hover:text-white"><Settings className="size-4" />Настройки системы</Link> : null}
-                  <form action={logoutAction}><button className="focus-ring flex min-h-10 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-left text-xs text-[#d8888c] hover:bg-[#ef646a]/[0.06]"><X className="size-4" />Выйти</button></form>
-                </div>
-              </details>
+              <ProfileMenu currentUser={currentUser} />
             </div>
           </div>
         </header>
