@@ -11,7 +11,7 @@ export function RecentOrders({ orders }: { orders: OrderListItem[] }) {
         <div>
           <h2 className="text-sm font-semibold text-white">Последние заказы</h2>
         </div>
-        <Link href="/orders" className="focus-ring flex items-center gap-2 rounded-lg px-2 py-1 text-xs font-medium text-[#838d92] hover:text-white">Все заказы <ArrowRight className="size-3.5" /></Link>
+        <Link href="/orders" className="focus-ring flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-[#838d92] hover:bg-white/[0.04] hover:text-white">Все заказы <ArrowRight className="size-3.5" /></Link>
       </div>
       <div className="hidden overflow-x-auto min-[540px]:block">
         <table className="w-full min-w-[31rem] text-left">

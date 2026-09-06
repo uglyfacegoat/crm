@@ -18,7 +18,7 @@ export function TodayVisits({ visits, dateLabel }: { visits: DashboardVisit[]; d
           <h2 className="text-sm font-semibold text-white">Ближайшие выезды</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">Ближайшие даты · {dateLabel}</p>
         </div>
-        <Link href="/calendar" className="focus-ring rounded-lg p-2 text-[#737d83] transition-colors hover:bg-white/[0.05] hover:text-white" aria-label="Открыть календарь">
+        <Link href="/calendar" className="focus-ring grid size-8 place-items-center rounded-full text-[#737d83] transition-colors hover:bg-white/[0.05] hover:text-white" aria-label="Открыть календарь">
           <ArrowUpRight className="size-4" />
         </Link>
       </div>
@@ -40,7 +40,7 @@ export function TodayVisits({ visits, dateLabel }: { visits: DashboardVisit[]; d
           </Link>
         ))}
       </div>
-      {!visits.length ? <p className="px-5 py-10 text-center text-xs text-[#69737a]">Предстоящих выездов нет</p> : null}
+      {!visits.length ? <p className="px-5 py-6 text-center text-xs text-[#69737a]">Предстоящих выездов нет</p> : null}
       <Link href="/calendar" className="focus-ring block border-t border-white/[0.06] px-5 py-3.5 text-center text-[11px] font-medium text-[#8d969b] transition-colors hover:bg-white/[0.03] hover:text-white">
         Все выезды
       </Link>

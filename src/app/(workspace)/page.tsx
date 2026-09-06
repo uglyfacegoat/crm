@@ -1,9 +1,7 @@
-import { CircleAlert, ClipboardCheck, Coins, Route } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { DashboardCalendar, type DashboardVisit } from "@/components/dashboard/dashboard-calendar";
 import { FinancialSummary } from "@/components/dashboard/financial-summary";
 import { RecentOrders } from "@/components/dashboard/recent-orders";
-import { TeamOnlineCard, UpdatedCard } from "@/components/dashboard/dashboard-status-cards";
 import { TaskList } from "@/components/dashboard/task-list";
 import { TodayVisits } from "@/components/dashboard/today-visits";
 import { formatMoneyMinor } from "@/lib/format";
@@ -49,10 +47,10 @@ export default async function DashboardPage() {
   const dailyVisitBars = countsByDate(calendarVisits.map((visit) => visit.date), initialCalendarDate);
   const dailyOrderBars = countsByDate(dashboardOrders.map((order) => localDateKey(new Date(order.createdAt), dashboardTimeZone)), initialCalendarDate);
   const metrics = [
-    { label: "Выезды сегодня", value: String(calendarVisits.filter((visit) => visit.date === initialCalendarDate).length), change: "По актуальному расписанию", icon: Route, tone: "yellow" as const, bars: dailyVisitBars },
-    { label: "Активные заказы", value: String(activeOrders.length), change: `${dashboardOrders.length} заказов всего`, icon: ClipboardCheck, tone: "violet" as const, bars: dailyOrderBars },
-    { label: "Согласовано за месяц", value: formatMoneyMinor(currentMonthAgreed), change: `${currentMonthOrders.length} новых заказов`, icon: Coins, tone: "mint" as const, bars: dailyOrderBars },
-    { label: "Требуют внимания", value: String(overdueCount), change: `${dashboardTasks.tasks.filter((task) => task.column === "overdue").length} просроченных задач`, icon: CircleAlert, tone: "red" as const, bars: dailyVisitBars },
+    { label: "Выезды сегодня", value: String(calendarVisits.filter((visit) => visit.date === initialCalendarDate).length), change: "По актуальному расписанию", tone: "yellow" as const, bars: dailyVisitBars },
+    { label: "Активные заказы", value: String(activeOrders.length), change: `${dashboardOrders.length} заказов всего`, tone: "violet" as const, bars: dailyOrderBars },
+    { label: "Согласовано за месяц", value: formatMoneyMinor(currentMonthAgreed), change: `${currentMonthOrders.length} новых заказов`, tone: "mint" as const, bars: dailyOrderBars },
+    { label: "Требуют внимания", value: String(overdueCount), change: `${dashboardTasks.tasks.filter((task) => task.column === "overdue").length} просроченных задач`, tone: "red" as const, bars: dailyVisitBars },
   ];
   const activeMasters = dashboardMasters.filter((master) => master.active);
   const mastersOnVisits = activeMasters.filter((master) => master.todayVisitCount > 0).length;
@@ -65,23 +63,21 @@ export default async function DashboardPage() {
           <p className="mt-2 text-[clamp(0.78rem,0.74rem+0.1vw,0.9rem)] text-[var(--muted)]">Сегодня {calendarVisits.filter((visit) => visit.date === initialCalendarDate).length} выездов и {visibleTasks.length} актуальных задач.</p>
         </div>
         <div className="hidden items-center gap-2 min-[640px]:flex">
-          <span className="soft-button rounded-full px-3 py-2 text-[11px] text-[#8d969b]"><span className="mr-2 inline-block size-1.5 rounded-full bg-[var(--success)] shadow-[0_0_10px_var(--success)]" />{mastersOnVisits} мастеров на выездах</span>
-          <span className="soft-button rounded-full px-3 py-2 text-[11px] text-[#8d969b]">Обновлено сейчас</span>
+          <span className="soft-button inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[11px] text-[#adb5b7]"><span className="size-1.5 rounded-full bg-[var(--success)]" />{mastersOnVisits} из {activeMasters.length} мастеров на выездах</span>
+          <span className="soft-button inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[11px] text-[#adb5b7]"><span className="size-1.5 rounded-full bg-[#c8ced1]" />Данные синхронизированы <span className="rounded-full bg-white/[0.055] px-1.5 py-0.5 text-[9px] text-[#d4dcde]">сейчас</span></span>
         </div>
       </header>
 
-      <section aria-label="Основные показатели" className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(7.5rem,0.58fr)_minmax(7.5rem,0.58fr)] 2xl:gap-3">
+      <section aria-label="Основные показатели" className="grid grid-cols-1 items-stretch gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4">
         {metrics.map((metric, index) => <MetricCard key={metric.label} {...metric} delay={`${80 + index * 45}ms`} />)}
-        <TeamOnlineCard active={mastersOnVisits} total={activeMasters.length} />
-        <UpdatedCard />
       </section>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+      <div className="mt-3 grid items-start gap-3 lg:grid-cols-2">
         <TodayVisits visits={upcomingVisits} dateLabel={formatDashboardDate(now, dashboardTimeZone)} />
         <TaskList tasks={visibleTasks} canWrite={!preview && hasPermission(member, "tasks.write")} />
       </div>
 
-      <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-[1.05fr_0.92fr_1fr]">
+      <div className="mt-3 grid min-w-0 items-start gap-3 xl:grid-cols-[1.05fr_0.92fr_1fr]">
         <RecentOrders orders={dashboardOrders.slice(0, 5)} />
         <DashboardCalendar visits={calendarVisits} initialDate={initialCalendarDate} />
         <FinancialSummary orders={currentMonthOrders} />

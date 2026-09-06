@@ -31,7 +31,7 @@ export function TaskList({ tasks, canWrite }: { tasks: TaskCard[]; canWrite: boo
           <h2 className="text-sm font-semibold text-white">Задачи на сегодня</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">{tasks.length} требуют внимания</p>
         </div>
-        <Link href="/tasks" className="focus-ring rounded-lg p-2 text-[#737d83] transition-colors hover:bg-white/[0.05] hover:text-white" aria-label="Открыть задачи">
+        <Link href="/tasks" className="focus-ring grid size-8 place-items-center rounded-full text-[#737d83] transition-colors hover:bg-white/[0.05] hover:text-white" aria-label="Открыть задачи">
           <ArrowUpRight className="size-4" />
         </Link>
       </div>
@@ -39,7 +39,7 @@ export function TaskList({ tasks, canWrite }: { tasks: TaskCard[]; canWrite: boo
         {tasks.map((task) => {
           return (
             <div key={task.id} className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 px-[clamp(1rem,0.75rem+0.5vw,1.5rem)] py-3.5 transition-colors duration-200 hover:bg-white/[0.035] 2xl:py-4">
-              <button type="button" disabled={!canWrite || pendingId !== null} onClick={() => complete(task)} aria-label={`Выполнить задачу ${task.title}`} title={canWrite ? "Отметить выполненной" : "Нет права изменять задачу"} className="focus-ring mt-0.5 grid size-[17px] place-items-center rounded-[5px] border border-white/20 text-[10px] text-transparent transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-45">✓</button>
+              <button type="button" disabled={!canWrite || pendingId !== null} onClick={() => complete(task)} aria-label={`Выполнить задачу ${task.title}`} title={canWrite ? "Отметить выполненной" : "Нет права изменять задачу"} className="focus-ring mt-0.5 grid size-[17px] place-items-center rounded-full border border-white/20 text-[10px] text-transparent transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-45">✓</button>
               <span className="min-w-0">
                 <span className="block truncate text-xs font-medium text-[#e6e9e5]">{task.title}</span>
                 <span className="mt-1 block truncate text-[10px] text-[#707980]">{task.meta}</span>

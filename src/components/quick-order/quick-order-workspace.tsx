@@ -81,14 +81,14 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
   existingLabel: string;
   newLabel: string;
 }) {
-  return <div className="grid grid-cols-2 border-b border-white/[0.1]">
+  return <div className="grid grid-cols-2 gap-1 rounded-[15px] border border-white/[0.08] bg-black/[0.12] p-1">
     {([["existing", existingLabel], ["new", newLabel]] as const).map(([mode, label]) => (
       <button
         key={mode}
         type="button"
         onClick={() => onChange(mode)}
         aria-pressed={value === mode}
-        className={`focus-ring min-h-12 border-b-2 px-3 text-left text-xs font-medium transition-colors ${value === mode ? "border-[var(--accent)] text-white" : "border-transparent text-[#7d878d] hover:border-white/[0.16] hover:text-white"}`}
+        className={`focus-ring min-h-12 rounded-[11px] px-4 text-left text-xs font-semibold transition-colors ${value === mode ? "bg-[var(--accent)] text-[#101308] shadow-[0_5px_16px_rgba(0,0,0,0.18)]" : "text-[#8b969c] hover:bg-white/[0.055] hover:text-white"}`}
       >
         {label}
       </button>
@@ -97,11 +97,11 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
 }
 
 function SectionIntro({ number, title, description }: { number: string; title: string; description: string }) {
-  return <header className="mb-8 border-b border-white/[0.07] pb-6">
-    <p className="font-display text-xs font-semibold tracking-[0.14em] text-[var(--accent)]">ШАГ {number} / 04</p>
-    <h2 className="mt-3 font-display text-[clamp(1.6rem,1.25rem+0.9vw,2.15rem)] font-medium tracking-[-0.045em] text-white">{title}</h2>
-    <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7d878d]">{description}</p>
- </header>;
+  return <header className="mb-8">
+    <p className="inline-flex rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/[0.08] px-3 py-1.5 font-display text-[10px] font-semibold tracking-[0.14em] text-[var(--accent)]">ШАГ {number} ИЗ 04</p>
+    <h2 className="mt-4 font-display text-[clamp(1.6rem,1.25rem+0.9vw,2.15rem)] font-medium tracking-[-0.045em] text-white">{title}</h2>
+    <p className="mt-2 max-w-2xl text-sm leading-6 text-[#899399]">{description}</p>
+  </header>;
 }
 
 function ObjectFields({ value, onChange }: { value: typeof emptyObject; onChange: (value: typeof emptyObject) => void }) {
@@ -117,10 +117,10 @@ function ObjectFields({ value, onChange }: { value: typeof emptyObject; onChange
 }
 
 function SummaryLine({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
-  return <div className="grid gap-1.5 py-3.5">
+  return <div className="grid gap-1.5 py-3">
     <dt className="text-[10px] uppercase tracking-[0.13em] text-[#667178]">{label}</dt>
-   <dd className={`min-w-0 break-words text-xs ${strong ? "font-semibold text-white" : "text-[#b8c0c3]"}`}>{value || "—"}</dd>
- </div>;
+    <dd className={`min-w-0 break-words text-xs ${strong ? "font-semibold text-white" : "text-[#b8c0c3]"}`}>{value || "—"}</dd>
+  </div>;
 }
 
 export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate, prefill }: {
@@ -250,35 +250,35 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
   const activeSectionId = steps[step].id;
 
   if (state.status === "success" && state.result) {
-    return <section data-testid="quick-order-success" className="mx-auto max-w-3xl overflow-hidden border border-[#69d3a4]/20 bg-[#0e1418] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
-      <div className="border-b border-white/[0.065] p-5 sm:p-8">
-        <span className="grid size-12 place-items-center bg-[#69d3a4]/10 text-[#69d3a4]"><CheckCircle2 className="size-6" /></span>
-        <p className="eyebrow mt-5">Операция завершена</p>
+    return <section data-testid="quick-order-success" className="surface-panel mx-auto max-w-3xl overflow-hidden border-[#69d3a4]/20">
+      <div className="p-6 sm:p-9">
+        <span className="grid size-12 place-items-center rounded-full border border-[#69d3a4]/20 bg-[#69d3a4]/10 text-[#69d3a4]"><CheckCircle2 className="size-6" /></span>
+        <p className="eyebrow mt-6">Операция завершена</p>
         <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.04em] text-white">{state.result.orderNumber} готов к работе</h2>
-        <p className="mt-3 max-w-xl text-sm leading-6 text-[#7f898e]">Клиент, объект, заказ, выезд и напоминание сохранены. Теперь можно открыть карточку и сразу отправить её мастеру.</p>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-[#899399]">Клиент, объект, заказ, выезд и напоминание сохранены. Теперь можно открыть карточку и сразу отправить её мастеру.</p>
       </div>
-      <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-8">
-        <VisitDispatchCardButton visitId={state.result.visitId} className="h-12 bg-[var(--accent)] font-semibold text-[#111509] hover:bg-[#f4f854]" />
-        <Link href={`/orders/${state.result.orderId}`} className="focus-ring flex h-12 items-center justify-center border border-white/[0.09] text-xs font-medium text-[#c5cbce] hover:bg-white/[0.04]">Открыть заказ</Link>
-        <a href={prefill ? "/inbox" : "/quick-order"} className="focus-ring flex h-11 items-center justify-center text-xs text-[#778187] hover:text-white sm:col-span-2">{prefill ? "Вернуться во входящие" : "Оформить ещё один"}</a>
+      <div className="grid gap-3 border-t border-white/[0.065] p-5 sm:grid-cols-2 sm:p-7">
+        <VisitDispatchCardButton visitId={state.result.visitId} className="h-12 rounded-[14px] bg-[var(--accent)] font-semibold text-[#111509] hover:bg-[#f4f854]" />
+        <Link href={`/orders/${state.result.orderId}`} className="focus-ring flex h-12 items-center justify-center rounded-[14px] border border-white/[0.09] text-xs font-medium text-[#c5cbce] hover:bg-white/[0.04]">Открыть заказ</Link>
+        <a href={prefill ? "/inbox" : "/quick-order"} className="focus-ring flex h-11 items-center justify-center rounded-[14px] text-xs text-[#778187] hover:bg-white/[0.035] hover:text-white sm:col-span-2">{prefill ? "Вернуться во входящие" : "Оформить ещё один"}</a>
       </div>
     </section>;
   }
 
- return <form
-   action={formAction}
-   data-testid="quick-order-form"
-    className="surface-panel mx-auto max-w-[1440px]"
-  onSubmit={(event) => {
+  return <form
+    action={formAction}
+    data-testid="quick-order-form"
+    className="surface-panel w-full"
+    onSubmit={(event) => {
       if (pending) {
-       event.preventDefault();
-       return;
-     }
+        event.preventDefault();
+        return;
+      }
       if (!allSectionsValid) {
         event.preventDefault();
         const incompleteStep = sectionValidity.findIndex((valid) => !valid);
         setStep(incompleteStep);
-       setStepError(validationMessages[incompleteStep]);
+        setStepError(validationMessages[incompleteStep]);
       }
     }}
     onKeyDown={(event) => {
@@ -289,50 +289,43 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
   >
     <input type="hidden" name="payload" value={JSON.stringify(payload)} />
 
-    <header className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-4 py-5 sm:px-7 lg:px-8">
+    <header className="flex items-center justify-between gap-4 px-5 py-6 sm:px-8 sm:py-7 xl:px-10">
       <div>
         <p className="eyebrow">{prefill ? "Проверка входящей заявки" : "Новый заказ"}</p>
         <h1 className="mt-2 font-display text-[clamp(1.65rem,1.35rem+0.8vw,2.5rem)] font-medium tracking-[-0.045em] text-white">{prefill ? "Уточнить и принять заявку" : "Оформить заказ"}</h1>
       </div>
       <div className="flex items-center gap-3">
-        <span className="hidden items-center gap-2 text-xs text-[#7d878d] sm:flex"><FilePenLine className="size-4 text-[var(--accent)]" />Черновик</span>
-        <Link href={prefill ? "/inbox" : "/orders"} aria-label="Закрыть оформление" className="focus-ring grid size-11 place-items-center border border-white/[0.09] text-[#889297] hover:border-white/[0.16] hover:text-white"><X className="size-5" /></Link>
+        <span className="hidden items-center gap-2 rounded-full border border-white/[0.08] bg-black/[0.12] px-3 py-2 text-xs text-[#899399] sm:flex"><FilePenLine className="size-4 text-[var(--accent)]" />Черновик</span>
+        <Link href={prefill ? "/inbox" : "/orders"} aria-label="Закрыть оформление" className="focus-ring grid size-11 place-items-center rounded-full border border-white/[0.09] text-[#889297] hover:border-white/[0.16] hover:text-white"><X className="size-5" /></Link>
       </div>
     </header>
 
-    <div className="grid items-start lg:grid-cols-[12.5rem_minmax(0,1fr)] xl:grid-cols-[12.5rem_minmax(0,1fr)_18rem]">
-      <aside className="border-b border-white/[0.08] bg-black/[0.09] lg:border-b-0 lg:border-r" aria-label="Маршрут оформления">
-        <div className="hidden p-6 lg:block">
-         <p className="eyebrow">Маршрут</p>
-          <p className="mt-3 text-xs leading-5 text-[#707a80]">Четыре коротких шага. К заполненному разделу можно вернуться в любой момент.</p>
-       </div>
-        <ol aria-label="Этапы оформления" className="grid grid-cols-4 border-t border-white/[0.07] lg:block">
-         {steps.map((entry, index) => {
-           const active = index === step;
-            const done = sectionValidity[index];
-            const available = index <= step || sectionValidity.slice(0, index).every(Boolean);
-            return <li key={entry.id} className="min-w-0 border-l border-white/[0.07] first:border-l-0 lg:border-b lg:border-l-0 lg:last:border-b-0">
-             <button
-               type="button"
-               onClick={() => goToSection(index)}
-                disabled={!available}
-               aria-current={active ? "step" : undefined}
-                className={`focus-ring flex min-h-[4.5rem] w-full min-w-0 items-center gap-2 border-b-2 px-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-35 lg:min-h-[4.25rem] lg:border-b-0 lg:border-l-2 lg:px-6 ${active ? "border-[var(--accent)] bg-white/[0.025] text-white" : "border-transparent text-[#778187] hover:bg-white/[0.025] hover:text-white"}`}
-             >
-                <span className={`font-display text-xs font-semibold ${active ? "text-[var(--accent)]" : done ? "text-[#80d8b2]" : "text-[#687279]"}`}>{done && !active ? <Check className="size-4" aria-label="Раздел заполнен" /> : `0${index + 1}`}</span>
-                <span className="hidden min-w-0 lg:block"><span className="block text-xs font-semibold">{entry.title}</span><span className="mt-1 block truncate text-[10px] text-[#667178]">{entry.description}</span></span>
-             </button>
-           </li>;
-         })}
-       </ol>
-        <div className="hidden border-t border-white/[0.08] p-6 lg:block">
-          <p className="text-[10px] uppercase tracking-[0.14em] text-[#667178]">Заполнено</p>
-          <p className="mt-2 font-display text-lg text-white">{completedSections}<span className="text-[#59636a]"> / {steps.length}</span></p>
-       </div>
-     </aside>
+    <nav aria-label="Маршрут оформления" className="border-y border-white/[0.07] bg-black/[0.1] p-3 sm:p-4 xl:px-6">
+      <ol aria-label="Этапы оформления" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {steps.map((entry, index) => {
+          const active = index === step;
+          const done = sectionValidity[index];
+          const available = index <= step || sectionValidity.slice(0, index).every(Boolean);
 
+          return <li key={entry.id} className="min-w-0">
+            <button
+              type="button"
+              onClick={() => goToSection(index)}
+              disabled={!available}
+              aria-current={active ? "step" : undefined}
+              className={`focus-ring flex min-h-[5.25rem] w-full min-w-0 items-center gap-3 rounded-[16px] px-3 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-35 sm:px-4 ${active ? "bg-[var(--accent)] text-[#101308] shadow-[0_5px_18px_rgba(0,0,0,0.18)]" : "bg-white/[0.025] text-[#9ca5a9] hover:bg-white/[0.06] hover:text-white"}`}
+            >
+              <span className={`grid size-8 shrink-0 place-items-center rounded-full border text-xs font-semibold ${active ? "border-[#101308]/15 bg-[#101308]/10" : done ? "border-[#69d3a4]/25 bg-[#69d3a4]/10 text-[#80d8b2]" : "border-white/[0.1] bg-black/[0.12] text-[#6f7a80]"}`}>{done && !active ? <Check className="size-4" aria-label="Раздел заполнен" /> : `0${index + 1}`}</span>
+              <span className="min-w-0"><span className="block truncate text-xs font-semibold">{entry.title}</span><span className={`mt-1 hidden truncate text-[10px] sm:block ${active ? "text-[#101308]/65" : "text-[#667178]"}`}>{entry.description}</span></span>
+            </button>
+          </li>;
+        })}
+      </ol>
+    </nav>
+
+    <div className="grid min-w-0 xl:grid-cols-[minmax(0,1fr)_19rem]">
       <div className="min-w-0 max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
-        <section id="quick-client-section" aria-hidden={activeSectionId !== "quick-client-section"} className={activeSectionId === "quick-client-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
+        <section id="quick-client-section" aria-hidden={activeSectionId !== "quick-client-section"} className={activeSectionId === "quick-client-section" ? "animate-rise p-5 sm:p-8 xl:p-10" : "hidden"}>
           <SectionIntro number="01" title="Кто заказывает" description="Найдите клиента в CRM или заведите нового вместе с основным контактным лицом." />
           <ModeSwitch value={clientMode} onChange={(mode) => { setClientMode(mode); if (mode === "existing" && clientId) selectClient(clientId); }} existingLabel="Из CRM" newLabel="Новый клиент" />
           {clientMode === "existing" ? <div className="mt-6 grid gap-4">
@@ -349,13 +342,13 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           </div>}
         </section>
 
-        <section id="quick-object-section" aria-hidden={activeSectionId !== "quick-object-section"} className={activeSectionId === "quick-object-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
+        <section id="quick-object-section" aria-hidden={activeSectionId !== "quick-object-section"} className={activeSectionId === "quick-object-section" ? "animate-rise p-5 sm:p-8 xl:p-10" : "hidden"}>
           <SectionIntro number="02" title="Куда выезжать" description="Выберите существующий объект клиента или сразу создайте новый адрес без повторного ввода." />
           {clientMode === "existing" && availableObjects.length ? <ModeSwitch value={objectMode} onChange={setObjectMode} existingLabel="Из объектов" newLabel="Новый объект" /> : null}
           <div className="mt-6">{effectiveObjectMode === "existing" ? <OrderPicker label="Объект" required value={objectId} onChange={setObjectId} placeholder="Выберите объект" options={availableObjects.map((object) => ({ value: object.id, label: object.name, detail: object.address }))} /> : <ObjectFields value={newObject} onChange={setNewObject} />}</div>
         </section>
 
-        <section id="quick-work-section" aria-hidden={activeSectionId !== "quick-work-section"} className={activeSectionId === "quick-work-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
+        <section id="quick-work-section" aria-hidden={activeSectionId !== "quick-work-section"} className={activeSectionId === "quick-work-section" ? "animate-rise p-5 sm:p-8 xl:p-10" : "hidden"}>
           <SectionIntro number="03" title="Что нужно сделать" description="Зафиксируйте работу, стоимость и исполнителя. Финансовые значения сохранятся снимком." />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2"><OrderField label="Услуга" required><input data-testid="quick-service-name" value={serviceName} onChange={(event) => setServiceName(event.target.value)} className={orderInputClass} /></OrderField></div>
@@ -367,7 +360,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           </div>
         </section>
 
-        <section id="quick-visit-section" aria-hidden={activeSectionId !== "quick-visit-section"} className={activeSectionId === "quick-visit-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
+        <section id="quick-visit-section" aria-hidden={activeSectionId !== "quick-visit-section"} className={activeSectionId === "quick-visit-section" ? "animate-rise p-5 sm:p-8 xl:p-10" : "hidden"}>
           <SectionIntro number="04" title="Когда выезжать" description="Назначьте первый выезд. Он сразу появится в календаре и создаст напоминание." />
           <div className="grid gap-4 sm:grid-cols-3">
             <OrderField label="Дата" required><DateInput data-testid="quick-visit-date" name="visitDate" value={visitDate} onChange={setVisitDate} required /></OrderField>
@@ -377,37 +370,39 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           </div>
         </section>
 
-        <footer className="border-t border-white/[0.08] px-4 py-4 max-md:fixed max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:left-[var(--workspace-gutter)] max-md:right-[var(--workspace-gutter)] max-md:z-40 max-md:border max-md:bg-[#0e1418]/95 max-md:shadow-[0_-14px_34px_rgba(0,0,0,0.32)] max-md:backdrop-blur-xl sm:px-7">
-          {stepError ? <p role="alert" className="mb-4 flex items-start gap-2 border-l-2 border-[#ef646a] bg-[#ef646a]/[0.045] px-4 py-3 text-xs leading-5 text-[#e29a9f]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{stepError}</p> : null}
-          {state.status === "error" && state.message ? <p data-testid="quick-order-error" role="alert" className="mb-4 flex items-start gap-2 border-l-2 border-[#ef646a] bg-[#ef646a]/[0.045] px-4 py-3 text-xs leading-5 text-[#e29a9f]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{state.message}</p> : null}
-         <div className="flex gap-2">
-            <button type="button" onClick={() => goToSection(Math.max(0, step - 1))} disabled={step === 0 || pending} className="focus-ring flex h-12 items-center justify-center gap-2 border border-white/[0.08] px-4 text-xs text-[#899399] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"><ArrowLeft className="size-4" /><span className="hidden sm:inline">Назад</span></button>
-            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-50">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="submit" disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-50">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
-         </div>
-       </footer>
+        <footer className="border-t border-white/[0.08] px-5 py-5 max-md:fixed max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:left-[var(--workspace-gutter)] max-md:right-[var(--workspace-gutter)] max-md:z-40 max-md:rounded-[18px] max-md:border max-md:bg-[#0e1418]/95 max-md:shadow-[0_-14px_34px_rgba(0,0,0,0.32)] max-md:backdrop-blur-xl sm:px-8 xl:px-10">
+          {stepError ? <p role="alert" className="mb-4 flex items-start gap-2 rounded-[14px] border border-[#ef646a]/20 bg-[#ef646a]/[0.07] px-4 py-3 text-xs leading-5 text-[#e29a9f]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{stepError}</p> : null}
+          {state.status === "error" && state.message ? <p data-testid="quick-order-error" role="alert" className="mb-4 flex items-start gap-2 rounded-[14px] border border-[#ef646a]/20 bg-[#ef646a]/[0.07] px-4 py-3 text-xs leading-5 text-[#e29a9f]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{state.message}</p> : null}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => goToSection(Math.max(0, step - 1))} disabled={step === 0 || pending} className="focus-ring flex h-12 items-center justify-center gap-2 rounded-[14px] border border-white/[0.08] px-4 text-xs text-[#899399] hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"><ArrowLeft className="size-4" /><span className="hidden sm:inline">Назад</span></button>
+            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] transition-colors hover:bg-[#f4f854] disabled:cursor-not-allowed disabled:opacity-50">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="submit" disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 rounded-[14px] bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] transition-colors hover:bg-[#f4f854] disabled:cursor-not-allowed disabled:opacity-50">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
+          </div>
+        </footer>
       </div>
 
-      <aside data-testid="quick-order-summary" aria-label="Черновик заказа" className="border-t border-white/[0.08] bg-black/[0.08] p-4 lg:col-span-2 lg:p-6 xl:sticky xl:top-[calc(var(--header-height)+1rem)] xl:col-span-1 xl:border-l xl:border-t-0">
-        <div className="flex items-start justify-between gap-3">
-          <div><p className="font-display text-sm font-semibold text-white">Черновик заказа</p><p className="mt-1 text-xs text-[#737d83]">{completedSections} из {steps.length} разделов заполнено</p></div>
-          <span className={`font-display text-xs font-semibold ${allSectionsValid ? "text-[#80d8b2]" : "text-[#737d83]"}`}>{allSectionsValid ? "Готов" : "В работе"}</span>
-       </div>
-        <dl className="mt-5 grid gap-x-5 sm:grid-cols-2 xl:grid-cols-1">
-          <SummaryLine label="Клиент" value={draftClientName} strong />
-          <SummaryLine label="Контакт" value={draftContactName} />
-          <SummaryLine label="Телефон" value={draftPhone} />
-          {effectiveContactMode === "new" ? <SummaryLine label="Email" value={contactEmail} /> : null}
-          <SummaryLine label="Объект" value={draftObjectName} strong />
-          <SummaryLine label="Адрес" value={draftAddress} />
-          <SummaryLine label="Работа" value={serviceName} />
-          <SummaryLine label="Мастер" value={selectedMaster?.name ?? "Назначить позже"} />
-          <SummaryLine label="Выезд" value={`${formatDraftDate(visitDate)}${visitTime ? ` · ${visitTime}` : ""}`} />
-        </dl>
-        <div className="flex items-end justify-between gap-4 border-t border-white/[0.08] pt-5">
-          <span className="text-[10px] uppercase tracking-[0.13em] text-[#737d83]">Итого</span>
-          <strong className="font-display text-xl font-semibold text-white">{serviceTotal > 0 ? formatMoney(serviceTotal) : "0 ₽"}</strong>
+      <aside data-testid="quick-order-summary" aria-label="Черновик заказа" className="border-t border-white/[0.08] bg-black/[0.06] p-5 sm:p-7 xl:border-l xl:border-t-0 xl:p-6">
+        <div className="xl:sticky xl:top-[calc(var(--header-height)+1rem)] xl:rounded-[18px] xl:border xl:border-white/[0.065] xl:bg-black/[0.12] xl:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div><p className="font-display text-sm font-semibold text-white">Черновик заказа</p><p className="mt-1 text-xs text-[#737d83]">{completedSections} из {steps.length} разделов заполнено</p></div>
+            <span className={`rounded-full px-2.5 py-1 font-display text-[10px] font-semibold ${allSectionsValid ? "bg-[#69d3a4]/10 text-[#80d8b2]" : "bg-white/[0.05] text-[#899399]"}`}>{allSectionsValid ? "Готов" : "В работе"}</span>
+          </div>
+          <dl className="mt-5 grid gap-x-5 sm:grid-cols-2 xl:grid-cols-1">
+            <SummaryLine label="Клиент" value={draftClientName} strong />
+            <SummaryLine label="Контакт" value={draftContactName} />
+            <SummaryLine label="Телефон" value={draftPhone} />
+            {effectiveContactMode === "new" ? <SummaryLine label="Email" value={contactEmail} /> : null}
+            <SummaryLine label="Объект" value={draftObjectName} strong />
+            <SummaryLine label="Адрес" value={draftAddress} />
+            <SummaryLine label="Работа" value={serviceName} />
+            <SummaryLine label="Мастер" value={selectedMaster?.name ?? "Назначить позже"} />
+            <SummaryLine label="Выезд" value={`${formatDraftDate(visitDate)}${visitTime ? ` · ${visitTime}` : ""}`} />
+          </dl>
+          <div className="mt-4 flex items-end justify-between gap-4 rounded-[14px] bg-white/[0.045] px-4 py-3.5">
+            <span className="text-[10px] uppercase tracking-[0.13em] text-[#899399]">Итого</span>
+            <strong className="font-display text-xl font-semibold text-white">{serviceTotal > 0 ? formatMoney(serviceTotal) : "0 ₽"}</strong>
+          </div>
+          <p className={`mt-5 flex items-start gap-2 text-xs leading-5 ${allSectionsValid ? "text-[#8ed7b8]" : "text-[#b9a47e]"}`}>{allSectionsValid ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" />}{allSectionsValid ? "Черновик готов к созданию." : "Заполните обязательные данные на каждом шаге."}</p>
         </div>
-        <p className={`mt-5 flex items-start gap-2 text-xs leading-5 ${allSectionsValid ? "text-[#8ed7b8]" : "text-[#b9a47e]"}`}>{allSectionsValid ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" />}{allSectionsValid ? "Черновик готов к созданию." : "Заполните обязательные данные на каждом шаге."}</p>
       </aside>
     </div>
   </form>;
