@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, Ban, Banknote, ChevronDown, CircleDollarSign, Clock3, FilePlus2, Landmark, ReceiptText, RotateCcw, Search, SlidersHorizontal, UserRoundCheck, WalletCards } from "lucide-react";
+import { ArrowDownToLine, Ban, Banknote, ChevronDown, Clock3, FilePlus2, Landmark, ReceiptText, RotateCcw, Search, SlidersHorizontal, UserRoundCheck, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
@@ -22,7 +22,7 @@ function formatDate(value: string) {
 }
 
 function SummaryCell({ icon: Icon, label, value, note, tone }: { icon: typeof WalletCards; label: string; value: number; note: string; tone: string }) {
-  return <article className="group min-h-32 min-w-0 bg-[var(--surface)] p-4 transition-colors hover:bg-[var(--surface-raised)] sm:p-5"><div className="flex items-center gap-2"><Icon className="size-4 shrink-0" style={{ color: tone }} /><p className="text-[10px] uppercase tracking-[0.11em] text-[#929b99]">{label}</p></div><strong className="mt-5 block truncate font-display text-[clamp(1.3rem,1.05rem+0.55vw,1.8rem)] font-semibold tracking-[-0.05em] text-white">{formatMoneyMinor(value)}</strong><p className="mt-2 truncate text-[9px] text-[#707976]">{note}</p></article>;
+  return <div className="relative min-w-0 px-4 py-5 sm:px-5"><div className="flex items-center gap-2"><span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: tone }} /><Icon className="size-3.5 shrink-0" style={{ color: tone }} /><p className="text-[10px] uppercase tracking-[0.11em] text-[#899399]">{label}</p></div><strong className="mt-4 block truncate font-display text-[clamp(1.25rem,1.05rem+0.48vw,1.7rem)] font-semibold tracking-[-0.05em] text-white">{formatMoneyMinor(value)}</strong><p className="mt-2 truncate text-[10px] text-[#687279]">{note}</p></div>;
 }
 
 function parseRubles(value: string) {
@@ -47,8 +47,8 @@ function PaymentRow({ payment, canWrite, onReverse }: { payment: FinancePayment;
 function InvoiceCard({ order, invoice, canWrite, onDialog }: { order: FinanceOrder; invoice: FinanceInvoice; canWrite: boolean; onDialog: (dialog: FinanceDialog) => void }) {
   const paymentProgress = invoice.amountMinor ? Math.min(100, Math.round(invoice.paidMinor / invoice.amountMinor * 100)) : 0;
   return (
-    <article className={`rounded-[14px] border p-4 ${invoice.status === "void" ? "border-white/[0.05] bg-black/10 opacity-65" : invoice.overdue ? "border-[#ef646a]/20 bg-[#ef646a]/[0.025]" : "border-white/[0.07] bg-black/10"}`}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+    <article className={`border-t border-white/[0.07] py-4 first:border-t-0 first:pt-0 ${invoice.status === "void" ? "opacity-60" : ""}`}>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs font-semibold text-white">Счёт {invoice.number}</p>
@@ -58,13 +58,13 @@ function InvoiceCard({ order, invoice, canWrite, onDialog }: { order: FinanceOrd
           {invoice.note ? <p className="mt-2 text-[10px] text-[#858f94]">{invoice.note}</p> : null}
           {invoice.voidReason ? <p className="mt-2 text-[9px] text-[#a27477]">Причина: {invoice.voidReason}</p> : null}
         </div>
-        <div className="flex shrink-0 items-end justify-between gap-4 sm:block sm:text-right">
-          <span className="rounded-[8px] border border-[#69d3a4]/15 bg-[#69d3a4]/[0.055] px-2 py-1 font-display text-[10px] text-[#78d4aa]" aria-label={`Получено ${paymentProgress}%`}>{paymentProgress}% оплачено</span>
-          <div className="mt-2"><strong className="font-display text-sm text-white">{formatMoneyMinor(invoice.amountMinor)}</strong><p className="mt-1 text-[9px] text-[#6b757b]">Остаток {formatMoneyMinor(invoice.outstandingMinor)}</p></div>
+        <div className="flex items-end justify-between gap-4 sm:block sm:text-right">
+          <span className="text-[10px] text-[#78d4aa]" aria-label={`Получено ${paymentProgress}%`}>{paymentProgress}% оплачено</span>
+          <div className="mt-2"><strong className="font-display text-sm text-white">{formatMoneyMinor(invoice.amountMinor)}</strong><p className="mt-1 text-[10px] text-[#6b757b]">Остаток {formatMoneyMinor(invoice.outstandingMinor)}</p></div>
         </div>
       </div>
-      {invoice.status === "issued" ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className="text-[9px] text-[#687279]">Получено {formatMoneyMinor(invoice.paidMinor)}</span>{canWrite ? <div className="flex gap-2">{invoice.outstandingMinor > 0 ? <button type="button" onClick={() => onDialog({ kind: "payment", order, invoice })} className="focus-ring flex h-9 items-center gap-1.5 rounded-[10px] bg-[#69d3a4]/[0.09] px-3 text-[9px] font-medium text-[#82d4b1]"><ArrowDownToLine className="size-3.5" />Добавить оплату</button> : null}{invoice.paidMinor === 0 ? <button type="button" onClick={() => onDialog({ kind: "void-invoice", invoice })} className="focus-ring grid size-9 place-items-center rounded-[10px] border border-white/[0.07] text-[#9b7477]" aria-label={`Аннулировать счёт ${invoice.number}`}><Ban className="size-3.5" /></button> : null}</div> : null}</div> : null}
-      {invoice.payments.length ? <details className="group mt-3"><summary className="focus-ring flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-lg text-[9px] text-[#778188] [&::-webkit-details-marker]:hidden"><ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />История оплат · {invoice.payments.length}</summary><div>{invoice.payments.map((payment) => <PaymentRow key={payment.id} payment={payment} canWrite={canWrite} onReverse={() => onDialog({ kind: "reverse-payment", payment })} />)}</div></details> : null}
+      {invoice.status === "issued" ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] text-[#687279]">Получено {formatMoneyMinor(invoice.paidMinor)}</span>{canWrite ? <div className="flex gap-2">{invoice.outstandingMinor > 0 ? <button type="button" onClick={() => onDialog({ kind: "payment", order, invoice })} className="focus-ring flex h-9 items-center gap-1.5 rounded-[9px] bg-[#69d3a4]/[0.09] px-3 text-[10px] font-medium text-[#82d4b1] active:translate-y-px"><ArrowDownToLine className="size-3.5" />Добавить оплату</button> : null}{invoice.paidMinor === 0 ? <button type="button" onClick={() => onDialog({ kind: "void-invoice", invoice })} className="focus-ring grid size-9 place-items-center rounded-[9px] border border-white/[0.07] text-[#9b7477] hover:bg-[#ef646a]/[0.04]" aria-label={`Аннулировать счёт ${invoice.number}`}><Ban className="size-3.5" /></button> : null}</div> : null}</div> : null}
+      {invoice.payments.length ? <details className="group mt-3 border-l border-white/[0.11] pl-3"><summary className="focus-ring flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-lg text-[10px] text-[#778188] [&::-webkit-details-marker]:hidden"><ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />История оплат · {invoice.payments.length}</summary><div>{invoice.payments.map((payment) => <PaymentRow key={payment.id} payment={payment} canWrite={canWrite} onReverse={() => onDialog({ kind: "reverse-payment", payment })} />)}</div></details> : null}
     </article>
   );
 }
@@ -73,23 +73,23 @@ function OrderLedgerCard({ order, canWrite, onDialog }: { order: FinanceOrder; c
   const remainingToInvoice = Math.max(0, order.agreedMinor - order.invoicedMinor);
   const settled = order.receivableMinor === 0 && order.invoicedMinor > 0;
   return (
-    <article className={`relative overflow-hidden border-b border-white/[0.07] p-4 last:border-b-0 sm:p-5 ${order.receivableMinor > 0 ? "bg-[#171612]" : "bg-[var(--surface)]"}`}>
+    <article className="relative overflow-hidden border-b border-white/[0.07] px-4 py-5 last:border-b-0 sm:px-5">
       <span className={`absolute bottom-0 left-0 top-0 w-0.5 ${settled ? "bg-[#69d3a4]/70" : order.receivableMinor > 0 ? "bg-[#efb454]/70" : "bg-[#66b6eb]/45"}`} />
-      <div className="grid gap-5 xl:grid-cols-[minmax(12rem,0.8fr)_minmax(30rem,1.5fr)_auto] xl:items-center">
-        <div className="min-w-0 pl-1">
+      <div className="grid gap-5 pl-2 xl:grid-cols-[minmax(13rem,0.88fr)_minmax(29rem,1.5fr)_auto] xl:items-center">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2"><Link href={`/orders/${order.id}`} className="focus-ring rounded-md font-display text-sm font-semibold text-white hover:text-[var(--accent)]">{order.number}</Link><span className="rounded-[7px] bg-white/[0.045] px-2 py-1 text-[9px] text-[#7c868c]">{statusLabels[order.status] ?? order.status}</span></div>
-          <p className="mt-3 truncate text-xs font-medium text-[#d2d7d5]">{order.client}</p>
+          <p className="mt-2 truncate text-xs font-medium text-[#d2d7d5]">{order.client}</p>
           <p className="mt-1 truncate text-[10px] text-[#6d777d]">{order.object}</p>
         </div>
-        <dl className="grid grid-cols-2 border-y border-white/[0.08] min-[520px]:grid-cols-4">
-          <div className="p-3"><dt className="text-[9px] text-[#6f7876]">Согласовано</dt><dd className="mt-2 font-display text-xs text-white">{formatMoneyMinor(order.agreedMinor)}</dd></div>
-          <div className="border-l border-white/[0.08] p-3"><dt className="text-[9px] text-[#6f7876]">Выставлено</dt><dd className="mt-2 font-display text-xs text-[#7fc5ef]">{formatMoneyMinor(order.invoicedMinor)}</dd></div>
-          <div className="border-l border-white/[0.08] p-3"><dt className="text-[9px] text-[#6f7876]">Получено</dt><dd className="mt-2 font-display text-xs text-[#78d4aa]">{formatMoneyMinor(order.paidMinor)}</dd></div>
-          <div className="border-l border-white/[0.08] p-3"><dt className="text-[9px] text-[#6f7876]">Осталось</dt><dd className={`mt-2 font-display text-xs ${order.receivableMinor > 0 ? "text-[#e8b666]" : "text-[var(--accent)]"}`}>{formatMoneyMinor(order.receivableMinor)}</dd></div>
+        <dl className="grid grid-cols-2 gap-x-5 gap-y-4 border-y border-white/[0.06] py-4 min-[520px]:grid-cols-4 xl:border-y-0 xl:py-0">
+          <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Согласовано</dt><dd className="mt-1.5 font-display text-xs text-white">{formatMoneyMinor(order.agreedMinor)}</dd></div>
+          <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Выставлено</dt><dd className="mt-1.5 font-display text-xs text-[#7fc5ef]">{formatMoneyMinor(order.invoicedMinor)}</dd></div>
+          <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Получено</dt><dd className="mt-1.5 font-display text-xs text-[#78d4aa]">{formatMoneyMinor(order.paidMinor)}</dd></div>
+          <div><dt className="text-[9px] uppercase tracking-[0.11em] text-[#6f7876]">Долг</dt><dd className={`mt-1.5 font-display text-xs ${order.receivableMinor > 0 ? "text-[#e8b666]" : "text-[var(--accent)]"}`}>{formatMoneyMinor(order.receivableMinor)}</dd></div>
         </dl>
         <div className="flex items-center gap-2 xl:justify-end">{settled ? <span className="rounded-[9px] border border-[#69d3a4]/15 bg-[#69d3a4]/[0.055] px-3 py-2 text-[10px] text-[#78d4aa]">Расчёт закрыт</span> : null}{canWrite && remainingToInvoice > 0 ? <button type="button" onClick={() => onDialog({ kind: "invoice", order })} className="focus-ring flex h-10 shrink-0 items-center justify-center gap-2 rounded-[11px] bg-[var(--accent)] px-3 text-[10px] font-semibold text-[#101308]"><FilePlus2 className="size-4" />Новый счёт</button> : null}</div>
       </div>
-      <details className="group mt-4 border-t border-white/[0.055] pt-3"><summary className="focus-ring flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-[9px] text-[10px] text-[#7f898e] [&::-webkit-details-marker]:hidden"><ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />Счета и оплаты <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[8px]">{order.invoices.length}</span></summary><div className="mt-3 grid gap-3 xl:grid-cols-2">{order.invoices.length ? order.invoices.map((invoice) => <InvoiceCard key={invoice.id} order={order} invoice={invoice} canWrite={canWrite} onDialog={onDialog} />) : <p className="rounded-[14px] border border-dashed border-white/[0.07] py-8 text-center text-xs text-[#626c72]">По заказу ещё нет счетов.</p>}</div></details>
+      <details className="group mt-5 border-t border-white/[0.055] pl-2 pt-3"><summary className="focus-ring flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-[9px] text-[10px] text-[#7f898e] [&::-webkit-details-marker]:hidden"><ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />Счета и оплаты <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[8px]">{order.invoices.length}</span></summary><div className="mt-3 max-w-4xl">{order.invoices.length ? order.invoices.map((invoice) => <InvoiceCard key={invoice.id} order={order} invoice={invoice} canWrite={canWrite} onDialog={onDialog} />) : <p className="border-l border-dashed border-white/[0.12] py-3 pl-3 text-xs text-[#626c72]">По заказу ещё нет счетов.</p>}</div></details>
     </article>
   );
 }
@@ -141,11 +141,26 @@ export function FinanceWorkspace({ snapshot, canWrite }: { snapshot: FinanceSnap
     });
   }, [filters, normalizedQuery, snapshot.payouts]);
   const payoutOrders = snapshot.orders.filter((order) => order.masterDueMinor > 0 && order.masterId);
+  const receivableOverview = useMemo(() => {
+    const overdue = visibleOrders.filter((order) => order.invoices.some((invoice) => invoice.status === "issued" && invoice.overdue && invoice.outstandingMinor > 0));
+    const uninvoiced = visibleOrders.filter((order) => order.invoicedMinor < order.agreedMinor);
+    const debt = visibleOrders.filter((order) => order.receivableMinor > 0);
+    return [
+      { label: "Просрочено", value: overdue.length, tone: "text-[#ef7a80]" },
+      { label: "Есть долг", value: debt.length, tone: "text-[#e8b666]" },
+      { label: "Не выставлено", value: uninvoiced.length, tone: "text-[#7fc5ef]" },
+    ];
+  }, [visibleOrders]);
   const activeFilterCount = tab === "receivables"
     ? [filters.receivableState !== "all", Boolean(filters.amountMin), Boolean(filters.amountMax), filters.sort !== "debt-desc"].filter(Boolean).length
     : [filters.ledger !== "all", filters.method !== "all", Boolean(filters.master), Boolean(filters.dateFrom), Boolean(filters.dateTo)].filter(Boolean).length;
 
   function resetFilters() { setQuery(""); setFilters(defaultFilters); setDraftFilters(defaultFilters); setFilterError(null); }
+  function switchTab(nextTab: "receivables" | "payouts") {
+    setTab(nextTab);
+    setFiltersOpen(false);
+    setFilterError(null);
+  }
   function applyFilters() {
     if (tab === "receivables") {
       if ((draftFilters.amountMin && parseRubles(draftFilters.amountMin) === null) || (draftFilters.amountMax && parseRubles(draftFilters.amountMax) === null)) { setFilterError("Сумма должна быть положительным числом."); return; }
@@ -161,12 +176,58 @@ export function FinanceWorkspace({ snapshot, canWrite }: { snapshot: FinanceSnap
     setFilters(draftFilters); setFiltersOpen(false);
   }
 
-  return <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] space-y-4"><section aria-label="Финансовые итоги" className="grid gap-px overflow-hidden border border-white/[0.09] bg-white/[0.09] min-[640px]:grid-cols-2 xl:grid-cols-4"><SummaryCell icon={Landmark} label="Выставлено" value={snapshot.summary.invoicedMinor} note={`из ${formatMoneyMinor(snapshot.summary.agreedMinor)} согласовано`} tone="#B8F7E4" /><SummaryCell icon={ArrowDownToLine} label="Получено" value={snapshot.summary.receivedMinor} note="Проведённые оплаты клиентов" tone="#B8F7E4" /><SummaryCell icon={Clock3} label="Дебиторка" value={snapshot.summary.receivableMinor} note={`просрочено ${formatMoneyMinor(snapshot.summary.overdueMinor)}`} tone="#efb454" /><SummaryCell icon={UserRoundCheck} label="К выплате мастерам" value={snapshot.summary.masterDueMinor} note={`выплачено ${formatMoneyMinor(snapshot.summary.masterPaidMinor)}`} tone="#B8F7E4" /></section>
+  return <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] space-y-4">
+    <section aria-label="Финансовая позиция" className="surface-panel overflow-hidden">
+      <div className="grid gap-5 border-b border-white/[0.07] px-4 py-5 sm:px-5 lg:grid-cols-[minmax(12rem,0.65fr)_minmax(0,1.35fr)] lg:items-center">
+        <div>
+          <p className="eyebrow">Финансовая позиция</p>
+          <p className="mt-2 max-w-xs text-[11px] leading-5 text-[#758087]">Текущий срез по согласованным заказам, счетам и выплатам.</p>
+        </div>
+        <div className="grid grid-cols-2 divide-x divide-y divide-white/[0.07] border border-white/[0.07] sm:grid-cols-4 sm:divide-y-0">
+          <SummaryCell icon={Landmark} label="Выставлено" value={snapshot.summary.invoicedMinor} note={"из " + formatMoneyMinor(snapshot.summary.agreedMinor) + " согласовано"} tone="#66aef3" />
+          <SummaryCell icon={ArrowDownToLine} label="Получено" value={snapshot.summary.receivedMinor} note="Проведённые оплаты клиентов" tone="#69d3a4" />
+          <SummaryCell icon={Clock3} label="Дебиторка" value={snapshot.summary.receivableMinor} note={"просрочено " + formatMoneyMinor(snapshot.summary.overdueMinor)} tone="#f2c95e" />
+          <SummaryCell icon={UserRoundCheck} label="К выплате" value={snapshot.summary.masterDueMinor} note={"выплачено " + formatMoneyMinor(snapshot.summary.masterPaidMinor)} tone="#9c82e8" />
+        </div>
+      </div>
+      <p className="px-4 py-3 text-[10px] text-[#667178] sm:px-5">Сводка построена по загруженной истории; движение денег не удаляется при отмене операции.</p>
+    </section>
 
-    <section className="surface-panel overflow-hidden"><header className="flex flex-col gap-3 border-b border-white/[0.07] p-3 sm:p-4 lg:flex-row lg:items-center"><div className="flex gap-1 rounded-[12px] border border-white/[0.07] bg-black/10 p-1"><button type="button" onClick={() => { setTab("receivables"); resetFilters(); }} className={`focus-ring h-10 rounded-[9px] px-3 text-[10px] font-medium ${tab === "receivables" ? "bg-white/[0.08] text-white" : "text-[#727c82]"}`}><span className="flex items-center gap-2"><ReceiptText className="size-3.5" />Дебиторка</span></button><button type="button" onClick={() => { setTab("payouts"); resetFilters(); }} className={`focus-ring h-10 rounded-[9px] px-3 text-[10px] font-medium ${tab === "payouts" ? "bg-white/[0.08] text-white" : "text-[#727c82]"}`}><span className="flex items-center gap-2"><Banknote className="size-3.5" />Мастера</span></button></div><label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-white/[0.08] bg-black/10 px-3 lg:max-w-md"><Search className="size-4 shrink-0 text-[#657078]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === "receivables" ? "Заказ, клиент, объект или счёт" : "Мастер, заказ или операция"} className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-[#59636a]" /></label><button type="button" onClick={() => { setDraftFilters(filters); setFilterError(null); setFiltersOpen(true); }} className={`focus-ring flex h-11 shrink-0 items-center justify-center gap-2 rounded-[12px] border px-3 text-xs ${activeFilterCount ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.06] text-white" : "border-white/[0.07] text-[#858f94]"}`}><SlidersHorizontal className="size-4" />Фильтры{activeFilterCount ? <span className="grid min-w-5 place-items-center rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[9px] font-semibold text-[#101308]">{activeFilterCount}</span> : null}</button>{query.trim() || activeFilterCount ? <button type="button" onClick={resetFilters} className="focus-ring flex h-11 shrink-0 items-center justify-center gap-2 rounded-[12px] border border-white/[0.07] px-3 text-xs text-[#7c858b]"><RotateCcw className="size-3.5" />Сбросить</button> : null}<div className="ml-auto hidden items-center gap-2 text-[9px] text-[#657078] 2xl:flex"><CircleDollarSign className="size-4" />Все суммы в рублях · история не удаляется</div></header>
+    <section className="surface-panel overflow-hidden">
+      <header className="grid gap-3 border-b border-white/[0.07] px-4 py-4 sm:px-5 lg:grid-cols-[auto_minmax(16rem,1fr)_auto] lg:items-end">
+        <div role="tablist" aria-label="Разделы финансов" className="flex gap-5 border-b border-white/[0.07] lg:border-b-0">
+          <button id="finance-receivables-tab" type="button" role="tab" aria-selected={tab === "receivables"} aria-controls="finance-receivables-panel" onClick={() => switchTab("receivables")} className={"focus-ring relative flex h-10 items-center gap-2 border-b-2 px-0 text-xs font-medium transition-colors " + (tab === "receivables" ? "border-[var(--accent)] text-white" : "border-transparent text-[#78838a] hover:text-white")}><ReceiptText className="size-3.5" />Дебиторка</button>
+          <button id="finance-payouts-tab" type="button" role="tab" aria-selected={tab === "payouts"} aria-controls="finance-payouts-panel" onClick={() => switchTab("payouts")} className={"focus-ring relative flex h-10 items-center gap-2 border-b-2 px-0 text-xs font-medium transition-colors " + (tab === "payouts" ? "border-[var(--accent)] text-white" : "border-transparent text-[#78838a] hover:text-white")}><Banknote className="size-3.5" />Мастера</button>
+        </div>
+        <div className="flex min-w-0 items-center gap-2 lg:contents">
+          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 border-b border-white/[0.12] px-1 lg:max-w-md"><Search className="size-4 shrink-0 text-[#657078]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === "receivables" ? "Заказ, клиент, объект или счёт" : "Мастер, заказ или операция"} className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-[#59636a]" /></label>
+          <div className="flex shrink-0 items-center gap-2 lg:justify-end"><button type="button" onClick={() => { setDraftFilters(filters); setFilterError(null); setFiltersOpen(true); }} className={"focus-ring flex h-10 shrink-0 items-center justify-center gap-2 rounded-[10px] border px-3 text-xs " + (activeFilterCount ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.06] text-white" : "border-white/[0.07] text-[#858f94] hover:text-white")}><SlidersHorizontal className="size-4" />Фильтры{activeFilterCount ? <span className="grid min-w-5 place-items-center rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[9px] font-semibold text-[#101308]">{activeFilterCount}</span> : null}</button>{query.trim() || activeFilterCount ? <button type="button" onClick={resetFilters} className="focus-ring flex h-10 shrink-0 items-center justify-center gap-2 rounded-[10px] px-2 text-xs text-[#7c858b] hover:text-white"><RotateCcw className="size-3.5" /><span className="tiny-hidden">Сбросить</span></button> : null}</div>
+        </div>
+      </header>
 
-      {tab === "receivables" ? <div className="grid gap-3 p-3 sm:p-4">{visibleOrders.length ? visibleOrders.map((order) => <OrderLedgerCard key={order.id} order={order} canWrite={canWrite} onDialog={setDialog} />) : <div className="grid min-h-56 place-items-center p-6 text-center"><div><ReceiptText className="mx-auto size-8 text-[#485259]" /><p className="mt-4 text-sm text-[#8a9499]">Ничего не найдено</p><p className="mt-2 text-xs text-[#5f696f]">Измените условия или сбросьте фильтры.</p><button type="button" onClick={resetFilters} className="focus-ring mt-4 rounded-[10px] bg-white/[0.07] px-3 py-2 text-xs text-white">Сбросить фильтры</button></div></div>}</div> : <div><section className="border-b border-white/[0.06] p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-semibold text-white">Начисления к выплате</h2><p className="mt-1 text-[10px] text-[#657078]">Остаток считается по каждому заказу и закреплённому мастеру.</p></div><span className="rounded-full bg-[#9c82e8]/[0.08] px-2.5 py-1 text-[9px] text-[#aa95e4]">{payoutOrders.length}</span></div>{payoutOrders.length ? <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{payoutOrders.map((order) => <article key={order.id} className="rounded-[13px] border border-white/[0.07] bg-black/10 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-xs font-medium text-white">{order.masterName}</p><p className="mt-1 truncate text-[9px] text-[#6e777d]">{order.number} · {order.client}</p></div><strong className="shrink-0 font-display text-xs text-[#b6a2ea]">{formatMoneyMinor(order.masterDueMinor)}</strong></div>{canWrite ? <button type="button" onClick={() => setDialog({ kind: "payout", order })} className="focus-ring mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-[10px] bg-[#9c82e8]/[0.1] text-[9px] font-medium text-[#b8a7e6]"><WalletCards className="size-3.5" />Провести выплату</button> : null}</article>)}</div> : <p className="mt-4 rounded-[12px] border border-dashed border-white/[0.07] py-7 text-center text-xs text-[#626c72]">Задолженности перед мастерами нет.</p>}</section><section><div className="border-b border-white/[0.06] px-4 py-4 sm:px-5"><h2 className="text-sm font-semibold text-white">История выплат</h2></div>{visiblePayouts.length ? visiblePayouts.map((payout) => <PayoutRow key={payout.id} payout={payout} canWrite={canWrite} onReverse={() => setDialog({ kind: "reverse-payout", payout })} />) : <p className="py-14 text-center text-xs text-[#626c72]">Выплат по выбранным условиям нет.</p>}</section></div>}
-      <footer className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-4 py-3 text-[10px] text-[#667077]"><span>Показано {tab === "receivables" ? visibleOrders.length : visiblePayouts.length}</span><span>{activeFilterCount ? `${activeFilterCount} активных условий` : "Без ограничений"}</span></footer>
+      {tab === "receivables" ? <div id="finance-receivables-panel" role="tabpanel" aria-labelledby="finance-receivables-tab" className="grid xl:grid-cols-[12.5rem_minmax(0,1fr)]">
+        <aside className="border-b border-white/[0.07] bg-black/[0.08] px-4 py-5 sm:px-5 xl:border-b-0 xl:border-r">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7c878d]">Требует внимания</p>
+          <dl className="mt-4 grid grid-cols-3 divide-x divide-white/[0.07] xl:grid-cols-1 xl:divide-x-0 xl:divide-y">
+            {receivableOverview.map((item) => <div key={item.label} className="min-w-0 px-3 first:pl-0 xl:px-0 xl:py-3 xl:first:pt-0"><dt className="truncate text-[9px] text-[#687279]">{item.label}</dt><dd className={"mt-1 font-display text-lg " + item.tone}>{item.value}</dd></div>)}
+          </dl>
+          <div className="mt-5 hidden border-t border-white/[0.07] pt-4 xl:block"><p className="text-[10px] leading-5 text-[#69737a]">Откройте расчёты заказа, чтобы выставить счёт, провести оплату или отменить операцию.</p></div>
+        </aside>
+        <section>
+          <header className="flex items-center justify-between gap-4 border-b border-white/[0.055] px-4 py-3 sm:px-5"><div><h2 className="text-sm font-semibold text-white">Реестр расчётов</h2><p className="mt-1 text-[10px] text-[#657078]">По каждому заказу — согласованная сумма, счета, оплаты и остаток.</p></div><span className="shrink-0 text-[10px] text-[#758087]">{visibleOrders.length} записей</span></header>
+          {visibleOrders.length ? <div>{visibleOrders.map((order) => <OrderLedgerCard key={order.id} order={order} canWrite={canWrite} onDialog={setDialog} />)}</div> : <div className="grid min-h-64 place-items-center p-6 text-center"><div><ReceiptText className="mx-auto size-8 text-[#485259]" /><p className="mt-4 text-sm text-[#8a9499]">Ничего не найдено</p><p className="mt-2 text-xs text-[#5f696f]">Измените условия или сбросьте фильтры.</p><button type="button" onClick={resetFilters} className="focus-ring mt-4 rounded-[10px] border border-white/[0.08] px-3 py-2 text-xs text-white hover:bg-white/[0.04]">Сбросить фильтры</button></div></div>}
+        </section>
+      </div> : <div id="finance-payouts-panel" role="tabpanel" aria-labelledby="finance-payouts-tab">
+        <section className="border-b border-white/[0.07]">
+          <header className="flex items-start justify-between gap-4 px-4 py-5 sm:px-5"><div><p className="eyebrow">Очередь действий</p><h2 className="mt-2 text-sm font-semibold text-white">К выплате мастерам</h2><p className="mt-1 text-[10px] text-[#657078]">Невыплаченный остаток по заказам с закреплённым исполнителем.</p></div><span className="font-display text-xl text-[#b6a2ea]">{payoutOrders.length}</span></header>
+          {payoutOrders.length ? <div className="divide-y divide-white/[0.055]">{payoutOrders.map((order) => <article key={order.id} className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,1.25fr)_auto] lg:items-center"><div className="min-w-0"><p className="truncate text-xs font-medium text-white">{order.masterName}</p><p className="mt-1 truncate text-[10px] text-[#6e777d]">{order.number} · {order.client}</p></div><p className="text-[10px] leading-5 text-[#778187]">Остаток к выплате по заказу. Проведённая сумма сразу попадёт в неизменяемую историю.</p><div className="flex items-center justify-between gap-4 lg:justify-end"><strong className="font-display text-sm text-[#b6a2ea]">{formatMoneyMinor(order.masterDueMinor)}</strong>{canWrite ? <button type="button" onClick={() => setDialog({ kind: "payout", order })} className="focus-ring flex h-10 items-center gap-2 rounded-[10px] border border-[#9c82e8]/25 bg-[#9c82e8]/[0.07] px-3 text-[10px] font-medium text-[#c3b1ee] active:translate-y-px"><WalletCards className="size-3.5" />Провести выплату</button> : null}</div></article>)}</div> : <p className="px-4 py-10 text-center text-xs text-[#626c72]">Задолженности перед мастерами нет.</p>}
+        </section>
+        <section>
+          <header className="flex items-center justify-between gap-4 border-b border-white/[0.055] px-4 py-4 sm:px-5"><div><h2 className="text-sm font-semibold text-white">История выплат</h2><p className="mt-1 text-[10px] text-[#657078]">Проведённые и сторнированные операции.</p></div><span className="text-[10px] text-[#758087]">{visiblePayouts.length} записей</span></header>
+          {visiblePayouts.length ? visiblePayouts.map((payout) => <PayoutRow key={payout.id} payout={payout} canWrite={canWrite} onReverse={() => setDialog({ kind: "reverse-payout", payout })} />) : <p className="px-4 py-14 text-center text-xs text-[#626c72]">Выплат по выбранным условиям нет.</p>}
+        </section>
+      </div>}
+      <footer className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-4 py-3 text-[10px] text-[#667077] sm:px-5"><span>Показано {tab === "receivables" ? visibleOrders.length : visiblePayouts.length}</span><span>{activeFilterCount ? String(activeFilterCount) + " активных условий" : "Без ограничений"}</span></footer>
     </section>
 
     <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title={tab === "receivables" ? "Фильтры дебиторки" : "Фильтры выплат"} description={tab === "receivables" ? "Отберите заказы по состоянию расчётов, размеру долга и порядку отображения." : "Найдите выплаты по мастеру, способу, состоянию проводки и дате."}>

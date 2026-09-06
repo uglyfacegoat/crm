@@ -4,19 +4,15 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
-  Building2,
-  CalendarClock,
   Check,
   CheckCircle2,
   CircleAlert,
-  ClipboardList,
   FilePenLine,
   LoaderCircle,
-  UserRound,
   Wrench,
   X,
 } from "lucide-react";
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { createQuickOrderAction, type QuickOrderState } from "@/app/(workspace)/quick-order/actions";
 import { OrderField, OrderPicker, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
@@ -30,10 +26,17 @@ type ClientMode = "existing" | "new";
 type ReferenceMode = "existing" | "new";
 
 const steps = [
-  { id: "quick-client-section", title: "Клиент", description: "Заказчик и контактное лицо", icon: UserRound },
-  { id: "quick-object-section", title: "Объект", description: "Адрес и условия доступа", icon: Building2 },
-  { id: "quick-work-section", title: "Работы", description: "Услуга, стоимость и мастер", icon: ClipboardList },
-  { id: "quick-visit-section", title: "Выезд", description: "Дата, время и инструкция", icon: CalendarClock },
+  { id: "quick-client-section", title: "Клиент", description: "Заказчик и контактное лицо" },
+  { id: "quick-object-section", title: "Объект", description: "Адрес и условия доступа" },
+  { id: "quick-work-section", title: "Работы", description: "Услуга, стоимость и мастер" },
+  { id: "quick-visit-section", title: "Выезд", description: "Дата, время и инструкция" },
+] as const;
+
+const validationMessages = [
+  "Укажите клиента и контактные данные, чтобы продолжить.",
+  "Выберите объект или заполните данные нового адреса.",
+  "Добавьте работу и укажите её стоимость.",
+  "Проверьте дату, время и длительность первого выезда.",
 ] as const;
 
 const initialQuickOrderState: QuickOrderState = {
@@ -78,14 +81,14 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
   existingLabel: string;
   newLabel: string;
 }) {
-  return <div className="grid grid-cols-2 border border-white/[0.08] bg-black/10 p-1">
+  return <div className="grid grid-cols-2 border-b border-white/[0.1]">
     {([["existing", existingLabel], ["new", newLabel]] as const).map(([mode, label]) => (
       <button
         key={mode}
         type="button"
         onClick={() => onChange(mode)}
         aria-pressed={value === mode}
-        className={`focus-ring min-h-11 px-3 text-xs font-medium transition-colors ${value === mode ? "bg-[var(--accent)] text-[#101308]" : "text-[#7d878d] hover:bg-white/[0.035] hover:text-white"}`}
+        className={`focus-ring min-h-12 border-b-2 px-3 text-left text-xs font-medium transition-colors ${value === mode ? "border-[var(--accent)] text-white" : "border-transparent text-[#7d878d] hover:border-white/[0.16] hover:text-white"}`}
       >
         {label}
       </button>
@@ -94,13 +97,11 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
 }
 
 function SectionIntro({ number, title, description }: { number: string; title: string; description: string }) {
-  return <header className="mb-6 flex items-start gap-4">
-    <span className="grid size-11 shrink-0 place-items-center border border-[var(--accent)]/20 bg-[var(--accent)]/[0.055] font-display text-xs font-semibold text-[var(--accent)]">{number}</span>
-    <div>
-      <h2 className="font-display text-xl font-semibold tracking-[-0.035em] text-white">{title}</h2>
-      <p className="mt-1.5 max-w-2xl text-xs leading-5 text-[#778187]">{description}</p>
-    </div>
-  </header>;
+  return <header className="mb-8 border-b border-white/[0.07] pb-6">
+    <p className="font-display text-xs font-semibold tracking-[0.14em] text-[var(--accent)]">ШАГ {number} / 04</p>
+    <h2 className="mt-3 font-display text-[clamp(1.6rem,1.25rem+0.9vw,2.15rem)] font-medium tracking-[-0.045em] text-white">{title}</h2>
+    <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7d878d]">{description}</p>
+ </header>;
 }
 
 function ObjectFields({ value, onChange }: { value: typeof emptyObject; onChange: (value: typeof emptyObject) => void }) {
@@ -116,10 +117,10 @@ function ObjectFields({ value, onChange }: { value: typeof emptyObject; onChange
 }
 
 function SummaryLine({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
-  return <div className="grid gap-1.5 border-b border-white/[0.07] py-3.5 last:border-0">
-    <dt className="text-[9px] uppercase tracking-[0.13em] text-[#5f696f]">{label}</dt>
-    <dd className={`min-w-0 break-words text-xs ${strong ? "font-semibold text-white" : "text-[#b8c0c3]"}`}>{value || "—"}</dd>
-  </div>;
+  return <div className="grid gap-1.5 py-3.5">
+    <dt className="text-[10px] uppercase tracking-[0.13em] text-[#667178]">{label}</dt>
+   <dd className={`min-w-0 break-words text-xs ${strong ? "font-semibold text-white" : "text-[#b8c0c3]"}`}>{value || "—"}</dd>
+ </div>;
 }
 
 export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate, prefill }: {
@@ -135,10 +136,9 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
   const initialContactId = options.contacts.find((contact) => contact.clientId === initialClientId && contact.isPrimary)?.id
     ?? options.contacts.find((contact) => contact.clientId === initialClientId)?.id ?? "";
   const initialObjectId = options.objects.find((object) => object.clientId === initialClientId)?.id ?? "";
-  const explicitSubmitRef = useRef(false);
-  const sectionRefs = useRef<Array<HTMLElement | null>>([]);
   const [state, formAction, pending] = useActionState(createQuickOrderAction, initialQuickOrderState);
   const [step, setStep] = useState(0);
+  const [stepError, setStepError] = useState<string | null>(null);
   const [clientMode, setClientMode] = useState<ClientMode>(prefill && !suggestedClientId ? "new" : options.clients.length ? "existing" : "new");
   const [clientId, setClientId] = useState(initialClientId);
   const [clientKind, setClientKind] = useState<"legal_entity" | "individual">(prefill ? "individual" : "legal_entity");
@@ -228,15 +228,26 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
     visit: { localDate: visitDate, localTime: visitTime, durationMinutes, assignedMasterId: masterId, notes: visitNotes },
   };
 
-  function goToSection(index: number) {
+ function goToSection(index: number) {
+    if (index > step && !sectionValidity.slice(0, index).every(Boolean)) {
+      const incompleteStep = sectionValidity.findIndex((valid, currentIndex) => currentIndex < index && !valid);
+      setStepError(validationMessages[incompleteStep < 0 ? step : incompleteStep]);
+      return;
+    }
+    setStepError(null);
     setStep(index);
-    sectionRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+ }
 
-  function continueFlow() {
-    if (!sectionValidity[step]) return;
+ function continueFlow() {
+    if (!sectionValidity[step]) {
+      setStepError(validationMessages[step]);
+      return;
+    }
+    setStepError(null);
     goToSection(Math.min(steps.length - 1, step + 1));
-  }
+ }
+
+  const activeSectionId = steps[step].id;
 
   if (state.status === "success" && state.result) {
     return <section data-testid="quick-order-success" className="mx-auto max-w-3xl overflow-hidden border border-[#69d3a4]/20 bg-[#0e1418] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
@@ -254,68 +265,74 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
     </section>;
   }
 
-  return <form
-    action={formAction}
-    data-testid="quick-order-form"
-    className="overflow-hidden border-y border-white/[0.1] bg-[#0b1013] shadow-[0_32px_90px_rgba(0,0,0,0.2)] xl:border"
-    onKeyDown={(event) => {
-      if (event.key === "Enter" && !(event.target instanceof HTMLTextAreaElement)) event.preventDefault();
-    }}
-    onSubmit={(event) => {
-      if (!explicitSubmitRef.current || step !== steps.length - 1 || !allSectionsValid || pending) {
+ return <form
+   action={formAction}
+   data-testid="quick-order-form"
+    className="surface-panel mx-auto max-w-[1440px]"
+  onSubmit={(event) => {
+      if (pending) {
+       event.preventDefault();
+       return;
+     }
+      if (!allSectionsValid) {
         event.preventDefault();
-        return;
+        const incompleteStep = sectionValidity.findIndex((valid) => !valid);
+        setStep(incompleteStep);
+       setStepError(validationMessages[incompleteStep]);
       }
-      explicitSubmitRef.current = false;
+    }}
+    onKeyDown={(event) => {
+      if (event.key === "Enter" && event.target instanceof HTMLInputElement && event.target.type !== "submit") {
+        event.preventDefault();
+      }
     }}
   >
     <input type="hidden" name="payload" value={JSON.stringify(payload)} />
 
-    <header className="flex items-center justify-between gap-4 border-b border-white/[0.1] bg-[#080d10] px-4 py-5 sm:px-6 lg:px-8">
+    <header className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-4 py-5 sm:px-7 lg:px-8">
       <div>
         <p className="eyebrow">{prefill ? "Проверка входящей заявки" : "Новый заказ"}</p>
         <h1 className="mt-2 font-display text-[clamp(1.65rem,1.35rem+0.8vw,2.5rem)] font-medium tracking-[-0.045em] text-white">{prefill ? "Уточнить и принять заявку" : "Оформить заказ"}</h1>
       </div>
       <div className="flex items-center gap-3">
-        <span className="hidden items-center gap-2 text-xs text-[#7d878d] sm:flex"><FilePenLine className="size-4 text-[var(--accent)]" />Черновик заказа</span>
+        <span className="hidden items-center gap-2 text-xs text-[#7d878d] sm:flex"><FilePenLine className="size-4 text-[var(--accent)]" />Черновик</span>
         <Link href={prefill ? "/inbox" : "/orders"} aria-label="Закрыть оформление" className="focus-ring grid size-11 place-items-center border border-white/[0.09] text-[#889297] hover:border-white/[0.16] hover:text-white"><X className="size-5" /></Link>
       </div>
     </header>
 
-    <div className="grid items-start lg:grid-cols-[14rem_minmax(0,1fr)] 2xl:grid-cols-[14rem_minmax(0,1fr)_19rem]">
-      <aside className="border-b border-white/[0.09] bg-[#0b1013] p-3 lg:sticky lg:top-[calc(var(--header-height)+1rem)] lg:border-b-0 lg:border-r lg:p-6">
-        <div className="hidden lg:block">
-          <p className="eyebrow">Маршрут</p>
-          <p className="mt-3 text-[10px] leading-5 text-[#687279]">Все разделы открыты. Маршрут помогает быстро вернуться к нужным данным.</p>
-        </div>
-        <ol aria-label="Этапы оформления" className="grid grid-cols-4 gap-1.5 lg:mt-7 lg:grid-cols-1 lg:gap-0">
-          {steps.map((entry, index) => {
-            const Icon = entry.icon;
-            const active = index === step;
+    <div className="grid items-start lg:grid-cols-[12.5rem_minmax(0,1fr)] xl:grid-cols-[12.5rem_minmax(0,1fr)_18rem]">
+      <aside className="border-b border-white/[0.08] bg-black/[0.09] lg:border-b-0 lg:border-r" aria-label="Маршрут оформления">
+        <div className="hidden p-6 lg:block">
+         <p className="eyebrow">Маршрут</p>
+          <p className="mt-3 text-xs leading-5 text-[#707a80]">Четыре коротких шага. К заполненному разделу можно вернуться в любой момент.</p>
+       </div>
+        <ol aria-label="Этапы оформления" className="grid grid-cols-4 border-t border-white/[0.07] lg:block">
+         {steps.map((entry, index) => {
+           const active = index === step;
             const done = sectionValidity[index];
-            return <li key={entry.id} className="relative lg:pb-8 lg:last:pb-0">
-              {index < steps.length - 1 ? <span aria-hidden="true" className={`absolute left-[1.1rem] top-10 hidden h-[calc(100%-2rem)] w-px lg:block ${done ? "bg-[var(--accent)]/50" : "bg-white/[0.09]"}`} /> : null}
-              <button
-                type="button"
-                onClick={() => goToSection(index)}
-                aria-current={active ? "step" : undefined}
-                className={`focus-ring relative z-10 flex min-h-14 w-full min-w-0 items-center justify-center gap-2 px-1.5 text-left transition-colors lg:justify-start lg:px-0 ${active ? "text-white" : "text-[#667178] hover:text-white"}`}
-              >
-                <span className={`grid size-9 shrink-0 place-items-center border ${active ? "border-[var(--accent)]/30 bg-[var(--accent)] text-[#101308]" : done ? "border-[var(--accent)]/25 bg-[#0b1013] text-[var(--accent)]" : "border-white/[0.08] bg-[#0b1013]"}`}>{done && !active ? <Check className="size-4" /> : <Icon className="size-4" />}</span>
-                <span className="hidden min-w-0 flex-1 lg:block"><span className="block text-xs font-semibold">0{index + 1} · {entry.title}</span><span className="mt-1 block text-[9px] leading-4 text-[#626c72]">{entry.description}</span></span>
-                <span className="font-display text-[9px] lg:hidden">0{index + 1}</span>
-              </button>
-            </li>;
-          })}
-        </ol>
-        <div className="mt-7 hidden border-t border-white/[0.08] pt-5 lg:block">
-          <p className="text-[9px] uppercase tracking-[0.14em] text-[#59636a]">Заполнено</p>
+            const available = index <= step || sectionValidity.slice(0, index).every(Boolean);
+            return <li key={entry.id} className="min-w-0 border-l border-white/[0.07] first:border-l-0 lg:border-b lg:border-l-0 lg:last:border-b-0">
+             <button
+               type="button"
+               onClick={() => goToSection(index)}
+                disabled={!available}
+               aria-current={active ? "step" : undefined}
+                className={`focus-ring flex min-h-[4.5rem] w-full min-w-0 items-center gap-2 border-b-2 px-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-35 lg:min-h-[4.25rem] lg:border-b-0 lg:border-l-2 lg:px-6 ${active ? "border-[var(--accent)] bg-white/[0.025] text-white" : "border-transparent text-[#778187] hover:bg-white/[0.025] hover:text-white"}`}
+             >
+                <span className={`font-display text-xs font-semibold ${active ? "text-[var(--accent)]" : done ? "text-[#80d8b2]" : "text-[#687279]"}`}>{done && !active ? <Check className="size-4" aria-label="Раздел заполнен" /> : `0${index + 1}`}</span>
+                <span className="hidden min-w-0 lg:block"><span className="block text-xs font-semibold">{entry.title}</span><span className="mt-1 block truncate text-[10px] text-[#667178]">{entry.description}</span></span>
+             </button>
+           </li>;
+         })}
+       </ol>
+        <div className="hidden border-t border-white/[0.08] p-6 lg:block">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-[#667178]">Заполнено</p>
           <p className="mt-2 font-display text-lg text-white">{completedSections}<span className="text-[#59636a]"> / {steps.length}</span></p>
-        </div>
-      </aside>
+       </div>
+     </aside>
 
-      <div className="min-w-0 bg-[#0e1418]">
-        <section id="quick-client-section" ref={(node) => { sectionRefs.current[0] = node; }} className="scroll-mt-28 border-b border-white/[0.09] p-4 sm:p-7 xl:p-9">
+      <div className="min-w-0 max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+        <section id="quick-client-section" aria-hidden={activeSectionId !== "quick-client-section"} className={activeSectionId === "quick-client-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
           <SectionIntro number="01" title="Кто заказывает" description="Найдите клиента в CRM или заведите нового вместе с основным контактным лицом." />
           <ModeSwitch value={clientMode} onChange={(mode) => { setClientMode(mode); if (mode === "existing" && clientId) selectClient(clientId); }} existingLabel="Из CRM" newLabel="Новый клиент" />
           {clientMode === "existing" ? <div className="mt-6 grid gap-4">
@@ -332,13 +349,13 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           </div>}
         </section>
 
-        <section id="quick-object-section" ref={(node) => { sectionRefs.current[1] = node; }} className="scroll-mt-28 border-b border-white/[0.09] p-4 sm:p-7 xl:p-9">
+        <section id="quick-object-section" aria-hidden={activeSectionId !== "quick-object-section"} className={activeSectionId === "quick-object-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
           <SectionIntro number="02" title="Куда выезжать" description="Выберите существующий объект клиента или сразу создайте новый адрес без повторного ввода." />
           {clientMode === "existing" && availableObjects.length ? <ModeSwitch value={objectMode} onChange={setObjectMode} existingLabel="Из объектов" newLabel="Новый объект" /> : null}
           <div className="mt-6">{effectiveObjectMode === "existing" ? <OrderPicker label="Объект" required value={objectId} onChange={setObjectId} placeholder="Выберите объект" options={availableObjects.map((object) => ({ value: object.id, label: object.name, detail: object.address }))} /> : <ObjectFields value={newObject} onChange={setNewObject} />}</div>
         </section>
 
-        <section id="quick-work-section" ref={(node) => { sectionRefs.current[2] = node; }} className="scroll-mt-28 border-b border-white/[0.09] p-4 sm:p-7 xl:p-9">
+        <section id="quick-work-section" aria-hidden={activeSectionId !== "quick-work-section"} className={activeSectionId === "quick-work-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
           <SectionIntro number="03" title="Что нужно сделать" description="Зафиксируйте работу, стоимость и исполнителя. Финансовые значения сохранятся снимком." />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2"><OrderField label="Услуга" required><input data-testid="quick-service-name" value={serviceName} onChange={(event) => setServiceName(event.target.value)} className={orderInputClass} /></OrderField></div>
@@ -350,7 +367,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           </div>
         </section>
 
-        <section id="quick-visit-section" ref={(node) => { sectionRefs.current[3] = node; }} className="scroll-mt-28 p-4 sm:p-7 xl:p-9">
+        <section id="quick-visit-section" aria-hidden={activeSectionId !== "quick-visit-section"} className={activeSectionId === "quick-visit-section" ? "animate-rise p-4 sm:p-7 xl:p-9" : "hidden"}>
           <SectionIntro number="04" title="Когда выезжать" description="Назначьте первый выезд. Он сразу появится в календаре и создаст напоминание." />
           <div className="grid gap-4 sm:grid-cols-3">
             <OrderField label="Дата" required><DateInput data-testid="quick-visit-date" name="visitDate" value={visitDate} onChange={setVisitDate} required /></OrderField>
@@ -360,21 +377,22 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           </div>
         </section>
 
-        <footer className="sticky bottom-0 z-20 border-t border-white/[0.1] bg-[#0d1317]/95 p-3 backdrop-blur sm:p-4">
-          {state.status === "error" && state.message ? <p data-testid="quick-order-error" role="alert" className="mb-3 flex items-start gap-2 border border-[#ef646a]/20 bg-[#ef646a]/[0.05] p-3 text-xs leading-5 text-[#d89599]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{state.message}</p> : null}
-          <div className="flex gap-2">
-            <button type="button" onClick={() => goToSection(Math.max(0, step - 1))} disabled={step === 0 || pending} className="focus-ring flex h-12 items-center justify-center gap-2 border border-white/[0.08] px-4 text-xs text-[#7d878d] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"><ArrowLeft className="size-4" /><span className="hidden sm:inline">Назад</span></button>
-            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={!sectionValidity[step]} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-35">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="button" onClick={(event) => { explicitSubmitRef.current = true; event.currentTarget.form?.requestSubmit(); }} disabled={!allSectionsValid || pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-35">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
-          </div>
-        </footer>
+        <footer className="border-t border-white/[0.08] px-4 py-4 max-md:fixed max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:left-[var(--workspace-gutter)] max-md:right-[var(--workspace-gutter)] max-md:z-40 max-md:border max-md:bg-[#0e1418]/95 max-md:shadow-[0_-14px_34px_rgba(0,0,0,0.32)] max-md:backdrop-blur-xl sm:px-7">
+          {stepError ? <p role="alert" className="mb-4 flex items-start gap-2 border-l-2 border-[#ef646a] bg-[#ef646a]/[0.045] px-4 py-3 text-xs leading-5 text-[#e29a9f]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{stepError}</p> : null}
+          {state.status === "error" && state.message ? <p data-testid="quick-order-error" role="alert" className="mb-4 flex items-start gap-2 border-l-2 border-[#ef646a] bg-[#ef646a]/[0.045] px-4 py-3 text-xs leading-5 text-[#e29a9f]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{state.message}</p> : null}
+         <div className="flex gap-2">
+            <button type="button" onClick={() => goToSection(Math.max(0, step - 1))} disabled={step === 0 || pending} className="focus-ring flex h-12 items-center justify-center gap-2 border border-white/[0.08] px-4 text-xs text-[#899399] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"><ArrowLeft className="size-4" /><span className="hidden sm:inline">Назад</span></button>
+            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-50">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="submit" disabled={pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-50">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
+         </div>
+       </footer>
       </div>
 
-      <aside data-testid="quick-order-summary" aria-label="Черновик заказа" className="border-t border-white/[0.09] bg-[#080d10] p-5 lg:col-span-2 lg:p-7 2xl:sticky 2xl:top-[calc(var(--header-height)+1rem)] 2xl:col-span-1 2xl:border-l 2xl:border-t-0">
+      <aside data-testid="quick-order-summary" aria-label="Черновик заказа" className="border-t border-white/[0.08] bg-black/[0.08] p-4 lg:col-span-2 lg:p-6 xl:sticky xl:top-[calc(var(--header-height)+1rem)] xl:col-span-1 xl:border-l xl:border-t-0">
         <div className="flex items-start justify-between gap-3">
-          <div><p className="font-display text-sm font-semibold text-white">Черновик заказа</p><p className="mt-1 text-[10px] text-[#626c72]">{completedSections} из {steps.length} разделов заполнено</p></div>
-          <span className={`grid size-9 place-items-center border ${allSectionsValid ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.07] text-[var(--accent)]" : "border-white/[0.08] text-[#657078]"}`}>{allSectionsValid ? <Check className="size-4" /> : <FilePenLine className="size-4" />}</span>
-        </div>
-        <dl className="mt-5 border-y border-white/[0.08]">
+          <div><p className="font-display text-sm font-semibold text-white">Черновик заказа</p><p className="mt-1 text-xs text-[#737d83]">{completedSections} из {steps.length} разделов заполнено</p></div>
+          <span className={`font-display text-xs font-semibold ${allSectionsValid ? "text-[#80d8b2]" : "text-[#737d83]"}`}>{allSectionsValid ? "Готов" : "В работе"}</span>
+       </div>
+        <dl className="mt-5 grid gap-x-5 sm:grid-cols-2 xl:grid-cols-1">
           <SummaryLine label="Клиент" value={draftClientName} strong />
           <SummaryLine label="Контакт" value={draftContactName} />
           <SummaryLine label="Телефон" value={draftPhone} />
@@ -385,11 +403,11 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           <SummaryLine label="Мастер" value={selectedMaster?.name ?? "Назначить позже"} />
           <SummaryLine label="Выезд" value={`${formatDraftDate(visitDate)}${visitTime ? ` · ${visitTime}` : ""}`} />
         </dl>
-        <div className="flex items-end justify-between gap-4 border-b border-white/[0.08] py-5">
-          <span className="text-[10px] uppercase tracking-[0.13em] text-[#626c72]">Итого</span>
+        <div className="flex items-end justify-between gap-4 border-t border-white/[0.08] pt-5">
+          <span className="text-[10px] uppercase tracking-[0.13em] text-[#737d83]">Итого</span>
           <strong className="font-display text-xl font-semibold text-white">{serviceTotal > 0 ? formatMoney(serviceTotal) : "0 ₽"}</strong>
         </div>
-        <p className={`mt-5 flex items-start gap-2 text-[10px] leading-5 ${allSectionsValid ? "text-[#8ed7b8]" : "text-[#a28d6c]"}`}>{allSectionsValid ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" />}{allSectionsValid ? "Все обязательные данные заполнены. Заказ готов к созданию." : "Заполните обязательные поля во всех четырёх разделах."}</p>
+        <p className={`mt-5 flex items-start gap-2 text-xs leading-5 ${allSectionsValid ? "text-[#8ed7b8]" : "text-[#b9a47e]"}`}>{allSectionsValid ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" />}{allSectionsValid ? "Черновик готов к созданию." : "Заполните обязательные данные на каждом шаге."}</p>
       </aside>
     </div>
   </form>;
