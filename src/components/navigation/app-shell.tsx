@@ -66,20 +66,20 @@ const masterNavigation = [
 type NavigationItem = (typeof officeNavigation)[number];
 
 const navigationIconTones: Record<string, string> = {
-  "/orders": "text-[#b8f7e4]",
+  "/orders": "text-[#a892ec]",
   "/inbox": "text-[#efb56a]",
   "/quick-order": "text-[#f2c95e]",
-  "/clients": "text-[#b8f7e4]",
-  "/calendar": "text-[#b8f7e4]",
-  "/masters": "text-[#b8f7e4]",
-  "/documents": "text-[#91e9ce]",
+  "/clients": "text-[#69d3a4]",
+  "/calendar": "text-[#66aef3]",
+  "/masters": "text-[#cf78d1]",
+  "/documents": "text-[#72d4c4]",
   "/contracts": "text-[#efb56a]",
-  "/finance": "text-[#b8f7e4]",
-  "/tasks": "text-[#b8f7e4]",
+  "/finance": "text-[#69d3a4]",
+  "/tasks": "text-[#66aef3]",
   "/notifications": "text-[#ef8b67]",
-  "/chat": "text-[#b8f7e4]",
-  "/analytics": "text-[#91e9ce]",
-  "/sites": "text-[#b8f7e4]",
+  "/chat": "text-[#a892ec]",
+  "/analytics": "text-[#72d4c4]",
+  "/sites": "text-[#66aef3]",
 };
 
 function isActivePath(pathname: string, href: string) {
@@ -98,7 +98,7 @@ function CompanySwitcher({ visible, organizations }: { visible: boolean; organiz
           <span className="min-w-0 flex-1 truncate">{current?.name ?? "Компания"}</span>
           <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" />
         </summary>
-        {organizations.length > 1 ? <div className="absolute left-0 right-0 top-[calc(100%+0.4rem)] z-50 overflow-hidden rounded-[13px] border border-white/[0.09] bg-[#2b2e34] p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+        {organizations.length > 1 ? <div className="absolute left-0 right-0 top-[calc(100%+0.4rem)] z-50 overflow-hidden rounded-[13px] border border-white/[0.09] bg-[#10171b] p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
           {organizations.map((organization) => <OrganizationSwitchForm key={organization.id} organization={organization} />)}
         </div> : null}
       </details>
@@ -118,7 +118,7 @@ function OrganizationSwitchForm({ organization }: { organization: OrganizationOp
   }}>
     <input type="hidden" name="organizationId" value={organization.id} />
     <button type="submit" disabled={organization.current || pending} className="focus-ring flex min-h-10 w-full items-center gap-2 rounded-[10px] px-2.5 text-left text-[10px] text-[#929ca1] hover:bg-white/[0.045] hover:text-white disabled:bg-[var(--accent)]/[0.07] disabled:text-[var(--accent)]">
-      {pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <span className={`size-1.5 shrink-0 rounded-full ${organization.kind === "center" ? "bg-[var(--accent)]" : "bg-[#b8f7e4]"}`} />}
+      {pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <span className={`size-1.5 shrink-0 rounded-full ${organization.kind === "center" ? "bg-[var(--accent)]" : "bg-[#65b7ee]"}`} />}
       <span className="min-w-0 flex-1 truncate">{organization.name}</span>
       {organization.current ? <span className="text-[8px] uppercase tracking-wider">сейчас</span> : null}
     </button>
@@ -151,11 +151,11 @@ function SidebarContent({ pathname, navigation, role, organizations, onNavigate,
               aria-current={active ? "page" : undefined}
               className={`focus-ring group flex min-h-11 items-center gap-3 rounded-[14px] px-3 text-sm transition-[background-color,color,transform,box-shadow] duration-200 ease-out ${
                 active
-                  ? "bg-[var(--accent)] text-[#25272c] shadow-[0_8px_24px_rgba(184,247,228,0.08)]"
+                  ? "bg-[var(--accent)] text-[#101308] shadow-[0_8px_24px_rgba(237,244,59,0.08)]"
                   : "text-[#818a90] hover:translate-x-0.5 hover:bg-white/[0.045] hover:text-white"
               }`}
             >
-              <item.icon className={`size-[18px] shrink-0 transition-colors ${active ? "text-[#25272c]" : navigationIconTones[item.href] ?? "text-[#818a90]"}`} strokeWidth={active ? 2.2 : 1.7} />
+              <item.icon className={`size-[18px] shrink-0 transition-colors ${active ? "text-[#101308]" : navigationIconTones[item.href] ?? "text-[#818a90]"}`} strokeWidth={active ? 2.2 : 1.7} />
               <span className={`${labelClass} font-medium`}>{item.label}</span>
             </Link>
           );
@@ -178,12 +178,12 @@ function SidebarContent({ pathname, navigation, role, organizations, onNavigate,
 }
 
 const searchTypePresentation = {
-  order: { label: "Заказ", icon: ClipboardList, tone: "text-[#b8f7e4] bg-[#b8f7e4]/[0.09]" },
+  order: { label: "Заказ", icon: ClipboardList, tone: "text-[#9c82e8] bg-[#9c82e8]/[0.09]" },
   client: { label: "Клиент", icon: UserRound, tone: "text-[var(--accent)] bg-[var(--accent)]/[0.08]" },
-  object: { label: "Объект", icon: Building2, tone: "text-[#b8f7e4] bg-[#b8f7e4]/[0.08]" },
-  visit: { label: "Выезд", icon: CalendarDays, tone: "text-[#b8f7e4] bg-[#b8f7e4]/[0.08]" },
+  object: { label: "Объект", icon: Building2, tone: "text-[#69d3a4] bg-[#69d3a4]/[0.08]" },
+  visit: { label: "Выезд", icon: CalendarDays, tone: "text-[#66b6eb] bg-[#66b6eb]/[0.08]" },
   document: { label: "Документ", icon: FileText, tone: "text-[#efb454] bg-[#efb454]/[0.08]" },
-  master: { label: "Мастер", icon: Wrench, tone: "text-[#b8f7e4] bg-[#b8f7e4]/[0.08]" },
+  master: { label: "Мастер", icon: Wrench, tone: "text-[#db82d7] bg-[#db82d7]/[0.08]" },
   contract: { label: "Договор", icon: FileSignature, tone: "text-[#efb454] bg-[#efb454]/[0.08]" },
 } satisfies Record<GlobalSearchResult["entityType"], { label: string; icon: typeof Search; tone: string }>;
 
@@ -354,7 +354,7 @@ export function AppShell({ children, currentUser, organizations }: { children: R
 
   return (
     <div className="min-h-screen bg-transparent">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-20 flex-col border-r border-white/[0.06] bg-[radial-gradient(circle_at_20%_0%,rgba(102,174,243,0.055),transparent_22rem),radial-gradient(circle_at_100%_70%,rgba(184,247,228,0.035),transparent_24rem),rgba(9,13,16,0.96)] shadow-[18px_0_60px_rgba(0,0,0,0.08)] backdrop-blur-xl md:flex xl:w-56">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-20 flex-col border-r border-white/[0.06] bg-[radial-gradient(circle_at_20%_0%,rgba(102,174,243,0.055),transparent_22rem),radial-gradient(circle_at_100%_70%,rgba(156,130,232,0.035),transparent_24rem),rgba(9,13,16,0.96)] shadow-[18px_0_60px_rgba(0,0,0,0.08)] backdrop-blur-xl md:flex xl:w-56">
         <SidebarContent pathname={pathname} navigation={navigation} role={currentUser.role} organizations={organizations} />
       </aside>
 
@@ -403,7 +403,7 @@ export function AppShell({ children, currentUser, organizations }: { children: R
         {mobileNavigation.map((item) => {
           const active = isActivePath(pathname, item.href);
           return (
-            <Link key={item.href} href={item.href} className={`focus-ring flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-[13px] px-0.5 text-[8px] transition-colors min-[360px]:text-[9px] ${active ? "bg-[var(--accent)] text-[#25272c]" : "text-[#7c858b]"}`}>
+            <Link key={item.href} href={item.href} className={`focus-ring flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-[13px] px-0.5 text-[8px] transition-colors min-[360px]:text-[9px] ${active ? "bg-[var(--accent)] text-[#101308]" : "text-[#7c858b]"}`}>
               <item.icon className="size-[17px] shrink-0 min-[360px]:size-[18px]" strokeWidth={active ? 2.3 : 1.7} />
               <span className="block w-full truncate text-center">{item.label}</span>
             </Link>

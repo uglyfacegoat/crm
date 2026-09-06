@@ -52,14 +52,14 @@ function formatInterval(milliseconds: number | undefined) {
 
 const workerPresentation = {
   not_started: { label: "Ожидает первого запуска", detail: "Воркер ещё не зарегистрировал heartbeat", tone: "text-[#8d979c]", dot: "bg-[#707a80]" },
-  running: { label: "Создаёт резервную копию", detail: "Архив публикуется только после полной проверки", tone: "text-[#b8f7e4]", dot: "bg-[var(--accent)]" },
-  succeeded: { label: "Защита данных работает", detail: "Воркер доступен и последний цикл завершён", tone: "text-[#7bd1a9]", dot: "bg-[#b8f7e4]" },
+  running: { label: "Создаёт резервную копию", detail: "Архив публикуется только после полной проверки", tone: "text-[#dbe86a]", dot: "bg-[var(--accent)]" },
+  succeeded: { label: "Защита данных работает", detail: "Воркер доступен и последний цикл завершён", tone: "text-[#7bd1a9]", dot: "bg-[#69d3a4]" },
   failed: { label: "Последний цикл завершился ошибкой", detail: "Воркер повторит операцию по политике retry", tone: "text-[#e58c90]", dot: "bg-[#ef646a]" },
   stale: { label: "Heartbeat устарел", detail: "Проверьте контейнер backup-worker", tone: "text-[#e4a56c]", dot: "bg-[#ed8b45]" },
 } as const;
 
 function RunStatus({ run }: { run: BackupRunListItem }) {
-  if (run.status === "running") return <span className="flex items-center gap-1.5 text-[10px] text-[#b8f7e4]"><LoaderCircle className="size-3 animate-spin" />Выполняется</span>;
+  if (run.status === "running") return <span className="flex items-center gap-1.5 text-[10px] text-[#dbe86a]"><LoaderCircle className="size-3 animate-spin" />Выполняется</span>;
   if (run.status === "failed") return <span className="flex items-center gap-1.5 text-[10px] text-[#e58c90]"><CircleAlert className="size-3" />Ошибка</span>;
   return <span className="flex items-center gap-1.5 text-[10px] text-[#7bd1a9]"><CheckCircle2 className="size-3" />Проверен</span>;
 }
@@ -89,7 +89,7 @@ export function BackupSystemPanel({ snapshot, preview }: { snapshot: BackupSyste
             { icon: Activity, label: "Heartbeat", value: formatDate(snapshot.heartbeatAt) },
             { icon: ArchiveRestore, label: "Последний успех", value: formatDate(snapshot.lastSucceededAt) },
             { icon: HardDrive, label: "Размер комплекта", value: formatBytes(totalLatestBytes) },
-          ].map(({ icon: Icon, label, value }) => <div key={label} className="bg-[#2b2e34] p-5"><Icon className="size-4 text-[#657179]" /><p className="mt-4 text-[9px] uppercase tracking-[0.13em] text-[#59656c]">{label}</p><p className="mt-1 text-xs font-medium text-[#dce1de]">{value}</p></div>)}
+          ].map(({ icon: Icon, label, value }) => <div key={label} className="bg-[#10171b] p-5"><Icon className="size-4 text-[#657179]" /><p className="mt-4 text-[9px] uppercase tracking-[0.13em] text-[#59656c]">{label}</p><p className="mt-1 text-xs font-medium text-[#dce1de]">{value}</p></div>)}
         </div>
       </section>
 
@@ -108,7 +108,7 @@ export function BackupSystemPanel({ snapshot, preview }: { snapshot: BackupSyste
         { icon: HardDrive, label: "Защищённый Docker volume", detail: "Основная проверенная копия", active: true },
         { icon: MonitorDown, label: "ПК или отдельный диск", detail: snapshot.storage.hostExportEnabled ? `Скопировано: ${formatDate(snapshot.storage.hostExportedAt)}` : "Задайте CRM_BACKUP_EXPORT_PATH", active: snapshot.storage.hostExportEnabled },
         { icon: CloudOff, label: "Внешнее S3-хранилище", detail: "Не настроено: нужны адрес и ключи", active: false },
-      ].map(({ icon: Icon, label, detail, active }) => <div key={label} className="flex items-center gap-3 rounded-[12px] border border-white/[0.055] bg-black/10 p-3"><span className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${active ? "bg-[#b8f7e4]/[0.07] text-[#b8f7e4]" : "bg-white/[0.03] text-[#667178]"}`}><Icon className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs text-[#d4dad6]">{label}</p><span className={`size-1.5 shrink-0 rounded-full ${active ? "bg-[#b8f7e4]" : "bg-[#59636a]"}`} /></div><p className="mt-1 truncate text-[9px] text-[#606b72]">{detail}</p></div></div>)}</div><p className="mt-4 text-[9px] leading-4 text-[#59646b]">Путь экспорта задаётся на сервере, поэтому браузер не получает файловый путь или доступ к резервным копиям.</p></section>
+      ].map(({ icon: Icon, label, detail, active }) => <div key={label} className="flex items-center gap-3 rounded-[12px] border border-white/[0.055] bg-black/10 p-3"><span className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${active ? "bg-[#69d3a4]/[0.07] text-[#69d3a4]" : "bg-white/[0.03] text-[#667178]"}`}><Icon className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs text-[#d4dad6]">{label}</p><span className={`size-1.5 shrink-0 rounded-full ${active ? "bg-[#69d3a4]" : "bg-[#59636a]"}`} /></div><p className="mt-1 truncate text-[9px] text-[#606b72]">{detail}</p></div></div>)}</div><p className="mt-4 text-[9px] leading-4 text-[#59646b]">Путь экспорта задаётся на сервере, поэтому браузер не получает файловый путь или доступ к резервным копиям.</p></section>
       <section className="surface-panel p-5"><p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#68747b]">Последний комплект</p><div className="mt-5 space-y-3">{[
         { icon: Database, label: "PostgreSQL", value: formatBytes(latestSuccessfulRun?.databaseBytes ?? null) },
         { icon: FileArchive, label: "Документы", value: formatBytes(latestSuccessfulRun?.documentsBytes ?? null) },

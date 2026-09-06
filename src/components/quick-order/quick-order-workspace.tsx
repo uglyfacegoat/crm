@@ -85,7 +85,7 @@ function ModeSwitch({ value, onChange, existingLabel, newLabel }: {
         type="button"
         onClick={() => onChange(mode)}
         aria-pressed={value === mode}
-        className={`focus-ring min-h-11 px-3 text-xs font-medium transition-colors ${value === mode ? "bg-[var(--accent)] text-[#25272c]" : "text-[#7d878d] hover:bg-white/[0.035] hover:text-white"}`}
+        className={`focus-ring min-h-11 px-3 text-xs font-medium transition-colors ${value === mode ? "bg-[var(--accent)] text-[#101308]" : "text-[#7d878d] hover:bg-white/[0.035] hover:text-white"}`}
       >
         {label}
       </button>
@@ -239,15 +239,15 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
   }
 
   if (state.status === "success" && state.result) {
-    return <section data-testid="quick-order-success" className="mx-auto max-w-3xl overflow-hidden border border-[#b8f7e4]/20 bg-[#25272c] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
+    return <section data-testid="quick-order-success" className="mx-auto max-w-3xl overflow-hidden border border-[#69d3a4]/20 bg-[#0e1418] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
       <div className="border-b border-white/[0.065] p-5 sm:p-8">
-        <span className="grid size-12 place-items-center bg-[#b8f7e4]/10 text-[#b8f7e4]"><CheckCircle2 className="size-6" /></span>
+        <span className="grid size-12 place-items-center bg-[#69d3a4]/10 text-[#69d3a4]"><CheckCircle2 className="size-6" /></span>
         <p className="eyebrow mt-5">Операция завершена</p>
         <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.04em] text-white">{state.result.orderNumber} готов к работе</h2>
         <p className="mt-3 max-w-xl text-sm leading-6 text-[#7f898e]">Клиент, объект, заказ, выезд и напоминание сохранены. Теперь можно открыть карточку и сразу отправить её мастеру.</p>
       </div>
       <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-8">
-        <VisitDispatchCardButton visitId={state.result.visitId} className="h-12 bg-[var(--accent)] font-semibold text-[#25272c] hover:bg-[#b8f7e4]" />
+        <VisitDispatchCardButton visitId={state.result.visitId} className="h-12 bg-[var(--accent)] font-semibold text-[#111509] hover:bg-[#f4f854]" />
         <Link href={`/orders/${state.result.orderId}`} className="focus-ring flex h-12 items-center justify-center border border-white/[0.09] text-xs font-medium text-[#c5cbce] hover:bg-white/[0.04]">Открыть заказ</Link>
         <a href={prefill ? "/inbox" : "/quick-order"} className="focus-ring flex h-11 items-center justify-center text-xs text-[#778187] hover:text-white sm:col-span-2">{prefill ? "Вернуться во входящие" : "Оформить ещё один"}</a>
       </div>
@@ -257,7 +257,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
   return <form
     action={formAction}
     data-testid="quick-order-form"
-    className="overflow-hidden border-y border-white/[0.1] bg-[#1b1d21] shadow-[0_32px_90px_rgba(0,0,0,0.2)] xl:border"
+    className="overflow-hidden border-y border-white/[0.1] bg-[#0b1013] shadow-[0_32px_90px_rgba(0,0,0,0.2)] xl:border"
     onKeyDown={(event) => {
       if (event.key === "Enter" && !(event.target instanceof HTMLTextAreaElement)) event.preventDefault();
     }}
@@ -271,7 +271,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
   >
     <input type="hidden" name="payload" value={JSON.stringify(payload)} />
 
-    <header className="flex items-center justify-between gap-4 border-b border-white/[0.1] bg-[#181a1e] px-4 py-5 sm:px-6 lg:px-8">
+    <header className="flex items-center justify-between gap-4 border-b border-white/[0.1] bg-[#080d10] px-4 py-5 sm:px-6 lg:px-8">
       <div>
         <p className="eyebrow">{prefill ? "Проверка входящей заявки" : "Новый заказ"}</p>
         <h1 className="mt-2 font-display text-[clamp(1.65rem,1.35rem+0.8vw,2.5rem)] font-medium tracking-[-0.045em] text-white">{prefill ? "Уточнить и принять заявку" : "Оформить заказ"}</h1>
@@ -283,7 +283,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
     </header>
 
     <div className="grid items-start lg:grid-cols-[14rem_minmax(0,1fr)] 2xl:grid-cols-[14rem_minmax(0,1fr)_19rem]">
-      <aside className="border-b border-white/[0.09] bg-[#202227] p-3 lg:sticky lg:top-[calc(var(--header-height)+1rem)] lg:border-b-0 lg:border-r lg:p-6">
+      <aside className="border-b border-white/[0.09] bg-[#0b1013] p-3 lg:sticky lg:top-[calc(var(--header-height)+1rem)] lg:border-b-0 lg:border-r lg:p-6">
         <div className="hidden lg:block">
           <p className="eyebrow">Маршрут</p>
           <p className="mt-3 text-[10px] leading-5 text-[#687279]">Все разделы открыты. Маршрут помогает быстро вернуться к нужным данным.</p>
@@ -301,7 +301,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
                 aria-current={active ? "step" : undefined}
                 className={`focus-ring relative z-10 flex min-h-14 w-full min-w-0 items-center justify-center gap-2 px-1.5 text-left transition-colors lg:justify-start lg:px-0 ${active ? "text-white" : "text-[#667178] hover:text-white"}`}
               >
-                <span className={`grid size-9 shrink-0 place-items-center border ${active ? "border-[var(--accent)]/30 bg-[var(--accent)] text-[#25272c]" : done ? "border-[var(--accent)]/25 bg-[#202227] text-[var(--accent)]" : "border-white/[0.08] bg-[#202227]"}`}>{done && !active ? <Check className="size-4" /> : <Icon className="size-4" />}</span>
+                <span className={`grid size-9 shrink-0 place-items-center border ${active ? "border-[var(--accent)]/30 bg-[var(--accent)] text-[#101308]" : done ? "border-[var(--accent)]/25 bg-[#0b1013] text-[var(--accent)]" : "border-white/[0.08] bg-[#0b1013]"}`}>{done && !active ? <Check className="size-4" /> : <Icon className="size-4" />}</span>
                 <span className="hidden min-w-0 flex-1 lg:block"><span className="block text-xs font-semibold">0{index + 1} · {entry.title}</span><span className="mt-1 block text-[9px] leading-4 text-[#626c72]">{entry.description}</span></span>
                 <span className="font-display text-[9px] lg:hidden">0{index + 1}</span>
               </button>
@@ -314,7 +314,7 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
         </div>
       </aside>
 
-      <div className="min-w-0 bg-[#25272c]">
+      <div className="min-w-0 bg-[#0e1418]">
         <section id="quick-client-section" ref={(node) => { sectionRefs.current[0] = node; }} className="scroll-mt-28 border-b border-white/[0.09] p-4 sm:p-7 xl:p-9">
           <SectionIntro number="01" title="Кто заказывает" description="Найдите клиента в CRM или заведите нового вместе с основным контактным лицом." />
           <ModeSwitch value={clientMode} onChange={(mode) => { setClientMode(mode); if (mode === "existing" && clientId) selectClient(clientId); }} existingLabel="Из CRM" newLabel="Новый клиент" />
@@ -360,16 +360,16 @@ export function QuickOrderWorkspace({ options, idempotencyKey, defaultVisitDate,
           </div>
         </section>
 
-        <footer className="sticky bottom-0 z-20 border-t border-white/[0.1] bg-[#1e2024]/95 p-3 backdrop-blur sm:p-4">
+        <footer className="sticky bottom-0 z-20 border-t border-white/[0.1] bg-[#0d1317]/95 p-3 backdrop-blur sm:p-4">
           {state.status === "error" && state.message ? <p data-testid="quick-order-error" role="alert" className="mb-3 flex items-start gap-2 border border-[#ef646a]/20 bg-[#ef646a]/[0.05] p-3 text-xs leading-5 text-[#d89599]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{state.message}</p> : null}
           <div className="flex gap-2">
             <button type="button" onClick={() => goToSection(Math.max(0, step - 1))} disabled={step === 0 || pending} className="focus-ring flex h-12 items-center justify-center gap-2 border border-white/[0.08] px-4 text-xs text-[#7d878d] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"><ArrowLeft className="size-4" /><span className="hidden sm:inline">Назад</span></button>
-            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={!sectionValidity[step]} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#25272c] disabled:cursor-not-allowed disabled:opacity-35">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="button" onClick={(event) => { explicitSubmitRef.current = true; event.currentTarget.form?.requestSubmit(); }} disabled={!allSectionsValid || pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#25272c] disabled:cursor-not-allowed disabled:opacity-35">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
+            {step < steps.length - 1 ? <button data-testid="quick-next" type="button" onClick={continueFlow} disabled={!sectionValidity[step]} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-35">Продолжить<ArrowRight className="size-4" /></button> : <button data-testid="quick-submit" type="button" onClick={(event) => { explicitSubmitRef.current = true; event.currentTarget.form?.requestSubmit(); }} disabled={!allSectionsValid || pending} className="focus-ring flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-35">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем всё…</> : <><Wrench className="size-4" />Создать заказ и выезд</>}</button>}
           </div>
         </footer>
       </div>
 
-      <aside data-testid="quick-order-summary" aria-label="Черновик заказа" className="border-t border-white/[0.09] bg-[#15171a] p-5 lg:col-span-2 lg:p-7 2xl:sticky 2xl:top-[calc(var(--header-height)+1rem)] 2xl:col-span-1 2xl:border-l 2xl:border-t-0">
+      <aside data-testid="quick-order-summary" aria-label="Черновик заказа" className="border-t border-white/[0.09] bg-[#080d10] p-5 lg:col-span-2 lg:p-7 2xl:sticky 2xl:top-[calc(var(--header-height)+1rem)] 2xl:col-span-1 2xl:border-l 2xl:border-t-0">
         <div className="flex items-start justify-between gap-3">
           <div><p className="font-display text-sm font-semibold text-white">Черновик заказа</p><p className="mt-1 text-[10px] text-[#626c72]">{completedSections} из {steps.length} разделов заполнено</p></div>
           <span className={`grid size-9 place-items-center border ${allSectionsValid ? "border-[var(--accent)]/25 bg-[var(--accent)]/[0.07] text-[var(--accent)]" : "border-white/[0.08] text-[#657078]"}`}>{allSectionsValid ? <Check className="size-4" /> : <FilePenLine className="size-4" />}</span>

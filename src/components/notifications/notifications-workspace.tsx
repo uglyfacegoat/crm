@@ -80,7 +80,7 @@ export function NotificationsWorkspace({ initialSnapshot }: { initialSnapshot: N
               ["all", "Все", snapshot.items.length],
               ["unread", "Непрочитанные", snapshot.unreadCount],
               ["critical", "Критичные", snapshot.items.filter((item) => item.severity === "critical").length],
-            ] as const).map(([value, label, count]) => <button key={value} type="button" onClick={() => setFilter(value)} className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-[11px] px-3 text-xs transition-colors ${filter === value ? "bg-[var(--accent)] text-[#25272c]" : "text-[#838d92] hover:bg-white/[0.04] hover:text-white"}`}>{label}<span className={`rounded-full px-1.5 py-0.5 text-[9px] ${filter === value ? "bg-black/10" : "bg-white/[0.05]"}`}>{count}</span></button>)}
+            ] as const).map(([value, label, count]) => <button key={value} type="button" onClick={() => setFilter(value)} className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-[11px] px-3 text-xs transition-colors ${filter === value ? "bg-[var(--accent)] text-[#111509]" : "text-[#838d92] hover:bg-white/[0.04] hover:text-white"}`}>{label}<span className={`rounded-full px-1.5 py-0.5 text-[9px] ${filter === value ? "bg-black/10" : "bg-white/[0.05]"}`}>{count}</span></button>)}
           </div>
           <div className="flex shrink-0 gap-2">
             <button type="button" disabled={refreshing} onClick={refresh} className="focus-ring soft-button grid size-10 place-items-center rounded-[11px] text-[#838d92] hover:text-white disabled:opacity-45" aria-label="Обновить уведомления">{refreshing ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}</button>

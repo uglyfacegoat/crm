@@ -63,7 +63,7 @@ function DispatchCardContent({ card, copyState, onCopy }: { card: VisitDispatchC
       <label className="block"><span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[#626c72]">Готовый текст</span><textarea readOnly value={text} rows={12} onFocus={(event) => event.currentTarget.select()} className="focus-ring mt-2 w-full resize-none rounded-[14px] border border-white/[0.07] bg-[#090e11] p-4 font-mono text-[11px] leading-5 text-[#aeb6b2]" /></label>
       {copyState === "error" ? <p role="alert" className="flex items-center gap-2 rounded-[12px] border border-[#ef646a]/20 bg-[#ef646a]/[0.05] p-3 text-xs text-[#dc969a]"><AlertTriangle className="size-4" />Автокопирование недоступно. Выделите текст в поле вручную.</p> : null}
     </div>
-    <footer className="sticky bottom-0 border-t border-white/[0.07] bg-[#25272c]/94 p-4 backdrop-blur-xl sm:px-6"><button type="button" onClick={onCopy} className="focus-ring flex h-12 w-full items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] text-xs font-semibold text-[#25272c]">{copyState === "success" ? <><Check className="size-4" />Текст скопирован</> : <><Copy className="size-4" />Скопировать для мастера</>}</button></footer>
+    <footer className="sticky bottom-0 border-t border-white/[0.07] bg-[#0d1317]/94 p-4 backdrop-blur-xl sm:px-6"><button type="button" onClick={onCopy} className="focus-ring flex h-12 w-full items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] text-xs font-semibold text-[#111509]">{copyState === "success" ? <><Check className="size-4" />Текст скопирован</> : <><Copy className="size-4" />Скопировать для мастера</>}</button></footer>
   </div>;
 }
 

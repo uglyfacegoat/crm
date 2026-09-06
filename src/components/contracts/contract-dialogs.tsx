@@ -18,11 +18,11 @@ function FieldError({ errors }: { errors?: string[] }) {
 }
 
 function ResultMessage({ state }: { state: ContractActionState }) {
-  return state.message ? <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#b8f7e4]/20 bg-[#b8f7e4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#d89599]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p> : null;
+  return state.message ? <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#69d3a4]/20 bg-[#69d3a4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#d89599]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p> : null;
 }
 
 function SubmitFooter({ pending, success, label, onClose }: { pending: boolean; success: boolean; label: string; onClose: () => void }) {
-  return <footer className="sticky bottom-0 flex gap-2 border-t border-white/[0.07] bg-[#25272c]/95 p-4 backdrop-blur-xl sm:px-7"><button type="button" onClick={onClose} disabled={pending} className="focus-ring h-12 flex-1 rounded-[12px] border border-white/[0.08] text-xs text-[#8b959b]">Отмена</button><button type="submit" disabled={pending || success} className="focus-ring flex h-12 flex-[1.5] items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] text-xs font-semibold text-[#25272c] disabled:opacity-65">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем…</> : success ? <><Check className="size-4" />Сохранено</> : label}</button></footer>;
+  return <footer className="sticky bottom-0 flex gap-2 border-t border-white/[0.07] bg-[#0d1317]/95 p-4 backdrop-blur-xl sm:px-7"><button type="button" onClick={onClose} disabled={pending} className="focus-ring h-12 flex-1 rounded-[12px] border border-white/[0.08] text-xs text-[#8b959b]">Отмена</button><button type="submit" disabled={pending || success} className="focus-ring flex h-12 flex-[1.5] items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] text-xs font-semibold text-[#111509] disabled:opacity-65">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем…</> : success ? <><Check className="size-4" />Сохранено</> : label}</button></footer>;
 }
 
 function useCloseAfterSuccess(state: ContractActionState, onClose: () => void) {
@@ -92,5 +92,5 @@ export function ContractDialogs({ mode, contract, objectOptions, masterOptions, 
 }
 
 export function NewContractButton({ onClick }: { onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="focus-ring flex h-11 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#25272c]"><Plus className="size-4" />Новый договор</button>;
+  return <button type="button" onClick={onClick} className="focus-ring flex h-11 items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#101308]"><Plus className="size-4" />Новый договор</button>;
 }

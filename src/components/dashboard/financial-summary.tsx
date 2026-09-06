@@ -11,9 +11,9 @@ export function FinancialSummary({ orders }: { orders: OrderListItem[] }) {
   const completedTotal = completed.reduce((sum, order) => sum + order.agreedTotalMinor, 0);
   const values = validOrders.slice().reverse().map((order) => order.agreedTotalMinor / 100);
   const metrics = [
-    { label: "Согласовано", value: formatMoneyMinor(total), change: `${validOrders.length} заказов`, color: "#91e9ce", values },
-    { label: "Выполненные заказы", value: formatMoneyMinor(completedTotal), change: `${completed.length} завершено`, color: "#91e9ce", values: completed.map((order) => order.agreedTotalMinor / 100) },
-    { label: "Средний чек", value: formatMoneyMinor(validOrders.length ? Math.round(total / validOrders.length) : 0), change: "за текущий месяц", color: "#b8f7e4", values },
+    { label: "Согласовано", value: formatMoneyMinor(total), change: `${validOrders.length} заказов`, color: "#dce63c", values },
+    { label: "Выполненные заказы", value: formatMoneyMinor(completedTotal), change: `${completed.length} завершено`, color: "#55d5ca", values: completed.map((order) => order.agreedTotalMinor / 100) },
+    { label: "Средний чек", value: formatMoneyMinor(validOrders.length ? Math.round(total / validOrders.length) : 0), change: "за текущий месяц", color: "#9c82e8", values },
     { label: "Доля завершённых", value: `${validOrders.length ? Math.round(completed.length / validOrders.length * 100) : 0}%`, change: "по количеству", color: "#ef646a", values: validOrders.map((order, index) => validOrders.slice(0, index + 1).filter((entry) => entry.status === "Выполнен").length) },
   ];
   return (

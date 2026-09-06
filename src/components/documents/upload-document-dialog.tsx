@@ -56,7 +56,7 @@ export function UploadDocumentButton({ options }: { options: DocumentUploadOptio
   const [requestKey, setRequestKey] = useState<string | null>(null);
   const close = useCallback(() => setRequestKey(null), []);
   return <>
-    <button type="button" onClick={() => setRequestKey(crypto.randomUUID())} disabled={!options.orders.length} title={options.orders.length ? undefined : "Сначала создайте заказ"} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#25272c] disabled:cursor-not-allowed disabled:opacity-50"><Plus className="size-4" />Добавить документ</button>
+    <button type="button" onClick={() => setRequestKey(crypto.randomUUID())} disabled={!options.orders.length} title={options.orders.length ? undefined : "Сначала создайте заказ"} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#101308] disabled:cursor-not-allowed disabled:opacity-50"><Plus className="size-4" />Добавить документ</button>
     <Dialog open={requestKey !== null} onClose={close} title="Новый документ" description="Файл получит связи с клиентом и объектом из выбранного заказа.">{requestKey ? <UploadDocumentForm options={options} requestKey={requestKey} onComplete={close} /> : null}</Dialog>
   </>;
 }

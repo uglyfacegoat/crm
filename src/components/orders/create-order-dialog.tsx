@@ -83,5 +83,5 @@ function CreateOrderForm({ requestKey, options, onComplete }: { requestKey: stri
 export function CreateOrderButton({ options }: { options: OrderCreationOptions }) {
   const [requestKey, setRequestKey] = useState<string | null>(null);
   const close = useCallback(() => setRequestKey(null), []);
-  return <><button onClick={() => setRequestKey(crypto.randomUUID())} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#25272c]"><Plus className="size-4" />Новый заказ</button><Dialog open={requestKey !== null} onClose={close} title="Новый заказ" description="Клиентские связи, состав, выплаты и расходы сохраняются одной транзакцией.">{requestKey ? <CreateOrderForm requestKey={requestKey} options={options} onComplete={close} /> : null}</Dialog></>;
+  return <><button onClick={() => setRequestKey(crypto.randomUUID())} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[#101308]"><Plus className="size-4" />Новый заказ</button><Dialog open={requestKey !== null} onClose={close} title="Новый заказ" description="Клиентские связи, состав, выплаты и расходы сохраняются одной транзакцией.">{requestKey ? <CreateOrderForm requestKey={requestKey} options={options} onComplete={close} /> : null}</Dialog></>;
 }

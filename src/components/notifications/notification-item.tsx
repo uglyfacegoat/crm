@@ -7,9 +7,9 @@ const kindPresentation = {
   visit_upcoming: { icon: CalendarClock, label: "Выезд", tone: "border-[#58c7bc]/20 bg-[#58c7bc]/[0.07] text-[#73d8ce]" },
   visit_unassigned: { icon: UserRoundSearch, label: "Назначение", tone: "border-[#efb454]/20 bg-[#efb454]/[0.07] text-[#efc16f]" },
   closing_act_overdue: { icon: FileWarning, label: "Документы", tone: "border-[#ef646a]/20 bg-[#ef646a]/[0.07] text-[#ee858a]" },
-  task_overdue: { icon: ClipboardCheck, label: "Задача", tone: "border-[#b8f7e4]/20 bg-[#b8f7e4]/[0.07] text-[#b8f7e4]" },
+  task_overdue: { icon: ClipboardCheck, label: "Задача", tone: "border-[#9c82e8]/20 bg-[#9c82e8]/[0.07] text-[#b7a4ee]" },
   contract_renewal: { icon: AlertTriangle, label: "Договор", tone: "border-[#efb454]/20 bg-[#efb454]/[0.07] text-[#efc16f]" },
-  document_uploaded: { icon: FileUp, label: "Файл", tone: "border-[#b8f7e4]/20 bg-[#b8f7e4]/[0.07] text-[#b8f7e4]" },
+  document_uploaded: { icon: FileUp, label: "Файл", tone: "border-[#66b6eb]/20 bg-[#66b6eb]/[0.07] text-[#82c7f2]" },
 } satisfies Record<NotificationItem["kind"], { icon: typeof CalendarClock; label: string; tone: string }>;
 
 const relativeFormatter = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });

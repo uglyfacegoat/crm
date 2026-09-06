@@ -14,9 +14,9 @@ export function getPreviewAnalytics(range: AnalyticsRange): AnalyticsSnapshot {
     financialTrend: {
       labels: ["1 авг", "5 авг", "9 авг", "13 авг", "17 авг", "21 авг", "25 авг", "30 авг"],
       series: [
-        { label: "Согласовано", color: "#b8f7e4", values: [6800, 7450, 7200, 8600, 9400, 10100, 11400, 12500], valueFormat: "money" },
-        { label: "Плановый опер. остаток", color: "#9ca5a3", values: [3520, 3980, 3760, 4720, 5350, 6020, 6760, 7420], valueFormat: "money" },
-        { label: "Получено", color: "#f4f7f6", values: [3100, 4200, 4500, 5100, 7200, 8100, 9200, 10820], valueFormat: "money" },
+        { label: "Согласовано", color: "#edf43b", values: [6800, 7450, 7200, 8600, 9400, 10100, 11400, 12500], valueFormat: "money" },
+        { label: "Плановый опер. остаток", color: "#69d3a4", values: [3520, 3980, 3760, 4720, 5350, 6020, 6760, 7420], valueFormat: "money" },
+        { label: "Получено", color: "#9c82e8", values: [3100, 4200, 4500, 5100, 7200, 8100, 9200, 10820], valueFormat: "money" },
       ],
     },
     orderStages: [
@@ -26,10 +26,10 @@ export function getPreviewAnalytics(range: AnalyticsRange): AnalyticsSnapshot {
       { label: "Выполнены", value: 23, percent: 49 },
     ],
     serviceMix: [
-      { label: "Дезинсекция", percent: 38, amountMinor: 4_750_000, color: "#b8f7e4" },
-      { label: "Дератизация", percent: 27, amountMinor: 3_375_000, color: "#f4f7f6" },
-      { label: "Дезинфекция", percent: 21, amountMinor: 2_625_000, color: "#8a9499" },
-      { label: "Утилизация", percent: 14, amountMinor: 1_750_000, color: "#efb454" },
+      { label: "Дезинсекция", percent: 38, amountMinor: 4_750_000, color: "#edf43b" },
+      { label: "Дератизация", percent: 27, amountMinor: 3_375_000, color: "#9c82e8" },
+      { label: "Дезинфекция", percent: 21, amountMinor: 2_625_000, color: "#69d3a4" },
+      { label: "Утилизация", percent: 14, amountMinor: 1_750_000, color: "#ef8d68" },
     ],
     teamPerformance: [
       { id: "m-1", name: "Алексей Смирнов", visits: 38, completion: 96, orderValueMinor: 3_180_000 },

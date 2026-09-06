@@ -13,7 +13,7 @@ function safeNextPath(value: string | string[] | undefined) {
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
   const { next } = await searchParams;
   const authMode = getAuthMode();
-  return <main className="grid min-h-screen place-items-center bg-[#111316] px-5 py-12">
+  return <main className="grid min-h-screen place-items-center bg-[#070a0c] px-5 py-12">
     <section className="w-full max-w-[25rem]">
       <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">Рабочий доступ</p>
       <h1 className="mt-5 font-display text-[clamp(2.35rem,8vw,3.35rem)] font-semibold tracking-[-0.065em] text-white">Вход в CRM</h1>

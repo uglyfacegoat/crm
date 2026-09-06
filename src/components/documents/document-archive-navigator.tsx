@@ -65,7 +65,7 @@ function ArchiveObjectBranch({ clientId, object, selection, navigate, expansion 
   return <div>
     <div className={`flex items-center rounded-[10px] ${selected && !selection.orderId ? "bg-white/[0.05]" : ""}`}>
       <ExpandButton expanded={open} label={object.name} onClick={() => expansion.toggle(key)} />
-      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId, objectId: object.id, orderId: null, category: null }); }} className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[9px] pr-2 text-left text-[10px] text-[#869198] hover:text-white"><MapPin className="size-3.5 shrink-0 text-[#b8f7e4]" /><span className="truncate">{object.name}</span><Count value={object.documentCount} /></button>
+      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId, objectId: object.id, orderId: null, category: null }); }} className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[9px] pr-2 text-left text-[10px] text-[#869198] hover:text-white"><MapPin className="size-3.5 shrink-0 text-[#69d3a4]" /><span className="truncate">{object.name}</span><Count value={object.documentCount} /></button>
     </div>
     {open ? <div className="ml-3 border-l border-white/[0.05] pl-2">{object.orders.map((order) => <ArchiveOrderBranch key={order.id} clientId={clientId} objectId={object.id} order={order} selection={selection} navigate={navigate} expansion={expansion} />)}</div> : null}
   </div>;
@@ -78,7 +78,7 @@ function ArchiveClientBranch({ client, selection, navigate, expansion }: BranchP
   return <div>
     <div className={`flex items-center rounded-[11px] ${selected && !selection.objectId ? "bg-white/[0.06]" : ""}`}>
       <ExpandButton expanded={open} label={client.name} onClick={() => expansion.toggle(key)} />
-      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId: client.id, objectId: null, orderId: null, category: null }); }} className="focus-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-2 text-left text-[11px] text-[#a6afb4] hover:text-white"><Building2 className="size-3.5 shrink-0 text-[#b8f7e4]" /><span className="truncate">{client.name}</span><Count value={client.documentCount} /></button>
+      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId: client.id, objectId: null, orderId: null, category: null }); }} className="focus-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-2 text-left text-[11px] text-[#a6afb4] hover:text-white"><Building2 className="size-3.5 shrink-0 text-[#8ea5f2]" /><span className="truncate">{client.name}</span><Count value={client.documentCount} /></button>
     </div>
     {open ? <div className="ml-3 border-l border-white/[0.055] pl-2">{client.objects.map((object) => <ArchiveObjectBranch key={object.id} clientId={client.id} object={object} selection={selection} navigate={navigate} expansion={expansion} />)}</div> : null}
   </div>;

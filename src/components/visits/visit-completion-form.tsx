@@ -57,9 +57,9 @@ export function VisitCompletionForm({ visit, requestKey, onClose }: { visit: Ser
 
       {state.message ? <div role={state.status === "error" ? "alert" : "status"} className={`flex items-start gap-2 rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#5fc99a]/20 bg-[#5fc99a]/[0.05] text-[#84d7b2]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#df9296]"}`}>{state.status === "success" ? <Check className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}{state.message}</div> : null}
     </div>
-    <footer className="flex shrink-0 flex-col-reverse gap-2 border-t border-white/[0.07] bg-[#25272c] p-4 sm:flex-row sm:justify-end sm:px-7">
+    <footer className="flex shrink-0 flex-col-reverse gap-2 border-t border-white/[0.07] bg-[#0d1317] p-4 sm:flex-row sm:justify-end sm:px-7">
       <button type="button" onClick={onClose} disabled={pending} className="focus-ring h-11 rounded-[12px] border border-white/[0.08] px-5 text-xs text-[#aeb6ba] disabled:opacity-50">Отмена</button>
-      <button type="submit" disabled={pending || state.status === "success"} className="focus-ring flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] px-5 text-xs font-semibold text-[#25272c] disabled:opacity-55">{pending ? <><LoaderCircle className="size-4 animate-spin" />Проверяем и сохраняем…</> : state.status === "success" ? <><Check className="size-4" />Выезд завершён</> : <><FileCheck2 className="size-4" />Завершить с актом</>}</button>
+      <button type="submit" disabled={pending || state.status === "success"} className="focus-ring flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] px-5 text-xs font-semibold text-[#111509] disabled:opacity-55">{pending ? <><LoaderCircle className="size-4 animate-spin" />Проверяем и сохраняем…</> : state.status === "success" ? <><Check className="size-4" />Выезд завершён</> : <><FileCheck2 className="size-4" />Завершить с актом</>}</button>
     </footer>
   </form>;
 }

@@ -1,22 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --canvas: #17191d;
-  --surface: #25272c;
-  --surface-raised: #2b2e34;
-  --surface-soft: #31343a;
-  --line: rgba(184, 247, 228, 0.09);
-  --line-strong: rgba(184, 247, 228, 0.2);
-  --text: #f4f7f6;
-  --muted: #9ca5a3;
-  --accent: #b8f7e4;
-  --accent-strong: #91e9ce;
-  --success: #b8f7e4;
+  --canvas: #070a0c;
+  --surface: #0e1418;
+  --surface-raised: #131a1f;
+  --surface-soft: #192127;
+  --line: rgba(235, 241, 233, 0.075);
+  --line-strong: rgba(235, 241, 233, 0.14);
+  --text: #f3f5f0;
+  --muted: #8b9499;
+  --accent: #edf43b;
+  --accent-strong: #dce528;
+  --success: #69d3a4;
   --danger: #ef646a;
-  --violet: #9ca5a3;
-  --blue: #b8f7e4;
-  --cyan: #91e9ce;
-  --orchid: #9ca5a3;
+  --violet: #9c82e8;
+  --blue: #66aef3;
+  --cyan: #72d4c4;
+  --orchid: #cf78d1;
   --coral: #ef8b67;
   --warning: #f2c95e;
   --radius-panel: clamp(0.95rem, 0.86rem + 0.22vw, 1.28rem);
@@ -55,7 +55,12 @@ html[data-digit-style="tabular"] body {
 }
 
 body {
-  background: var(--canvas);
+  background:
+    radial-gradient(circle at 84% -10%, rgba(237, 244, 59, 0.05), transparent 34rem),
+    radial-gradient(circle at 12% 28%, rgba(102, 174, 243, 0.028), transparent 32rem),
+    radial-gradient(circle at 92% 62%, rgba(156, 130, 232, 0.026), transparent 34rem),
+    radial-gradient(circle at 24% 82%, rgba(114, 212, 196, 0.018), transparent 30rem),
+    var(--canvas);
   color: var(--text);
   font-family: "Onest Variable", sans-serif;
   font-variation-settings: "wght" 450;
@@ -75,8 +80,8 @@ a {
 }
 
 ::selection {
-  background: rgba(184, 247, 228, 0.28);
-  color: var(--text);
+  background: rgba(233, 241, 63, 0.25);
+  color: white;
 }
 
 ::-webkit-scrollbar {
@@ -154,7 +159,11 @@ body,
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
-  background: var(--surface);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(102, 174, 243, 0.025), transparent 16rem),
+    radial-gradient(circle at 0% 100%, rgba(156, 130, 232, 0.018), transparent 18rem),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.02), transparent 45%),
+    var(--surface);
   box-shadow: var(--shadow-panel);
 }
 

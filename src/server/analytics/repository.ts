@@ -32,7 +32,7 @@ const teamRowSchema = z.object({ id: z.string().uuid(), name: z.string(), visits
 const clientRowSchema = z.object({ id: z.string().uuid(), name: z.string(), orders: z.number().int().positive(), agreed_minor: z.string() });
 const rateRowSchema = z.object({ repeat_clients: z.number().int().nonnegative(), active_clients: z.number().int().nonnegative() });
 
-const serviceColors = ["#b8f7e4", "#f4f7f6", "#8a9499", "#efb454", "#d8ddda", "#ef646a", "#667178"];
+const serviceColors = ["#edf43b", "#9c82e8", "#69d3a4", "#ef8d68", "#65b7ee", "#ef646a", "#8a9499"];
 
 function safeInteger(value: string | number | bigint) {
   const result = Number(value);
@@ -172,9 +172,9 @@ export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDay
     financialTrend: {
       labels: buckets.map((bucket) => bucket.label),
       series: [
-        { label: "Согласовано", color: "#b8f7e4", values: trendValues("agreed_minor"), valueFormat: "money" },
-        { label: "Плановый опер. остаток", color: "#9ca5a3", values: trendValues("operating_minor"), valueFormat: "money" },
-        { label: "Получено", color: "#f4f7f6", values: trendValues("paid_minor"), valueFormat: "money" },
+        { label: "Согласовано", color: "#edf43b", values: trendValues("agreed_minor"), valueFormat: "money" },
+        { label: "Плановый опер. остаток", color: "#69d3a4", values: trendValues("operating_minor"), valueFormat: "money" },
+        { label: "Получено", color: "#9c82e8", values: trendValues("paid_minor"), valueFormat: "money" },
       ],
     },
     orderStages: [

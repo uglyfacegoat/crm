@@ -7,9 +7,9 @@ type SummaryCardProps = {
 
 const tones = {
   lime: "text-[var(--accent)]",
-  mint: "text-[var(--accent)]",
-  violet: "text-[#aeb7b4]",
-  amber: "text-[#e7c97b]",
+  mint: "text-[var(--success)]",
+  violet: "text-[var(--violet)]",
+  amber: "text-[var(--warning)]",
 };
 
 export function SummaryCard({ label, value, change, tone }: SummaryCardProps) {

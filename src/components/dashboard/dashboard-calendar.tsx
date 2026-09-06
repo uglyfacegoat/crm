@@ -17,9 +17,9 @@ export type DashboardVisit = {
 };
 
 const eventColors = {
-  lime: "border-[#91e9ce]/25 bg-[#91e9ce]/15 text-[#b8f7e4]",
-  violet: "border-[#b8f7e4]/25 bg-[#b8f7e4]/15 text-[#b8f7e4]",
-  mint: "border-[#91e9ce]/25 bg-[#91e9ce]/15 text-[#9ae2da]",
+  lime: "border-[#dce63c]/25 bg-[#dce63c]/15 text-[#e5eb85]",
+  violet: "border-[#9c82e8]/25 bg-[#9c82e8]/15 text-[#c2b3ed]",
+  mint: "border-[#55d5ca]/25 bg-[#55d5ca]/15 text-[#9ae2da]",
   yellow: "border-[#f2a84b]/25 bg-[#f2a84b]/15 text-[#efc38b]",
 };
 
