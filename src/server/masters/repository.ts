@@ -255,7 +255,7 @@ export async function createMaster(member: AuthenticatedMember, input: CreateMas
           base_payment_minor, daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active)
         VALUES (${member.organizationId}, ${input.fullName}, ${input.phone}, ${normalizeContactPhone(input.phone)},
           ${input.messenger}, ${input.serviceRegion}, ${input.serviceZone}, ${input.basePaymentMinor},
-          ${input.dailyCapacity}, ${input.skills}, ${input.notes}, ${input.operationalStatus}, ${input.workingDays}, ${input.statusUntil}, ${input.statusNote}, ${input.operationalStatus !== "terminated"})
+          ${input.dailyCapacity}, ${input.skills}, ${input.notes}, ${input.operationalStatus}, ${input.workingDays}, ${input.statusUntil}, ${input.statusNote}, true)
         RETURNING id`;
       await transaction`UPDATE idempotency_requests SET entity_id = ${master.id}
         WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;

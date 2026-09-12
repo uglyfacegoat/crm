@@ -26,10 +26,13 @@ test("enforces role grants and organization boundaries", () => {
   assert.equal(hasPermission("dispatcher", "tasks.write"), true);
   assert.equal(hasPermission("dispatcher", "chat.manage"), true);
   assert.equal(hasPermission("dispatcher", "contracts.write"), true);
+  assert.equal(hasPermission("dispatcher", "search.use"), true);
+  assert.equal(hasPermission("dispatcher", "analytics.read"), false);
   assert.equal(hasPermission("accountant", "contracts.read"), true);
   assert.equal(hasPermission("accountant", "contracts.write"), false);
   assert.equal(hasPermission("accountant", "finance.write"), true);
   assert.equal(hasPermission("manager", "finance.write"), false);
+  assert.equal(hasPermission("manager", "analytics.read"), true);
   assert.equal(hasPermission("accountant", "chat.write"), true);
   assert.equal(hasPermission("accountant", "chat.manage"), false);
   assert.equal(hasPermission("accountant", "tasks.write"), false);
@@ -39,6 +42,9 @@ test("enforces role grants and organization boundaries", () => {
   assert.equal(hasPermission("master", "visits.write"), true);
   assert.equal(hasPermission("master", "document_templates.read"), true);
   assert.equal(hasPermission("master", "document_templates.write"), false);
+  assert.equal(hasPermission("master", "notifications.read"), true);
+  assert.equal(hasPermission("master", "companies.read"), false);
+  assert.equal(hasPermission("master", "assistant.use"), false);
   const member: AuthenticatedMember = { sessionId: crypto.randomUUID(), organizationId: crypto.randomUUID(), organizationName: "CRM", memberId: crypto.randomUUID(), displayName: "Admin", email: "admin@example.com", role: "admin", masterId: null, permissionOverrides: {} };
   assert.equal(hasPermission({ ...member, role: "dispatcher", permissionOverrides: { "orders.write": false } }, "orders.write"), false);
   assert.equal(hasPermission({ ...member, role: "accountant", permissionOverrides: { "orders.write": true } }, "orders.write"), true);

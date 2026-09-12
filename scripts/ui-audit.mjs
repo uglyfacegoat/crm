@@ -21,7 +21,7 @@ const routes = [
 const outputDirectory = resolve("artifacts/audit");
 mkdirSync(outputDirectory, { recursive: true });
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
-const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, colorScheme: "dark", reducedMotion: "reduce" });
+const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, colorScheme: "light", reducedMotion: "reduce" });
 const page = await context.newPage();
 const failures = [];
 const report = { routes: [], links: [], interactions: [], browserErrors: [] };

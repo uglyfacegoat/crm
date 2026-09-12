@@ -7,9 +7,9 @@ type AvatarProps = {
 };
 
 const tones = {
-  lime: "bg-[#dce64a] text-[#11150d]",
-  violet: "bg-[#7866b8] text-white",
-  mint: "bg-[#5ca990] text-[#08120e]",
+  lime: "bg-[var(--accent-soft)] text-[var(--accent-ink)]",
+  violet: "bg-[var(--support-soft)] text-[var(--support-strong)]",
+  mint: "bg-[var(--info-bg)] text-[var(--info)]",
 };
 
 export function Avatar({ name, size = "md", tone = "violet" }: AvatarProps) {

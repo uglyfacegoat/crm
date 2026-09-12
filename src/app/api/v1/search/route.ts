@@ -1,6 +1,6 @@
 import { globalSearchQuerySchema } from "@/lib/global-search";
 import { getAuthMode } from "@/server/auth/config";
-import { AuthorizationError } from "@/server/auth/permissions";
+import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
 import { searchPreview } from "@/server/search/preview";
 import { searchGlobal } from "@/server/search/repository";
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   try {
     const member = await getCurrentSession();
     if (!member) return Response.json({ error: { code: "unauthenticated", message: "Требуется вход." } }, { status: 401, headers: privateHeaders });
-    if (member.role === "master") return Response.json({ error: { code: "forbidden", message: "Глобальный поиск недоступен для этой роли." } }, { status: 403, headers: privateHeaders });
+    requirePermission(member, "search.use");
 
     const parsedQuery = globalSearchQuerySchema.safeParse(new URL(request.url).searchParams.get("q") ?? "");
     if (!parsedQuery.success) {

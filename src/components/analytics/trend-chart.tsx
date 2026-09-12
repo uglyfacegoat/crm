@@ -1,7 +1,8 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { chartColorAt } from "@/components/analytics/chart-colors";
 import { formatMoney } from "@/lib/format";
 import type { ChartSeries } from "@/server/analytics/types";
 
@@ -21,7 +22,6 @@ function formatAxisValue(value: number) {
 }
 
 export function TrendChart({ labels, series, scale = "shared", emptyMessage = "За период финансовых операций нет" }: TrendChartProps) {
-  const gradientPrefix = useId().replaceAll(":", "");
   const [hiddenSeries, setHiddenSeries] = useState<Set<number>>(() => new Set());
   const chartData = useMemo(() => labels.map((label, index) => {
     const point: Record<string, string | number> = { label };
@@ -45,25 +45,23 @@ export function TrendChart({ labels, series, scale = "shared", emptyMessage = "�
       <div className="mb-5 flex flex-wrap gap-2">
         {series.map((entry, index) => {
           const visible = !hiddenSeries.has(index);
-          return <button key={entry.label} type="button" aria-pressed={visible} onClick={() => toggleSeries(index)} className={`focus-ring flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] transition-colors ${visible ? "border-white/[0.08] bg-white/[0.035] text-[#aab2b5]" : "border-transparent text-[#596269]"}`}><span className="size-2 rounded-full shadow-[0_0_12px_currentColor]" style={{ backgroundColor: entry.color, color: entry.color }} />{entry.label}</button>;
+          const color = chartColorAt(index);
+          return <button key={entry.label} type="button" aria-pressed={visible} onClick={() => toggleSeries(index)} className={`focus-ring flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] transition-colors ${visible ? "border-[var(--line)] bg-[var(--surface-raised)] text-[var(--text-secondary)]" : "border-transparent text-[var(--muted)]"}`}><span className="size-2 rounded-full" style={{ backgroundColor: color }} />{entry.label}</button>;
         })}
       </div>
 
       <div className="relative h-[clamp(18rem,21vw,24rem)] min-h-0 w-full" role="img" aria-label={`Динамика: ${series.map((entry) => entry.label).join(", ")}`}>
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={288}>
           <AreaChart data={chartData} margin={{ top: 14, right: scale === "per-series" ? 12 : 2, bottom: 2, left: scale === "per-series" ? 2 : 0 }} accessibilityLayer>
-            <defs>
-              {series.map((entry, index) => <linearGradient key={entry.label} id={`${gradientPrefix}-${index}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={entry.color} stopOpacity={0.24} /><stop offset="62%" stopColor={entry.color} stopOpacity={0.055} /><stop offset="100%" stopColor={entry.color} stopOpacity={0} /></linearGradient>)}
-            </defs>
-            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.065)" strokeDasharray="3 9" />
-            <XAxis dataKey="label" axisLine={false} tickLine={false} minTickGap={32} tick={{ fill: "#626d73", fontSize: 10 }} tickMargin={14} />
-            {scale === "shared" ? <YAxis yAxisId="shared" axisLine={false} tickLine={false} width={58} tick={{ fill: "#626d73", fontSize: 10 }} tickFormatter={formatAxisValue} domain={["auto", "auto"]} /> : series.map((entry, index) => <YAxis key={entry.label} yAxisId={`series-${index}`} orientation={index % 2 ? "right" : "left"} hide={index > 1} axisLine={false} tickLine={false} width={52} tick={{ fill: entry.color, fontSize: 9 }} tickFormatter={formatAxisValue} domain={["auto", "auto"]} />)}
-            <ReferenceLine yAxisId={scale === "shared" ? "shared" : "series-0"} y={0} stroke="rgba(255,255,255,0.11)" />
-            <Tooltip cursor={{ stroke: "rgba(237,244,59,0.28)", strokeWidth: 1 }} contentStyle={{ background: "rgba(8,13,16,0.96)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, boxShadow: "0 22px 60px rgba(0,0,0,0.42)", padding: "12px 14px" }} labelStyle={{ color: "#f4f6f3", fontSize: 11, fontWeight: 600, marginBottom: 8 }} itemStyle={{ fontSize: 10, paddingTop: 2, paddingBottom: 2 }} formatter={(value, name) => [formatChartValue(Number(value), seriesByLabel.get(String(name))?.valueFormat), name]} isAnimationActive="auto" />
-            {series.map((entry, index) => <Area key={entry.label} yAxisId={scale === "shared" ? "shared" : `series-${index}`} type="monotone" dataKey={`series_${index}`} name={entry.label} stroke={entry.color} strokeWidth={2.4} fill={`url(#${gradientPrefix}-${index})`} fillOpacity={1} dot={false} activeDot={{ r: 4.5, fill: "#0b1115", stroke: entry.color, strokeWidth: 2 }} hide={hiddenSeries.has(index)} connectNulls isAnimationActive="auto" />)}
+            <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 9" />
+            <XAxis dataKey="label" axisLine={false} tickLine={false} minTickGap={32} tick={{ fill: "var(--muted)", fontSize: 10 }} tickMargin={14} />
+            {scale === "shared" ? <YAxis yAxisId="shared" axisLine={false} tickLine={false} width={58} tick={{ fill: "var(--muted)", fontSize: 10 }} tickFormatter={formatAxisValue} domain={["auto", "auto"]} /> : series.map((entry, index) => <YAxis key={entry.label} yAxisId={`series-${index}`} orientation={index % 2 ? "right" : "left"} hide={index > 1} axisLine={false} tickLine={false} width={52} tick={{ fill: chartColorAt(index), fontSize: 9 }} tickFormatter={formatAxisValue} domain={["auto", "auto"]} />)}
+            <ReferenceLine yAxisId={scale === "shared" ? "shared" : "series-0"} y={0} stroke="var(--line-strong)" />
+            <Tooltip cursor={{ stroke: "var(--accent)", strokeOpacity: 0.35, strokeWidth: 1 }} contentStyle={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, boxShadow: "var(--shadow-panel)", color: "var(--text)", padding: "12px 14px" }} labelStyle={{ color: "var(--text)", fontSize: 11, fontWeight: 600, marginBottom: 8 }} itemStyle={{ color: "var(--text-secondary)", fontSize: 10, paddingTop: 2, paddingBottom: 2 }} formatter={(value, name) => [formatChartValue(Number(value), seriesByLabel.get(String(name))?.valueFormat), name]} isAnimationActive="auto" />
+            {series.map((entry, index) => { const color = chartColorAt(index); return <Area key={entry.label} yAxisId={scale === "shared" ? "shared" : `series-${index}`} type="monotone" dataKey={`series_${index}`} name={entry.label} stroke={color} strokeWidth={2.4} strokeDasharray={index > 1 ? "5 4" : undefined} fill="none" dot={false} activeDot={{ r: 4.5, fill: "var(--surface)", stroke: color, strokeWidth: 2 }} hide={hiddenSeries.has(index)} connectNulls isAnimationActive="auto" />; })}
           </AreaChart>
         </ResponsiveContainer>
-        {!hasValues ? <div className="pointer-events-none absolute inset-0 grid place-items-center"><span className="rounded-full border border-white/[0.07] bg-[#0d1418]/92 px-4 py-2 text-[10px] text-[#737d83]">{emptyMessage}</span></div> : null}
+        {!hasValues ? <div className="pointer-events-none absolute inset-0 grid place-items-center"><span className="rounded-full border border-[var(--line)] bg-[var(--surface-raised)] px-4 py-2 text-[10px] text-[var(--muted)]">{emptyMessage}</span></div> : null}
       </div>
     </div>
   );

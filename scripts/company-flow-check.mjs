@@ -16,7 +16,7 @@ const password = process.env.VISUAL_CHECK_PASSWORD ?? process.env.AUTH_BOOTSTRAP
 if (!identity || !password) throw new Error("Admin credentials are required for the company flow check.");
 
 const browser = await chromium.launch({ executablePath, headless: true });
-const context = await browser.newContext({ colorScheme: "dark", reducedMotion: "reduce" });
+const context = await browser.newContext({ colorScheme: "light", reducedMotion: "reduce" });
 const page = await context.newPage();
 
 try {
@@ -42,13 +42,15 @@ try {
     await page.getByRole("heading", { name: companyName, exact: true }).waitFor();
   }
 
-  const switcher = page.locator("aside summary").filter({ hasText: "Центр компаний" }).first();
-  await switcher.click();
-  await page.getByRole("button", { name: "BioSave", exact: true }).click();
-  await page.locator("aside summary").filter({ hasText: "BioSave" }).first().waitFor();
-  await page.locator("aside summary").filter({ hasText: "BioSave" }).first().click();
-  await page.getByRole("button", { name: "Центр компаний", exact: true }).click();
-  await page.locator("aside summary").filter({ hasText: "Центр компаний" }).first().waitFor();
+  await page.goto(`${baseUrl}/companies`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Компании", exact: true }).waitFor();
+  await page.getByRole("button").filter({ hasText: "BioSave" }).first().click();
+  await page.getByRole("button", { name: "Открыть рабочую базу", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.goto(`${baseUrl}/companies`, { waitUntil: "networkidle" });
+  await page.getByRole("button").filter({ hasText: "Центр компаний" }).first().click();
+  await page.getByRole("button", { name: "Открыть рабочую базу", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
   console.log("Company creation and tenant switching passed.");
 } catch (error) {
   console.error(`Company flow failed at ${page.url()}`);

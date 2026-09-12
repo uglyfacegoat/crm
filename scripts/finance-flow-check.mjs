@@ -15,7 +15,7 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for fin
 
 const sql = postgres(process.env.DATABASE_URL, { max: 1 });
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
-const page = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
 const pageErrors = [];
 const consoleErrors = [];
 page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));

@@ -91,7 +91,6 @@ function mapLead(value: unknown): IncomingLead {
 export async function getIncomingLeadSnapshot(member: AuthenticatedMember, filter: IncomingLeadListFilter): Promise<IncomingLeadSnapshot> {
   requirePermission(member, "leads.read");
   const sql = getDatabase();
-  const queryPattern = `%${filter.query.replace(/[\\%_]/g, "\\$&")}%`;
   const [leadValues, countValues] = await Promise.all([
     sql`SELECT website_leads.id, website_leads.website_id, websites.name AS website_name, websites.domain AS website_domain,
         website_leads.external_event_id, website_leads.received_at, website_leads.contact_name, website_leads.phone,
@@ -120,8 +119,8 @@ export async function getIncomingLeadSnapshot(member: AuthenticatedMember, filte
       ) possible_client ON true
       WHERE website_leads.organization_id = ${member.organizationId}
         AND (${filter.status} = 'all' OR website_leads.moderation_status = ${filter.status})
-        AND (${filter.query} = '' OR concat_ws(' ', website_leads.contact_name, website_leads.phone, website_leads.email,
-          website_leads.service_interest, websites.name, websites.domain, website_leads.utm_source) ILIKE ${queryPattern} ESCAPE '\\')
+        AND (${filter.query} = '' OR crm_search_matches(concat_ws(' ', website_leads.contact_name, website_leads.phone, website_leads.email,
+          website_leads.service_interest, websites.name, websites.domain, website_leads.utm_source), ${filter.query}))
       ORDER BY CASE website_leads.moderation_status WHEN 'new' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
         website_leads.received_at DESC
       LIMIT 250`,

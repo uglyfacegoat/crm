@@ -15,18 +15,18 @@ import type { MasterDetailVisit, MasterOperationalStatus } from "@/server/master
 export const metadata: Metadata = { title: "Карточка мастера" };
 
 const visitStatusStyle: Record<MasterDetailVisit["statusCode"], string> = {
-  planned: "bg-[var(--accent)]/10 text-[var(--accent)]",
-  confirmed: "bg-[#55d5ca]/10 text-[#75d8ce]",
-  in_progress: "bg-[#9c82e8]/12 text-[#bcaaf2]",
-  completed: "bg-[#63c99d]/10 text-[#74d9ac]",
-  cancelled: "bg-[#ef646a]/10 text-[#ef858a]",
+  planned: "bg-[var(--accent-soft)] text-[var(--accent-ink)]",
+  confirmed: "bg-[var(--info-bg)] text-[var(--info)]",
+  in_progress: "bg-[var(--support-soft)] text-[var(--support-strong)]",
+  completed: "bg-[var(--success-bg)] text-[var(--success)]",
+  cancelled: "bg-[var(--danger-bg)] text-[var(--danger-ink)]",
 };
 
 const operationalStatusStyle: Record<MasterOperationalStatus, { dot: string; label: string }> = {
-  working: { dot: "bg-[#69d3a4]", label: "Доступен для назначений" },
-  vacation: { dot: "bg-[#9c82e8]", label: "Временно недоступен" },
-  unavailable: { dot: "bg-[#f2c95e]", label: "Временно недоступен" },
-  terminated: { dot: "bg-[#ef646a]", label: "Не участвует в новых назначениях" },
+  working: { dot: "bg-[var(--success)]", label: "Доступен для назначений" },
+  vacation: { dot: "bg-[var(--support)]", label: "Временно недоступен" },
+  unavailable: { dot: "bg-[var(--warning)]", label: "Временно недоступен" },
+  terminated: { dot: "bg-[var(--danger)]", label: "Не участвует в новых назначениях" },
 };
 
 const weekDays = [
@@ -56,8 +56,8 @@ function formatStatusUntil(statusUntil: string) {
 
 function DetailValue({ label, children, accent }: { label: string; children: React.ReactNode; accent?: boolean }) {
   return <div>
-    <dt className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[#667178]">{label}</dt>
-    <dd className={`mt-1.5 text-xs font-medium ${accent ? "text-[#69d3a4]" : "text-[#dce1dd]"}`}>{children}</dd>
+    <dt className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">{label}</dt>
+    <dd className={`mt-1.5 text-xs font-medium ${accent ? "text-[var(--success)]" : "text-[var(--text-secondary)]"}`}>{children}</dd>
   </div>;
 }
 
@@ -86,18 +86,18 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
   return <div className="mx-auto max-w-[1720px]">
     <header className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <Link href="/masters" className="focus-ring inline-flex items-center gap-2 rounded-full px-1 text-xs text-[#7f888e] transition-colors hover:text-white">
+        <Link href="/masters" className="focus-ring inline-flex items-center gap-2 rounded-full px-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]">
           <ArrowLeft className="size-4" />
           К списку мастеров
         </Link>
         <div className="mt-4 flex min-w-0 items-center gap-3 sm:gap-4">
-          <span className="grid size-12 shrink-0 place-items-center rounded-full border border-[#9c82e8]/20 bg-[#9c82e8]/10 font-display text-xs text-[#c7b8f3] sm:size-14 sm:text-sm">
+          <span className="grid size-12 shrink-0 place-items-center rounded-full border border-[var(--support)]/30 bg-[var(--support-soft)] font-display text-xs text-[var(--support-strong)] sm:size-14 sm:text-sm">
             {getInitials(master.fullName)}
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <h1 className="display-title min-w-0 text-white">{master.fullName}</h1>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-[#aab3b4]">
+              <h1 className="display-title min-w-0 text-[var(--text)]">{master.fullName}</h1>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-raised)] px-2.5 py-1 text-[10px] text-[var(--text-secondary)]">
                 <span className={`size-1.5 rounded-full ${operationalStatus.dot}`} />
                 {master.statusLabel}
               </span>
@@ -115,30 +115,30 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
     <section aria-label="Доступность мастера" className="surface-panel mt-6 p-4 sm:p-5 lg:p-6">
       <div className="grid gap-6 xl:grid-cols-[minmax(16rem,0.72fr)_minmax(0,1.28fr)] xl:items-center">
         <div className="min-w-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#78837f]">Доступность</p>
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Доступность</p>
           <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h2 className="font-display text-xl text-white sm:text-2xl">{master.statusLabel}</h2>
-            {master.statusUntil ? <span className="rounded-full border border-white/[0.08] px-2.5 py-1 text-[10px] text-[#b9c1bc]">до {formatStatusUntil(master.statusUntil)}</span> : null}
+            <h2 className="font-display text-xl text-[var(--text)] sm:text-2xl">{master.statusLabel}</h2>
+            {master.statusUntil ? <span className="rounded-full border border-[var(--line)] px-2.5 py-1 text-[10px] text-[var(--text-secondary)]">до {formatStatusUntil(master.statusUntil)}</span> : null}
           </div>
-          <p className="mt-2 max-w-md text-xs leading-5 text-[#87918e]">{master.statusNote ?? operationalStatus.label}</p>
-          <p className="mt-4 inline-flex items-center gap-2 text-[10px] text-[#a5adab]">
-            <span className="size-1.5 rounded-full bg-[#69d3a4]" />
+          <p className="mt-2 max-w-md text-xs leading-5 text-[var(--text-secondary)]">{master.statusNote ?? operationalStatus.label}</p>
+          <p className="mt-4 inline-flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
+            <span className="size-1.5 rounded-full bg-[var(--success)]" />
             Сегодня: {master.todayVisitCount} из {master.dailyCapacity} выездов
           </p>
         </div>
 
         <div className="min-w-0">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#78837f]">Рабочая неделя</p>
-            <span className="hidden items-center gap-1.5 text-[10px] text-[#72807b] sm:inline-flex"><CalendarDays className="size-3.5" />График назначений</span>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Рабочая неделя</p>
+            <span className="hidden items-center gap-1.5 text-[10px] text-[var(--muted)] sm:inline-flex"><CalendarDays className="size-3.5" />График назначений</span>
           </div>
           <ul className="mt-3 grid grid-cols-7 gap-1.5 sm:gap-2" aria-label="Рабочие дни мастера">
             {weekDays.map((day) => {
               const isWorking = master.workingDays.includes(day.value);
-              return <li key={day.value} className={`min-w-0 rounded-[12px] border px-1 py-2.5 text-center sm:rounded-[14px] sm:px-2 ${isWorking ? "border-[var(--accent)]/30 bg-[var(--accent)]/[0.075] text-[#eaf0dd]" : "border-white/[0.055] bg-black/[0.08] text-[#65706d]"}`}>
+              return <li key={day.value} className={`min-w-0 rounded-[12px] border px-1 py-2.5 text-center sm:rounded-[14px] sm:px-2 ${isWorking ? "border-[var(--accent)]/40 bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "border-[var(--line)] bg-[var(--surface-raised)] text-[var(--muted)]"}`}>
                 <span className="block text-[11px] font-semibold">{day.label}</span>
                 <span className="mt-1.5 flex items-center justify-center gap-1 text-[8px] leading-none text-current/75">
-                  <span className={`size-1 rounded-full ${isWorking ? "bg-[var(--accent)]" : "bg-white/[0.16]"}`} />
+                  <span className={`size-1 rounded-full ${isWorking ? "bg-[var(--accent)]" : "bg-[var(--line-strong)]"}`} />
                   <span className="sr-only">{day.fullLabel}: </span>
                   <span className="hidden sm:inline">{isWorking ? "Работа" : "Выходной"}</span>
                 </span>
@@ -152,19 +152,19 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
     <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(18rem,0.68fr)_minmax(0,1.32fr)]">
       <aside className="surface-panel p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-white">Профиль мастера</h2>
-          <span className="rounded-full bg-white/[0.045] px-2.5 py-1 text-[9px] text-[#89938f]">{master.active ? "Активная карточка" : "Архивная карточка"}</span>
+          <h2 className="text-sm font-semibold text-[var(--text)]">Профиль мастера</h2>
+          <span className="rounded-full bg-[var(--surface-inset)] px-2.5 py-1 text-[9px] text-[var(--muted)]">{master.active ? "Активная карточка" : "Архивная карточка"}</span>
         </div>
 
         <dl className="mt-5 grid gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-1">
-          <DetailValue label="Телефон"><a href={`tel:${master.phone}`} className="inline-flex items-center gap-2 transition-colors hover:text-white"><Phone className="size-3.5" />{master.phone}</a></DetailValue>
+          <DetailValue label="Телефон"><a href={`tel:${master.phone}`} className="inline-flex items-center gap-2 transition-colors hover:text-[var(--text)]"><Phone className="size-3.5" />{master.phone}</a></DetailValue>
           <DetailValue label="Мессенджер"><span className="inline-flex items-center gap-2"><MessageCircle className="size-3.5" />{master.messenger ?? "Не указан"}</span></DetailValue>
           <DetailValue label="Лимит нагрузки">До {master.dailyCapacity} выездов в день</DetailValue>
           {master.basePaymentMinor !== undefined ? <DetailValue label="Базовая выплата">{master.basePaymentMinor === null ? "Не указана" : formatMoneyMinor(master.basePaymentMinor)}</DetailValue> : null}
         </dl>
 
-        <div className="mt-6 border-t border-white/[0.07] pt-5">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#78837f]">Рабочая история</p>
+        <div className="mt-6 border-t border-[var(--line)] pt-5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Рабочая история</p>
           <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-4">
             <DetailValue label="Выезды">{master.completedVisits} из {master.totalVisits}</DetailValue>
             <DetailValue label="Предстоящие">{master.upcomingVisits}</DetailValue>
@@ -173,47 +173,47 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
           </dl>
         </div>
 
-        {master.skills.length ? <div className="mt-6 border-t border-white/[0.07] pt-5">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#78837f]">Специализации</p>
+        {master.skills.length ? <div className="mt-6 border-t border-[var(--line)] pt-5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Специализации</p>
           <ul className="mt-3 flex flex-wrap gap-2">
-            {master.skills.map((skill) => <li key={skill} className="rounded-full border border-[#9c82e8]/16 bg-[#9c82e8]/[0.075] px-2.5 py-1 text-[10px] text-[#c5b9e7]">{skill}</li>)}
+            {master.skills.map((skill) => <li key={skill} className="rounded-full border border-[var(--support)]/30 bg-[var(--support-soft)] px-2.5 py-1 text-[10px] text-[var(--support-strong)]">{skill}</li>)}
           </ul>
         </div> : null}
 
-        {master.notes ? <div className="mt-6 border-t border-white/[0.07] pt-5">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#78837f]">Заметка для офиса</p>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-[#929ba0]">{master.notes}</p>
+        {master.notes ? <div className="mt-6 border-t border-[var(--line)] pt-5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Заметка для офиса</p>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]">{master.notes}</p>
         </div> : null}
       </aside>
 
       <section className="surface-panel overflow-hidden">
         <header className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
           <div>
-            <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#78837f]">Журнал работы</p>
-            <h2 className="mt-2 text-base font-semibold text-white">Последние выезды</h2>
-            <p className="mt-1 text-xs text-[#758078]">Последние 30 событий мастера</p>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Журнал работы</p>
+            <h2 className="mt-2 text-base font-semibold text-[var(--text)]">Последние выезды</h2>
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">Последние 30 событий мастера</p>
           </div>
-          <span className="rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-[#8b9591]">{master.recentVisits.length}</span>
+          <span className="rounded-full border border-[var(--line)] bg-[var(--surface-raised)] px-2.5 py-1 text-[10px] text-[var(--muted)]">{master.recentVisits.length}</span>
         </header>
 
-        {master.recentVisits.length ? <div className="divide-y divide-white/[0.055] border-t border-white/[0.06]">
-          {master.recentVisits.map((visit) => <Link key={visit.id} href={`/orders/${visit.orderId}`} className="focus-ring grid gap-3 px-5 py-4 transition-colors hover:bg-white/[0.025] sm:px-6 md:grid-cols-[10rem_minmax(0,1fr)_9rem] md:items-center">
+        {master.recentVisits.length ? <div className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
+          {master.recentVisits.map((visit) => <Link key={visit.id} href={`/orders/${visit.orderId}`} className="focus-ring grid gap-3 px-5 py-4 transition-colors hover:bg-[var(--surface-raised)] sm:px-6 md:grid-cols-[10rem_minmax(0,1fr)_9rem] md:items-center">
             <div>
-              <p className="font-display text-xs text-white">{formatVisitDate(visit)}</p>
+              <p className="font-display text-xs text-[var(--text)]">{formatVisitDate(visit)}</p>
               <p className="mt-1 text-[9px] text-[var(--accent)]">{visit.orderNumber}</p>
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-[#dce1dd]">{visit.clientName}</p>
-              <p className="mt-1 truncate text-[10px] text-[#6d777d]">{visit.objectName} · {visit.objectAddress}</p>
+              <p className="truncate text-sm font-medium text-[var(--text-secondary)]">{visit.clientName}</p>
+              <p className="mt-1 truncate text-[10px] text-[var(--muted)]">{visit.objectName} · {visit.objectAddress}</p>
             </div>
             <span className={`w-fit rounded-full px-2.5 py-1 text-[9px] md:justify-self-end ${visitStatusStyle[visit.statusCode]}`}>{visit.status}</span>
           </Link>)}
-        </div> : <div className="border-t border-white/[0.06] px-5 py-8 sm:px-6 sm:py-10">
+        </div> : <div className="border-t border-[var(--line)] px-5 py-8 sm:px-6 sm:py-10">
           <div className="flex max-w-sm items-center gap-4">
-            <span className="grid size-11 shrink-0 place-items-center rounded-full border border-white/[0.07] bg-white/[0.025] text-[#69736f]"><Route className="size-5" /></span>
+            <span className="grid size-11 shrink-0 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface-raised)] text-[var(--muted)]"><Route className="size-5" /></span>
             <div>
-              <p className="text-sm font-medium text-[#dbe1dd]">Выездов пока нет</p>
-              <p className="mt-1 text-xs leading-5 text-[#78827e]">Когда мастер завершит или получит первый выезд, он появится в журнале.</p>
+              <p className="text-sm font-medium text-[var(--text-secondary)]">Выездов пока нет</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Когда мастер завершит или получит первый выезд, он появится в журнале.</p>
             </div>
           </div>
         </div>}

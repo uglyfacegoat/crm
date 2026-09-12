@@ -255,6 +255,33 @@ export async function listContracts(member: AuthenticatedMember): Promise<Contra
   };
 }
 
+export async function getContract(member: AuthenticatedMember, contractId: string): Promise<ContractListItem> {
+  requirePermission(member, "contracts.read");
+  const [row] = await getDatabase()`SELECT contracts.id, contracts.contract_number, contracts.client_id, clients.legal_name AS client_name,
+      contracts.object_id, client_objects.name AS object_name, client_objects.address AS object_address,
+      contracts.status, contracts.starts_on::text, contracts.ends_on::text, contracts.renewal_notice_days,
+      contracts.notes, contracts.version, contracts.renewed_from_contract_id, successor.id AS renewed_by_contract_id,
+      (contracts.ends_on - (now() AT TIME ZONE organizations.timezone)::date)::integer AS days_until_end,
+      next_visit.next_visit_at, rules.id AS schedule_rule_id, rules.frequency_unit, rules.frequency_interval,
+      rules.local_time::text, rules.duration_minutes, rules.default_master_id, masters.full_name AS default_master_name,
+      coalesce(visit_totals.visit_count, 0)::integer AS visit_count
+    FROM contracts
+    JOIN organizations ON organizations.id = contracts.organization_id
+    JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
+    JOIN client_objects ON client_objects.organization_id = contracts.organization_id AND client_objects.id = contracts.object_id
+    LEFT JOIN contracts successor ON successor.organization_id = contracts.organization_id AND successor.renewed_from_contract_id = contracts.id
+    LEFT JOIN contract_schedule_rules rules ON rules.organization_id = contracts.organization_id AND rules.contract_id = contracts.id
+    LEFT JOIN masters ON masters.organization_id = rules.organization_id AND masters.id = rules.default_master_id
+    LEFT JOIN LATERAL (SELECT min(scheduled_start_at) AS next_visit_at FROM service_visits
+      WHERE organization_id = contracts.organization_id AND contract_id = contracts.id
+        AND status IN ('planned', 'confirmed') AND scheduled_start_at >= now()) next_visit ON true
+    LEFT JOIN LATERAL (SELECT count(*)::integer AS visit_count FROM service_visits
+      WHERE organization_id = contracts.organization_id AND contract_id = contracts.id) visit_totals ON true
+    WHERE contracts.organization_id = ${member.organizationId} AND contracts.id = ${contractId}`;
+  if (!row) throw new ContractNotFoundError();
+  return mapContract(row);
+}
+
 export async function createContract(member: AuthenticatedMember, input: CreateContractInput) {
   requirePermission(member, "contracts.write");
   const sql = getDatabase();

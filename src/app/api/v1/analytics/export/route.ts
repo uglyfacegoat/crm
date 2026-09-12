@@ -1,4 +1,4 @@
-import { AuthorizationError } from "@/server/auth/permissions";
+import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import { getAuthMode } from "@/server/auth/config";
 import { getCurrentSession } from "@/server/auth/session";
 import { createAnalyticsCsv } from "@/server/analytics/export";
@@ -17,6 +17,7 @@ export async function GET(request: Request) {
   try {
     const member = await getCurrentSession();
     if (!member) return Response.json({ error: { code: "unauthenticated", message: "Требуется вход." } }, { status: 401 });
+    requirePermission(member, "analytics.read");
     const preview = getAuthMode() === "preview";
     const snapshot = preview ? getPreviewAnalytics(range) : await getAnalyticsSnapshot(member, range);
     if (!preview) await recordAnalyticsExport(member, range);

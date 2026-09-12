@@ -34,6 +34,8 @@
     "test": "node --test scripts/*.test.mjs src/lib/*.test.ts src/lib/visits/*.test.ts src/server/analytics/*.test.ts src/server/domain/*.test.ts src/server/auth/*.test.ts src/server/chat/*.test.ts src/server/clients/*.test.ts src/server/contracts/*.test.ts src/server/document-templates/*.test.ts src/server/documents/*.test.ts src/server/finance/*.test.ts src/server/imports/*.test.ts src/server/incoming-leads/*.test.ts src/server/masters/*.test.ts src/server/members/*.test.ts src/server/orders/*.test.ts src/server/quick-order/*.test.ts src/server/sites/*.test.ts src/server/support/*.test.ts src/server/tasks/*.test.ts src/server/visits/*.test.ts",
     "lint": "eslint",
     "visual:check": "node --env-file-if-exists=.env.local scripts/visual-check.mjs",
+    "help:screenshots": "node --env-file-if-exists=.env.local scripts/help-screenshot-check.mjs",
+    "theme:visual-check": "node --env-file-if-exists=.env.local scripts/theme-visual-check.mjs",
     "ui:audit": "node --env-file-if-exists=.env.local scripts/ui-audit.mjs"
   },
   "dependencies": {
@@ -41,7 +43,8 @@
     "@fontsource-variable/onest": "^5.3.0",
     "fflate": "^0.8.3",
     "lucide-react": "^1.34.0",
-    "next": "16.3.2",
+    "mammoth": "1.12.3",
+    "next": "16.3.5",
     "postgres": "^3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",

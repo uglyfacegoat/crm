@@ -16,7 +16,7 @@ import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/me
 import { listOrganizationSummaries } from "@/server/organizations/repository";
 import type { OrganizationSummary } from "@/server/organizations/types";
 import { cookies } from "next/headers";
-import { DIGIT_STYLE_COOKIE, FONT_SCALE_COOKIE, parseDigitStyle, parseFontScale } from "@/lib/appearance";
+import { APPEARANCE_THEME_COOKIE, DIGIT_STYLE_COOKIE, FONT_SCALE_COOKIE, parseAppearanceTheme, parseDigitStyle, parseFontScale } from "@/lib/appearance";
 
 export const metadata: Metadata = { title: "Настройки" };
 
@@ -24,6 +24,7 @@ export default async function SettingsPage() {
   const cookieStore = await cookies();
   const fontScale = parseFontScale(cookieStore.get(FONT_SCALE_COOKIE)?.value);
   const digitStyle = parseDigitStyle(cookieStore.get(DIGIT_STYLE_COOKIE)?.value);
+  const theme = parseAppearanceTheme(cookieStore.get(APPEARANCE_THEME_COOKIE)?.value);
   const member = await requireOfficeSession();
   if (!hasPermission(member, "settings.write")) redirect("/");
   const preview = getAuthMode() === "preview";
@@ -56,5 +57,5 @@ export default async function SettingsPage() {
     [members, masterOptions, templates, backupSnapshot, importJobs, organizations] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listRecentImportJobs(member), listOrganizationSummaries(member)]);
   }
 
-  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} organizations={organizations} fontScale={fontScale} digitStyle={digitStyle} /></div>;
+  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} /></div>;
 }

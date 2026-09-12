@@ -1,4 +1,5 @@
 import type { ServiceVisit } from "@/server/visits/types";
+import { matchesSearchText } from "../search-normalization.ts";
 
 export type CalendarVisitFilters = {
   query: string;
@@ -11,10 +12,7 @@ export type CalendarVisitFilters = {
 };
 
 function includesQuery(visit: ServiceVisit, query: string) {
-  if (!query) return true;
-
-  return [visit.orderNumber, visit.client, visit.object, visit.address, visit.master, visit.masterRegion, visit.serviceSummary]
-    .some((value) => value?.toLocaleLowerCase("ru").includes(query));
+  return matchesSearchText(query, [visit.orderNumber, visit.client, visit.object, visit.address, visit.master, visit.masterRegion, visit.serviceSummary]);
 }
 
 function hasService(visit: ServiceVisit, service: string) {
@@ -22,9 +20,7 @@ function hasService(visit: ServiceVisit, service: string) {
 }
 
 export function filterCalendarVisits(visits: ServiceVisit[], filters: CalendarVisitFilters) {
-  const query = filters.query.trim().toLocaleLowerCase("ru");
-
-  return visits.filter((visit) => includesQuery(visit, query)
+  return visits.filter((visit) => includesQuery(visit, filters.query)
     && (filters.master === "all" || (filters.master === "unassigned" ? !visit.master : visit.master === filters.master))
     && (filters.region === "all" || visit.masterRegion === filters.region)
     && (filters.client === "all" || visit.client === filters.client)

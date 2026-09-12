@@ -119,9 +119,9 @@ export async function getWebsiteSnapshot(member: AuthenticatedMember): Promise<W
     summary: { totalSites: sites.length, activeSites: sites.filter((site) => site.status === "active").length, visitors, pageviews, searchClicks, leads, paidOrders, paidRevenueMinor: sites.reduce((total, site) => total + site.paidRevenueMinor, 0), conversionPercent: visitors ? Number(((leads / visitors) * 100).toFixed(2)) : 0 },
     sites,
     trafficTrend: { labels: dates.map(formatDateLabel), series: [
-      { label: "Посетители", color: "#edf43b", values: dates.map((date) => trafficByDate.get(date)?.visitors ?? 0), valueFormat: "integer" },
-      { label: "Просмотры", color: "#65b7ee", values: dates.map((date) => trafficByDate.get(date)?.pageviews ?? 0), valueFormat: "integer" },
-      { label: "Поисковые клики", color: "#9c82e8", values: dates.map((date) => searchClicksByDate.get(date) ?? 0), valueFormat: "integer" },
+      { label: "Посетители", color: "#000000", values: dates.map((date) => trafficByDate.get(date)?.visitors ?? 0), valueFormat: "integer" },
+      { label: "Просмотры", color: "#a2beff", values: dates.map((date) => trafficByDate.get(date)?.pageviews ?? 0), valueFormat: "integer" },
+      { label: "Поисковые клики", color: "#25272c", values: dates.map((date) => searchClicksByDate.get(date) ?? 0), valueFormat: "integer" },
     ] },
     trafficSources: sources.map((source) => ({ label: source.source, amount: source.leads, value: sourceTotal ? Math.round((source.leads / sourceTotal) * 100) : 0 })),
   };

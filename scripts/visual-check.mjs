@@ -93,9 +93,7 @@ const visualCases = [
   { name: "analytics-desktop", path: "/analytics", width: 1920, height: 1080 },
   { name: "analytics-mobile", path: "/analytics", width: 320, height: 568 },
   { name: "analytics-sales-desktop", path: "/analytics?view=sales", width: 1920, height: 1080 },
-  { name: "analytics-visits-desktop", path: "/analytics?view=visits", width: 1920, height: 1080 },
-  { name: "analytics-clients-desktop", path: "/analytics?view=clients", width: 1920, height: 1080 },
-  { name: "analytics-masters-desktop", path: "/analytics?view=masters", width: 1920, height: 1080 },
+  { name: "analytics-operations-desktop", path: "/analytics?view=operations", width: 1920, height: 1080 },
   { name: "analytics-finance-desktop", path: "/analytics?view=finance", width: 1920, height: 1080 },
   { name: "analytics-finance-mobile", path: "/analytics?view=finance", width: 320, height: 568 },
   { name: "sites-desktop", path: "/sites", width: 1920, height: 1080 },
@@ -138,12 +136,14 @@ if (!browserPath) {
 const baseUrl = process.env.VISUAL_BASE_URL ?? "http://localhost:3000";
 const identity = process.env.VISUAL_CHECK_IDENTITY ?? process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL;
 const password = process.env.VISUAL_CHECK_PASSWORD ?? process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
+const allowMissingFixtureData = process.env.VISUAL_CHECK_ALLOW_MISSING_FIXTURE_DATA === "true";
 const outputDirectory = resolve("artifacts/visual");
 mkdirSync(outputDirectory, { recursive: true });
 
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
-const authenticatedContext = await browser.newContext({ deviceScaleFactor: 1, colorScheme: "dark", reducedMotion: "reduce" });
+const authenticatedContext = await browser.newContext({ deviceScaleFactor: 1, colorScheme: "light", reducedMotion: "reduce" });
 const failures = [];
+let capturedCaseCount = visualCases.length;
 
 try {
   const authenticationPage = await authenticatedContext.newPage();
@@ -191,7 +191,7 @@ try {
       }
     }
 
-    throw new Error("No order with an editable visit was found for the visual audit.");
+    return null;
   }
 
   const clientDetailPath = await discoverInteractiveDetailPath("/clients", /Открыть клиента/, "/clients/");
@@ -200,11 +200,21 @@ try {
   const memberDetailPath = await discoverDetailPath("/settings", "/settings/users/");
   const siteDetailPath = await discoverDetailPath("/sites", "/sites/");
   const editableVisitOrderPath = await discoverOrderWithEditableVisit();
+  if (!editableVisitOrderPath && !allowMissingFixtureData) {
+    throw new Error("No order with an editable visit was found for the visual audit.");
+  }
+  const visualCasesToCapture = editableVisitOrderPath
+    ? visualCases
+    : visualCases.filter((visualCase) => !visualCase.openVisitEditDialog);
+  capturedCaseCount = visualCasesToCapture.length;
+  if (!editableVisitOrderPath) {
+    console.warn("Skipping the editable-visit dialog snapshot because the current dataset has no editable visit.");
+  }
   await authenticationPage.close();
 
-  for (const visualCase of visualCases) {
+  for (const visualCase of visualCasesToCapture) {
     const isolatedLoginContext = visualCase.path === "/login"
-      ? await browser.newContext({ deviceScaleFactor: 1, colorScheme: "dark", reducedMotion: "reduce" })
+      ? await browser.newContext({ deviceScaleFactor: 1, colorScheme: "light", reducedMotion: "reduce" })
       : null;
     const page = await (isolatedLoginContext ?? authenticatedContext).newPage();
     await page.setViewportSize({ width: visualCase.width, height: visualCase.height });
@@ -237,8 +247,16 @@ try {
       await page.getByRole("dialog", { name: "Новый клиент" }).waitFor();
     }
     if (visualCase.openFiltersDialog) {
-      await page.getByRole("button", { name: "Фильтры", exact: true }).click();
-      await page.getByRole("dialog", { name: visualCase.openFiltersDialog }).waitFor();
+      const filterButton = page.getByRole("button", { name: "Фильтры", exact: true });
+      if (await filterButton.count()) {
+        await filterButton.click();
+        await page.getByRole("dialog", { name: visualCase.openFiltersDialog }).waitFor();
+      } else if (visualCase.path === "/documents" && allowMissingFixtureData) {
+        // The archive intentionally has no filters until at least one document exists.
+        console.warn(`Skipping ${visualCase.name} dialog snapshot because the current dataset has no documents.`);
+      } else {
+        failures.push(`${visualCase.name}: the filters control is missing.`);
+      }
     }
     if (visualCase.openObjectDialog) {
       await page.getByRole("button", { name: "Новый объект", exact: true }).click();
@@ -285,12 +303,26 @@ try {
       await page.getByRole("dialog", { name: "Новый сайт", exact: true }).waitFor();
     }
     if (visualCase.openSiteInfrastructureDialog) {
-      await page.getByRole("button", { name: /Настроить инфраструктуру|Обновить данные/ }).click();
-      await page.getByRole("dialog", { name: "Инфраструктура сайта", exact: true }).waitFor();
+      const infrastructureButton = page.getByRole("button", { name: /Настроить инфраструктуру|Обновить данные/ });
+      if (await infrastructureButton.count()) {
+        await infrastructureButton.click();
+        await page.getByRole("dialog", { name: "Инфраструктура сайта", exact: true }).waitFor();
+      } else if (allowMissingFixtureData) {
+        console.warn(`Skipping ${visualCase.name} dialog snapshot because infrastructure editing is unavailable in this fixture.`);
+      } else {
+        failures.push(`${visualCase.name}: the infrastructure control is missing.`);
+      }
     }
     if (visualCase.openSupportDialog) {
-      await page.getByRole("button", { name: "Связаться с поддержкой", exact: true }).click();
-      await page.getByRole("dialog", { name: "Обращение в поддержку", exact: true }).waitFor();
+      const supportButton = page.getByRole("button", { name: "Связаться с поддержкой", exact: true });
+      if (await supportButton.count()) {
+        await supportButton.click();
+        await page.getByRole("dialog", { name: "Обращение в поддержку", exact: true }).waitFor();
+      } else if (allowMissingFixtureData) {
+        console.warn(`Skipping ${visualCase.name} dialog snapshot because support requests are unavailable in this fixture.`);
+      } else {
+        failures.push(`${visualCase.name}: the support request control is missing.`);
+      }
     }
     if (visualCase.openDatePicker) {
       await page.getByRole("button", { name: "Открыть календарь", exact: true }).first().click();
@@ -319,4 +351,4 @@ if (failures.length > 0) {
   throw new Error(`Visual checks failed:\n${failures.join("\n")}`);
 }
 
-console.log(`Captured ${visualCases.length} viewports without horizontal overflow in ${outputDirectory}`);
+console.log(`Captured ${capturedCaseCount} viewports without horizontal overflow in ${outputDirectory}`);

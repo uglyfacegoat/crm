@@ -25,12 +25,12 @@ function selectionUrl(selection: DocumentArchiveSelection) {
 }
 
 function Count({ value }: { value: number }) {
-  return <span className="ml-auto shrink-0 rounded-full bg-white/[0.045] px-2 py-0.5 text-[9px] tabular-nums text-[#657078]">{value}</span>;
+  return <span className="ml-auto shrink-0 rounded-full bg-[var(--surface-soft)] px-2 py-0.5 text-[9px] tabular-nums text-[var(--muted)]">{value}</span>;
 }
 
 function ExpandButton({ expanded, label, onClick }: { expanded: boolean; label: string; onClick: () => void }) {
   const Icon = expanded ? ChevronDown : ChevronRight;
-  return <button type="button" onClick={onClick} aria-label={`${expanded ? "Свернуть" : "Развернуть"} ${label}`} aria-expanded={expanded} className="focus-ring grid size-7 shrink-0 place-items-center rounded-[8px] text-[#58636a] hover:bg-white/[0.05] hover:text-white"><Icon className="size-3.5" /></button>;
+  return <button type="button" onClick={onClick} aria-label={`${expanded ? "Свернуть" : "Развернуть"} ${label}`} aria-expanded={expanded} className="focus-ring grid size-7 shrink-0 place-items-center rounded-[8px] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><Icon className="size-3.5" /></button>;
 }
 
 type TreeExpansion = {
@@ -50,11 +50,11 @@ function ArchiveOrderBranch({ clientId, objectId, order, selection, navigate, ex
   const selected = selection.orderId === order.id;
   const open = expansion.isOpen(key, selected);
   return <div>
-    <div className={`flex items-center rounded-[9px] ${selected && !selection.category ? "bg-white/[0.045]" : ""}`}>
+    <div className={`flex items-center rounded-[9px] ${selected && !selection.category ? "bg-[var(--surface-soft)]" : ""}`}>
       <ExpandButton expanded={open} label={`заказ №${order.number}`} onClick={() => expansion.toggle(key)} />
-      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId, objectId, orderId: order.id, category: null }); }} className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[8px] pr-2 text-left text-[10px] text-[#7d888f] hover:text-white"><ClipboardList className="size-3.5 shrink-0 text-[#efb454]" /><span className="truncate">Заказ №{order.number}</span><Count value={order.documentCount} /></button>
+      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId, objectId, orderId: order.id, category: null }); }} className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[8px] pr-2 text-left text-[10px] text-[var(--text-secondary)] hover:text-[var(--text)]"><ClipboardList className="size-3.5 shrink-0 text-[var(--warning)]" /><span className="truncate">Заказ №{order.number}</span><Count value={order.documentCount} /></button>
     </div>
-    {open ? <div className="ml-7 space-y-0.5 py-1">{order.categories.map((category) => <button type="button" key={category.category} onClick={() => navigate({ clientId, objectId, orderId: order.id, category: category.category })} className={`focus-ring flex min-h-8 w-full items-center gap-2 rounded-[8px] px-2 text-left text-[10px] ${selected && selection.category === category.category ? "bg-[var(--accent)]/[0.09] text-[var(--accent)]" : "text-[#727e85] hover:bg-white/[0.035] hover:text-white"}`}><FileText className="size-3 shrink-0" /><span className="truncate">{category.label}</span><Count value={category.documentCount} /></button>)}</div> : null}
+    {open ? <div className="ml-7 space-y-0.5 py-1">{order.categories.map((category) => <button type="button" key={category.category} onClick={() => navigate({ clientId, objectId, orderId: order.id, category: category.category })} className={`focus-ring flex min-h-8 w-full items-center gap-2 rounded-[8px] px-2 text-left text-[10px] ${selected && selection.category === category.category ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}><FileText className="size-3 shrink-0" /><span className="truncate">{category.label}</span><Count value={category.documentCount} /></button>)}</div> : null}
   </div>;
 }
 
@@ -63,11 +63,11 @@ function ArchiveObjectBranch({ clientId, object, selection, navigate, expansion 
   const selected = selection.objectId === object.id;
   const open = expansion.isOpen(key, selected);
   return <div>
-    <div className={`flex items-center rounded-[10px] ${selected && !selection.orderId ? "bg-white/[0.05]" : ""}`}>
+    <div className={`flex items-center rounded-[10px] ${selected && !selection.orderId ? "bg-[var(--surface-soft)]" : ""}`}>
       <ExpandButton expanded={open} label={object.name} onClick={() => expansion.toggle(key)} />
-      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId, objectId: object.id, orderId: null, category: null }); }} className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[9px] pr-2 text-left text-[10px] text-[#869198] hover:text-white"><MapPin className="size-3.5 shrink-0 text-[#69d3a4]" /><span className="truncate">{object.name}</span><Count value={object.documentCount} /></button>
+      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId, objectId: object.id, orderId: null, category: null }); }} className="focus-ring flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-[9px] pr-2 text-left text-[10px] text-[var(--text-secondary)] hover:text-[var(--text)]"><MapPin className="size-3.5 shrink-0 text-[var(--support)]" /><span className="truncate">{object.name}</span><Count value={object.documentCount} /></button>
     </div>
-    {open ? <div className="ml-3 border-l border-white/[0.05] pl-2">{object.orders.map((order) => <ArchiveOrderBranch key={order.id} clientId={clientId} objectId={object.id} order={order} selection={selection} navigate={navigate} expansion={expansion} />)}</div> : null}
+    {open ? <div className="ml-3 border-l border-[var(--line)] pl-2">{object.orders.map((order) => <ArchiveOrderBranch key={order.id} clientId={clientId} objectId={object.id} order={order} selection={selection} navigate={navigate} expansion={expansion} />)}</div> : null}
   </div>;
 }
 
@@ -76,11 +76,11 @@ function ArchiveClientBranch({ client, selection, navigate, expansion }: BranchP
   const selected = selection.clientId === client.id;
   const open = expansion.isOpen(key, selected);
   return <div>
-    <div className={`flex items-center rounded-[11px] ${selected && !selection.objectId ? "bg-white/[0.06]" : ""}`}>
+    <div className={`flex items-center rounded-[11px] ${selected && !selection.objectId ? "bg-[var(--surface-soft)]" : ""}`}>
       <ExpandButton expanded={open} label={client.name} onClick={() => expansion.toggle(key)} />
-      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId: client.id, objectId: null, orderId: null, category: null }); }} className="focus-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-2 text-left text-[11px] text-[#a6afb4] hover:text-white"><Building2 className="size-3.5 shrink-0 text-[#8ea5f2]" /><span className="truncate">{client.name}</span><Count value={client.documentCount} /></button>
+      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId: client.id, objectId: null, orderId: null, category: null }); }} className="focus-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-2 text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)]"><Building2 className="size-3.5 shrink-0 text-[var(--accent)]" /><span className="truncate">{client.name}</span><Count value={client.documentCount} /></button>
     </div>
-    {open ? <div className="ml-3 border-l border-white/[0.055] pl-2">{client.objects.map((object) => <ArchiveObjectBranch key={object.id} clientId={client.id} object={object} selection={selection} navigate={navigate} expansion={expansion} />)}</div> : null}
+    {open ? <div className="ml-3 border-l border-[var(--line)] pl-2">{client.objects.map((object) => <ArchiveObjectBranch key={object.id} clientId={client.id} object={object} selection={selection} navigate={navigate} expansion={expansion} />)}</div> : null}
   </div>;
 }
 
@@ -93,13 +93,13 @@ function ArchiveDesktopTree({ archive, selection, navigate }: { archive: Documen
   };
 
   return <nav aria-label="Дерево архива" className="hidden min-h-0 lg:block">
-    <button type="button" onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null })} className={`focus-ring flex min-h-11 w-full items-center gap-2.5 rounded-[12px] px-3 text-left text-xs ${!selection.clientId ? "bg-[var(--accent)]/[0.08] text-white" : "text-[#8a949a] hover:bg-white/[0.035]"}`}><FolderRoot className="size-4 text-[var(--accent)]" /><span className="min-w-0 flex-1 truncate">Весь архив</span><Count value={archive.documentCount} /></button>
+    <button type="button" onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null })} className={`focus-ring flex min-h-11 w-full items-center gap-2.5 rounded-[12px] px-3 text-left text-xs ${!selection.clientId ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]"}`}><FolderRoot className="size-4 text-[var(--accent)]" /><span className="min-w-0 flex-1 truncate">Весь архив</span><Count value={archive.documentCount} /></button>
     <div className="mt-2 space-y-0.5">{archive.clients.map((client) => <ArchiveClientBranch key={client.id} client={client} selection={selection} navigate={navigate} expansion={expansion} />)}</div>
   </nav>;
 }
 
 function MobileFolderButton({ icon: Icon, title, subtitle, count, onClick }: { icon: typeof FolderRoot; title: string; subtitle?: string; count: number; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="focus-ring flex w-[min(17rem,82vw)] shrink-0 items-center gap-3 rounded-[14px] border border-white/[0.065] bg-white/[0.025] p-3 text-left"><span className="grid size-10 shrink-0 place-items-center rounded-[11px] bg-white/[0.045] text-[var(--accent)]"><Icon className="size-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-white">{title}</span>{subtitle ? <span className="mt-1 block truncate text-[9px] text-[#68737a]">{subtitle}</span> : null}</span><Count value={count} /></button>;
+  return <button type="button" onClick={onClick} className="focus-ring flex w-[min(17rem,82vw)] shrink-0 items-center gap-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-3 text-left hover:bg-[var(--surface-soft)]"><span className="grid size-10 shrink-0 place-items-center rounded-[11px] bg-[var(--surface-soft)] text-[var(--accent)]"><Icon className="size-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-[var(--text)]">{title}</span>{subtitle ? <span className="mt-1 block truncate text-[9px] text-[var(--muted)]">{subtitle}</span> : null}</span><Count value={count} /></button>;
 }
 
 function ArchiveMobileNavigator({ archive, selection, navigate }: { archive: DocumentArchiveTree; selection: DocumentArchiveSelection; navigate: (target: SelectionTarget) => void }) {
@@ -117,7 +117,7 @@ function ArchiveMobileNavigator({ archive, selection, navigate }: { archive: Doc
   else children = order.categories.map((item) => <MobileFolderButton key={item.category} icon={FileText} title={item.label} count={item.documentCount} onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: selectedOrderId, category: item.category })} />);
 
   return <nav aria-label="Навигация по архиву" className="lg:hidden">
-    <div className="scrollbar-hidden flex items-center gap-1 overflow-x-auto pb-2 text-[9px] text-[#68737a]"><button type="button" onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null })} className="focus-ring shrink-0 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] hover:text-white">Архив</button>{client ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: null, orderId: null, category: null })} className="focus-ring max-w-40 shrink-0 truncate rounded-lg px-2 py-1.5 hover:bg-white/[0.04] hover:text-white">{client.name}</button></> : null}{object ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: null, category: null })} className="focus-ring max-w-36 shrink-0 truncate rounded-lg px-2 py-1.5 hover:bg-white/[0.04] hover:text-white">{object.name}</button></> : null}{order ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: selectedOrderId, category: null })} className="focus-ring shrink-0 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] hover:text-white">№{order.number}</button></> : null}{category ? <><ChevronRight className="size-3 shrink-0" /><span className="shrink-0 px-2 py-1.5 text-[var(--accent)]">{category.label}</span></> : null}</div>
+    <div className="scrollbar-hidden flex items-center gap-1 overflow-x-auto pb-2 text-[9px] text-[var(--muted)]"><button type="button" onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null })} className="focus-ring shrink-0 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">Архив</button>{client ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: null, orderId: null, category: null })} className="focus-ring max-w-40 shrink-0 truncate rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">{client.name}</button></> : null}{object ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: null, category: null })} className="focus-ring max-w-36 shrink-0 truncate rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">{object.name}</button></> : null}{order ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: selectedOrderId, category: null })} className="focus-ring shrink-0 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">№{order.number}</button></> : null}{category ? <><ChevronRight className="size-3 shrink-0" /><span className="shrink-0 px-2 py-1.5 text-[var(--accent)]">{category.label}</span></> : null}</div>
     {!category ? <div className="scrollbar-hidden flex gap-2 overflow-x-auto pb-1">{children}</div> : null}
   </nav>;
 }

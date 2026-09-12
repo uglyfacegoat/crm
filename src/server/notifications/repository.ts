@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { notificationHref, notificationKinds, notificationSeverities, notificationSourceTypes, notificationTargetTypes, type NotificationSnapshot } from "@/lib/notifications";
 import type { AuthenticatedMember } from "@/server/auth/types";
+import { requirePermission } from "@/server/auth/permissions";
 import { getDatabase } from "@/server/database";
 
 const uuidSchema = z.string().uuid();
@@ -35,6 +36,7 @@ export async function listNotifications(
   member: AuthenticatedMember,
   options: { limit: number; unreadOnly: boolean },
 ): Promise<NotificationSnapshot> {
+  requirePermission(member, "notifications.read");
   const sql = getDatabase();
   const [rows, summaryRows] = await Promise.all([
     sql`SELECT id, kind, severity, title, body, source_type, source_id, target_type, target_id, occurred_at, read_at
@@ -79,6 +81,7 @@ export async function listNotifications(
 }
 
 export async function markNotificationRead(member: AuthenticatedMember, notificationId: string) {
+  requirePermission(member, "notifications.read");
   const sql = getDatabase();
   const rows = await sql`UPDATE notifications
     SET read_at = coalesce(read_at, now()), updated_at = CASE WHEN read_at IS NULL THEN now() ELSE updated_at END
@@ -92,6 +95,7 @@ export async function markNotificationRead(member: AuthenticatedMember, notifica
 }
 
 export async function markAllNotificationsRead(member: AuthenticatedMember) {
+  requirePermission(member, "notifications.read");
   const sql = getDatabase();
   const rows = await sql`UPDATE notifications
     SET read_at = now(), updated_at = now()

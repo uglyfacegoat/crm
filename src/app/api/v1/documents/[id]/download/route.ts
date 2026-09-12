@@ -5,13 +5,15 @@ import { DocumentNotFoundError, getDocumentDownload } from "@/server/documents/r
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const member = await getCurrentSession();
   if (!member) return Response.json({ error: "authentication_required" }, { status: 401 });
   try {
     const { id } = await context.params;
     const document = await getDocumentDownload(member, id);
-    return createDocumentDownloadResponse(document, "documents.download");
+    const requestedInline = new URL(request.url).searchParams.get("disposition") === "inline";
+    const previewable = document.mimeType === "application/pdf" || document.mimeType.startsWith("image/");
+    return createDocumentDownloadResponse(document, "documents.download", requestedInline && previewable ? "inline" : "attachment");
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: "forbidden" }, { status: 403 });
     if (error instanceof DocumentNotFoundError) return Response.json({ error: "not_found" }, { status: 404 });

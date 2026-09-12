@@ -29,7 +29,11 @@ test("master input normalizes money, text and unique skills", () => {
 });
 
 test("master input rejects invalid contacts and capacity", () => {
-  const parsed = createMasterSchema.safeParse({ ...validMaster, phone: "123", dailyCapacity: "21" });
+  const parsed = createMasterSchema.safeParse({
+    ...validMaster,
+    phone: "123",
+    dailyCapacity: "21",
+  });
   assert.equal(parsed.success, false);
   if (!parsed.success) {
     assert.ok(parsed.error.flatten().fieldErrors.phone);
@@ -51,8 +55,25 @@ test("update input supports terminating a master while preserving the record", (
   assert.equal(parsed.operationalStatus, "terminated");
 });
 
-test("temporary and terminal statuses require an explanation", () => {
-  const parsed = createMasterSchema.safeParse({ ...validMaster, operationalStatus: "vacation" });
+test("new masters can only be created in working status", () => {
+  const parsed = createMasterSchema.safeParse({
+    ...validMaster,
+    operationalStatus: "terminated",
+    statusNote: "Сотрудничество завершено",
+  });
+  assert.equal(parsed.success, false);
+  if (!parsed.success)
+    assert.ok(parsed.error.flatten().fieldErrors.operationalStatus);
+});
+
+test("temporary and terminal update statuses require an explanation", () => {
+  const parsed = updateMasterSchema.safeParse({
+    ...validMaster,
+    masterId: "00000000-0000-4000-8000-000000000002",
+    expectedVersion: "3",
+    operationalStatus: "vacation",
+    active: true,
+  });
   assert.equal(parsed.success, false);
   if (!parsed.success) assert.ok(parsed.error.flatten().fieldErrors.statusNote);
 });

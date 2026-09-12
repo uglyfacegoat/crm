@@ -32,7 +32,7 @@ const teamRowSchema = z.object({ id: z.string().uuid(), name: z.string(), visits
 const clientRowSchema = z.object({ id: z.string().uuid(), name: z.string(), orders: z.number().int().positive(), agreed_minor: z.string() });
 const rateRowSchema = z.object({ repeat_clients: z.number().int().nonnegative(), active_clients: z.number().int().nonnegative() });
 
-const serviceColors = ["#edf43b", "#9c82e8", "#69d3a4", "#ef8d68", "#65b7ee", "#ef646a", "#8a9499"];
+const serviceColors = ["#000000", "#a2beff", "#25272c", "#f6f5f0"];
 
 function safeInteger(value: string | number | bigint) {
   const result = Number(value);
@@ -49,7 +49,7 @@ function metric(id: AnalyticsMetric["id"], label: string, value: number, previou
 }
 
 export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDays: AnalyticsRange): Promise<AnalyticsSnapshot> {
-  requirePermission(member, "finance.read");
+  requirePermission(member, "analytics.read");
   const sql = getDatabase();
   const [boundsRow] = await sql`SELECT timezone,
     ((((now() AT TIME ZONE timezone)::date - (${rangeDays} - 1))::timestamp) AT TIME ZONE timezone) AS current_start_at,
@@ -172,9 +172,9 @@ export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDay
     financialTrend: {
       labels: buckets.map((bucket) => bucket.label),
       series: [
-        { label: "Согласовано", color: "#edf43b", values: trendValues("agreed_minor"), valueFormat: "money" },
-        { label: "Плановый опер. остаток", color: "#69d3a4", values: trendValues("operating_minor"), valueFormat: "money" },
-        { label: "Получено", color: "#9c82e8", values: trendValues("paid_minor"), valueFormat: "money" },
+        { label: "Согласовано", color: "#000000", values: trendValues("agreed_minor"), valueFormat: "money" },
+        { label: "Плановый опер. остаток", color: "#a2beff", values: trendValues("operating_minor"), valueFormat: "money" },
+        { label: "Получено", color: "#25272c", values: trendValues("paid_minor"), valueFormat: "money" },
       ],
     },
     orderStages: [
@@ -206,7 +206,7 @@ export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDay
 }
 
 export async function recordAnalyticsExport(member: AuthenticatedMember, rangeDays: AnalyticsRange) {
-  requirePermission(member, "finance.read");
+  requirePermission(member, "analytics.read");
   const sql = getDatabase();
   await sql`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
     VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'analytics.export', 'organization', ${member.organizationId}, ${sql.json({ rangeDays, format: "csv" })})`;

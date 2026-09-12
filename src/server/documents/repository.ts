@@ -3,9 +3,28 @@ import { z } from "zod";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
-import type { CreateDocumentMetadataInput, CreateDocumentVersionInput } from "./schemas";
-import { buildDocumentArchiveTree, type DocumentArchiveBranch, type DocumentArchiveSelection, type DocumentArchiveTree } from "./archive";
-import { documentCategoryLabels, type DocumentDownload, type DocumentExportFile, type DocumentListItem, type DocumentUploadOptions, type DocumentVersionListItem, type DocumentVersionUploadTarget } from "./types";
+import type {
+  CreateDocumentFolderInput,
+  CreateDocumentMetadataInput,
+  CreateDocumentVersionInput,
+  MoveArchiveItemsInput,
+} from "./schemas";
+import {
+  buildDocumentArchiveTree,
+  type DocumentArchiveBranch,
+  type DocumentArchiveSelection,
+  type DocumentArchiveTree,
+} from "./archive";
+import {
+  documentCategoryLabels,
+  type DocumentDownload,
+  type DocumentExportFile,
+  type DocumentFolder,
+  type DocumentListItem,
+  type DocumentUploadOptions,
+  type DocumentVersionListItem,
+  type DocumentVersionUploadTarget,
+} from "./types";
 
 const uuidSchema = z.string().uuid();
 const documentVersionRowSchema = z.object({
@@ -14,7 +33,9 @@ const documentVersionRowSchema = z.object({
   original_filename: z.string(),
   mime_type: z.string(),
   extension: z.string(),
-  size_bytes: z.union([z.string().regex(/^\d+$/), z.number().int().positive()]).transform(Number),
+  size_bytes: z
+    .union([z.string().regex(/^\d+$/), z.number().int().positive()])
+    .transform(Number),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   change_note: z.string().nullable(),
   uploaded_at: z.coerce.date(),
@@ -23,8 +44,18 @@ const documentVersionRowSchema = z.object({
 });
 const documentRowSchema = z.object({
   id: uuidSchema,
+  folder_id: uuidSchema.nullable(),
+  contract_id: uuidSchema.nullable(),
   title: z.string(),
-  category: z.enum(["contract", "act", "visit_card", "invoice", "receipt", "photo", "other"]),
+  category: z.enum([
+    "contract",
+    "act",
+    "visit_card",
+    "invoice",
+    "receipt",
+    "photo",
+    "other",
+  ]),
   description: z.string().nullable(),
   client_id: uuidSchema,
   client_name: z.string(),
@@ -38,7 +69,9 @@ const documentRowSchema = z.object({
   original_filename: z.string(),
   mime_type: z.string(),
   extension: z.string(),
-  size_bytes: z.union([z.string().regex(/^\d+$/), z.bigint(), z.number().int().positive()]).transform(Number),
+  size_bytes: z
+    .union([z.string().regex(/^\d+$/), z.bigint(), z.number().int().positive()])
+    .transform(Number),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   version_number: z.number().int().positive(),
   record_version: z.number().int().positive(),
@@ -47,10 +80,63 @@ const documentRowSchema = z.object({
   favorite: z.boolean(),
   versions: z.array(documentVersionRowSchema),
 });
-const orderOptionSchema = z.object({ id: uuidSchema, order_number: z.string(), client: z.string(), object: z.string(), address: z.string() });
-const visitOptionSchema = z.object({ id: uuidSchema, order_id: uuidSchema, scheduled_start_at: z.coerce.date(), status: z.string() });
-const downloadSchema = z.object({ document_id: uuidSchema, version_id: uuidSchema, original_filename: z.string(), mime_type: z.string(), size_bytes: z.union([z.string(), z.bigint(), z.number()]).transform(Number), sha256: z.string().regex(/^[0-9a-f]{64}$/), storage_key: z.string() });
-const exportFileSchema = downloadSchema.extend({ client_id: uuidSchema, client_name: z.string(), object_id: uuidSchema, object_name: z.string(), order_number: z.string(), category: z.enum(["contract", "act", "visit_card", "invoice", "receipt", "photo", "other"]) });
+const orderOptionSchema = z.object({
+  id: uuidSchema,
+  client_id: uuidSchema,
+  object_id: uuidSchema,
+  order_number: z.string(),
+  client: z.string(),
+  object: z.string(),
+  address: z.string(),
+});
+const visitOptionSchema = z.object({
+  id: uuidSchema,
+  order_id: uuidSchema,
+  scheduled_start_at: z.coerce.date(),
+  status: z.string(),
+});
+const contractOptionSchema = z.object({
+  id: uuidSchema,
+  contract_number: z.string(),
+  client_id: uuidSchema,
+  object_id: uuidSchema,
+  client_name: z.string(),
+  object_name: z.string(),
+});
+const documentFolderRowSchema = z.object({
+  id: uuidSchema,
+  parent_folder_id: uuidSchema.nullable(),
+  name: z.string(),
+  document_count: z
+    .union([z.string(), z.bigint(), z.number()])
+    .transform(Number),
+  updated_at: z.coerce.date(),
+});
+const downloadSchema = z.object({
+  document_id: uuidSchema,
+  version_id: uuidSchema,
+  original_filename: z.string(),
+  mime_type: z.string(),
+  size_bytes: z.union([z.string(), z.bigint(), z.number()]).transform(Number),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  storage_key: z.string(),
+});
+const exportFileSchema = downloadSchema.extend({
+  client_id: uuidSchema,
+  client_name: z.string(),
+  object_id: uuidSchema,
+  object_name: z.string(),
+  order_number: z.string(),
+  category: z.enum([
+    "contract",
+    "act",
+    "visit_card",
+    "invoice",
+    "receipt",
+    "photo",
+    "other",
+  ]),
+});
 const archiveBranchRowSchema = z.object({
   client_id: uuidSchema,
   client_name: z.string(),
@@ -59,12 +145,26 @@ const archiveBranchRowSchema = z.object({
   object_address: z.string(),
   order_id: uuidSchema,
   order_number: z.string(),
-  category: z.enum(["contract", "act", "visit_card", "invoice", "receipt", "photo", "other"]),
-  document_count: z.union([z.string().regex(/^\d+$/), z.bigint(), z.number().int().nonnegative()]).transform(Number),
+  category: z.enum([
+    "contract",
+    "act",
+    "visit_card",
+    "invoice",
+    "receipt",
+    "photo",
+    "other",
+  ]),
+  document_count: z
+    .union([
+      z.string().regex(/^\d+$/),
+      z.bigint(),
+      z.number().int().nonnegative(),
+    ])
+    .transform(Number),
 });
 
 export class DocumentReferenceError extends Error {
-  constructor(readonly field: "order" | "visit") {
+  constructor(readonly field: "order" | "visit" | "contract") {
     super(`The selected ${field} is unavailable.`);
     this.name = "DocumentReferenceError";
   }
@@ -78,18 +178,50 @@ export class DocumentNotFoundError extends Error {
 }
 
 export class DocumentVersionConflictError extends Error {
-  constructor() { super("The document was changed by another member."); this.name = "DocumentVersionConflictError"; }
+  constructor() {
+    super("The document was changed by another member.");
+    this.name = "DocumentVersionConflictError";
+  }
 }
 
 export class DocumentVersionDuplicateContentError extends Error {
-  constructor() { super("The uploaded file is identical to the current version."); this.name = "DocumentVersionDuplicateContentError"; }
+  constructor() {
+    super("The uploaded file is identical to the current version.");
+    this.name = "DocumentVersionDuplicateContentError";
+  }
 }
 
 export class DocumentVersionRequestConflictError extends Error {
-  constructor() { super("The upload request identifier belongs to another document."); this.name = "DocumentVersionRequestConflictError"; }
+  constructor() {
+    super("The upload request identifier belongs to another document.");
+    this.name = "DocumentVersionRequestConflictError";
+  }
 }
 
-function mapDocumentVersion(row: z.infer<typeof documentVersionRowSchema>): DocumentVersionListItem {
+export class DocumentFolderNotFoundError extends Error {
+  constructor() {
+    super("Document folder was not found.");
+    this.name = "DocumentFolderNotFoundError";
+  }
+}
+
+export class DocumentFolderConflictError extends Error {
+  constructor() {
+    super("A folder with this name already exists at the destination.");
+    this.name = "DocumentFolderConflictError";
+  }
+}
+
+export class DocumentFolderCycleError extends Error {
+  constructor() {
+    super("A folder cannot be moved into itself or its descendants.");
+    this.name = "DocumentFolderCycleError";
+  }
+}
+
+function mapDocumentVersion(
+  row: z.infer<typeof documentVersionRowSchema>,
+): DocumentVersionListItem {
   return {
     id: row.id,
     versionNumber: row.version_number,
@@ -109,6 +241,8 @@ function mapDocument(row: unknown): DocumentListItem {
   const document = documentRowSchema.parse(row);
   return {
     id: document.id,
+    folderId: document.folder_id,
+    contractId: document.contract_id,
     title: document.title,
     category: document.category,
     categoryLabel: documentCategoryLabels[document.category],
@@ -121,7 +255,8 @@ function mapDocument(row: unknown): DocumentListItem {
     orderId: document.order_id,
     orderNumber: document.order_number,
     visitId: document.visit_id,
-    visitScheduledStartAt: document.visit_scheduled_start_at?.toISOString() ?? null,
+    visitScheduledStartAt:
+      document.visit_scheduled_start_at?.toISOString() ?? null,
     filename: document.original_filename,
     mimeType: document.mime_type,
     extension: document.extension,
@@ -136,11 +271,19 @@ function mapDocument(row: unknown): DocumentListItem {
   };
 }
 
-export async function listDocuments(member: AuthenticatedMember, selection: DocumentArchiveSelection = { clientId: null, objectId: null, orderId: null, category: null }): Promise<DocumentListItem[]> {
+export async function listDocuments(
+  member: AuthenticatedMember,
+  selection: DocumentArchiveSelection = {
+    clientId: null,
+    objectId: null,
+    orderId: null,
+    category: null,
+  },
+): Promise<DocumentListItem[]> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
   const rows = await sql`
-    SELECT documents.id, documents.title, documents.category, documents.description,
+    SELECT documents.id, documents.folder_id, documents.contract_id, documents.title, documents.category, documents.description,
       documents.client_id, clients.legal_name AS client_name,
       documents.object_id, client_objects.name AS object_name, client_objects.address AS object_address,
       documents.order_id, orders.order_number,
@@ -180,7 +323,9 @@ export async function listDocuments(member: AuthenticatedMember, selection: Docu
   return rows.map(mapDocument);
 }
 
-export async function getDocumentArchiveTree(member: AuthenticatedMember): Promise<DocumentArchiveTree> {
+export async function getDocumentArchiveTree(
+  member: AuthenticatedMember,
+): Promise<DocumentArchiveTree> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
   const rows = await sql`
@@ -224,11 +369,14 @@ export async function getDocumentArchiveTree(member: AuthenticatedMember): Promi
   return buildDocumentArchiveTree(branches);
 }
 
-export async function listOrderDocuments(member: AuthenticatedMember, orderId: string): Promise<DocumentListItem[]> {
+export async function listOrderDocuments(
+  member: AuthenticatedMember,
+  orderId: string,
+): Promise<DocumentListItem[]> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
   const rows = await sql`
-    SELECT documents.id, documents.title, documents.category, documents.description,
+    SELECT documents.id, documents.folder_id, documents.contract_id, documents.title, documents.category, documents.description,
       documents.client_id, clients.legal_name AS client_name,
       documents.object_id, client_objects.name AS object_name, client_objects.address AS object_address,
       documents.order_id, orders.order_number,
@@ -264,11 +412,13 @@ export async function listOrderDocuments(member: AuthenticatedMember, orderId: s
   return rows.map(mapDocument);
 }
 
-export async function listDocumentUploadOptions(member: AuthenticatedMember): Promise<DocumentUploadOptions> {
+export async function listDocumentUploadOptions(
+  member: AuthenticatedMember,
+): Promise<DocumentUploadOptions> {
   requirePermission(member, "documents.write");
   const sql = getDatabase();
-  const [orderRows, visitRows] = await Promise.all([
-    sql`SELECT id, order_number, client_name_snapshot AS client, object_name_snapshot AS object, object_address_snapshot AS address
+  const [orderRows, visitRows, contractRows] = await Promise.all([
+    sql`SELECT id, client_id, object_id, order_number, client_name_snapshot AS client, object_name_snapshot AS object, object_address_snapshot AS address
       FROM orders WHERE organization_id = ${member.organizationId} AND status <> 'cancelled'
       ORDER BY created_at DESC LIMIT 300`,
     sql`WITH recent_orders AS (
@@ -286,41 +436,100 @@ export async function listDocumentUploadOptions(member: AuthenticatedMember): Pr
       SELECT id, order_id, scheduled_start_at, status FROM ranked_visits
       WHERE order_rank <= 20
       ORDER BY scheduled_start_at DESC`,
+    sql`SELECT contracts.id, contracts.contract_number, contracts.client_id, contracts.object_id,
+        clients.legal_name AS client_name, client_objects.name AS object_name
+      FROM contracts
+      JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
+      JOIN client_objects ON client_objects.organization_id = contracts.organization_id AND client_objects.id = contracts.object_id
+      WHERE contracts.organization_id = ${member.organizationId} AND contracts.status <> 'cancelled'
+      ORDER BY contracts.created_at DESC LIMIT 300`,
   ]);
   return {
-    orders: orderRows.map((row) => { const order = orderOptionSchema.parse(row); return { id: order.id, number: order.order_number, client: order.client, object: order.object, address: order.address }; }),
-    visits: visitRows.map((row) => { const visit = visitOptionSchema.parse(row); return { id: visit.id, orderId: visit.order_id, scheduledStartAt: visit.scheduled_start_at.toISOString(), status: visit.status }; }),
+    orders: orderRows.map((row) => {
+      const order = orderOptionSchema.parse(row);
+      return {
+        id: order.id,
+        clientId: order.client_id,
+        objectId: order.object_id,
+        number: order.order_number,
+        client: order.client,
+        object: order.object,
+        address: order.address,
+      };
+    }),
+    visits: visitRows.map((row) => {
+      const visit = visitOptionSchema.parse(row);
+      return {
+        id: visit.id,
+        orderId: visit.order_id,
+        scheduledStartAt: visit.scheduled_start_at.toISOString(),
+        status: visit.status,
+      };
+    }),
+    contracts: contractRows.map((row) => {
+      const contract = contractOptionSchema.parse(row);
+      return {
+        id: contract.id,
+        contractNumber: contract.contract_number,
+        clientId: contract.client_id,
+        objectId: contract.object_id,
+        clientName: contract.client_name,
+        objectName: contract.object_name,
+      };
+    }),
   };
 }
 
-export async function documentUploadExists(member: AuthenticatedMember, documentId: string) {
+export async function documentUploadExists(
+  member: AuthenticatedMember,
+  documentId: string,
+) {
   requirePermission(member, "documents.write");
   const sql = getDatabase();
-  const rows = await sql`SELECT id FROM documents WHERE organization_id = ${member.organizationId} AND id = ${documentId}`;
+  const rows =
+    await sql`SELECT id FROM documents WHERE organization_id = ${member.organizationId} AND id = ${documentId}`;
   return rows.length > 0;
 }
 
 export async function createDocument(
   member: AuthenticatedMember,
-  input: CreateDocumentMetadataInput & { filename: string; mimeType: string; extension: string; sizeBytes: number; sha256: string; storageKey: string },
+  input: CreateDocumentMetadataInput & {
+    filename: string;
+    mimeType: string;
+    extension: string;
+    sizeBytes: number;
+    sha256: string;
+    storageKey: string;
+  },
 ) {
   requirePermission(member, "documents.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
-    const orderRows = await transaction`SELECT client_id, object_id FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}`;
+    const orderRows =
+      await transaction`SELECT client_id, object_id FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}`;
     if (!orderRows.length) throw new DocumentReferenceError("order");
     if (input.visitId) {
-      const visitRows = await transaction`SELECT id FROM service_visits WHERE organization_id = ${member.organizationId} AND id = ${input.visitId} AND order_id = ${input.orderId}`;
+      const visitRows =
+        await transaction`SELECT id FROM service_visits WHERE organization_id = ${member.organizationId} AND id = ${input.visitId} AND order_id = ${input.orderId}`;
       if (!visitRows.length) throw new DocumentReferenceError("visit");
     }
-    const order = z.object({ client_id: uuidSchema, object_id: uuidSchema }).parse(orderRows[0]);
-    const existingRows = await transaction`SELECT id FROM documents WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
+    const order = z
+      .object({ client_id: uuidSchema, object_id: uuidSchema })
+      .parse(orderRows[0]);
+    if (input.contractId) {
+      const contractRows = await transaction`SELECT id FROM contracts
+        WHERE organization_id = ${member.organizationId} AND id = ${input.contractId}
+          AND client_id = ${order.client_id} AND object_id = ${order.object_id} AND status <> 'cancelled'`;
+      if (!contractRows.length) throw new DocumentReferenceError("contract");
+    }
+    const existingRows =
+      await transaction`SELECT id FROM documents WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
     if (existingRows.length) return input.idempotencyKey;
 
     await transaction`INSERT INTO documents (
-      id, organization_id, client_id, object_id, order_id, visit_id, title, category, description, created_by
+      id, organization_id, client_id, object_id, order_id, visit_id, contract_id, title, category, description, created_by
     ) VALUES (
-      ${input.idempotencyKey}, ${member.organizationId}, ${order.client_id}, ${order.object_id}, ${input.orderId}, ${input.visitId},
+      ${input.idempotencyKey}, ${member.organizationId}, ${order.client_id}, ${order.object_id}, ${input.orderId}, ${input.visitId}, ${input.contractId},
       ${input.title}, ${input.category}, ${input.description}, ${member.memberId}
     )`;
     const versionRows = await transaction`INSERT INTO document_versions (
@@ -334,7 +543,7 @@ export async function createDocument(
     await transaction`UPDATE documents SET current_version_id = ${versionId} WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document.created', 'document', ${input.idempotencyKey},
-        ${transaction.json({ orderId: input.orderId, visitId: input.visitId, category: input.category, filename: input.filename, sizeBytes: input.sizeBytes, sha256: input.sha256 })})`;
+        ${transaction.json({ orderId: input.orderId, visitId: input.visitId, contractId: input.contractId, category: input.category, filename: input.filename, sizeBytes: input.sizeBytes, sha256: input.sha256 })})`;
     await transaction`INSERT INTO notifications (
         organization_id, recipient_member_id, kind, severity, title, body, source_type, source_id,
         target_type, target_id, event_key, occurred_at
@@ -354,10 +563,15 @@ export async function createDocument(
   });
 }
 
-export async function setDocumentFavorite(member: AuthenticatedMember, documentId: string, favorite: boolean) {
+export async function setDocumentFavorite(
+  member: AuthenticatedMember,
+  documentId: string,
+  favorite: boolean,
+) {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
-  const existingRows = await sql`SELECT id FROM documents WHERE organization_id = ${member.organizationId} AND id = ${documentId} AND archived_at IS NULL`;
+  const existingRows =
+    await sql`SELECT id FROM documents WHERE organization_id = ${member.organizationId} AND id = ${documentId} AND archived_at IS NULL`;
   if (!existingRows.length) throw new DocumentNotFoundError();
   if (favorite) {
     await sql`INSERT INTO document_favorites (organization_id, document_id, member_id)
@@ -367,55 +581,106 @@ export async function setDocumentFavorite(member: AuthenticatedMember, documentI
   }
 }
 
-export async function documentVersionUploadExists(member: AuthenticatedMember, versionId: string, documentId: string) {
+export async function documentVersionUploadExists(
+  member: AuthenticatedMember,
+  versionId: string,
+  documentId: string,
+) {
   requirePermission(member, "documents.write");
   const sql = getDatabase();
   const rows = await sql`SELECT document_id FROM document_versions
     WHERE organization_id = ${member.organizationId} AND id = ${versionId}`;
   if (!rows.length) return false;
   const existingDocumentId = uuidSchema.parse(rows[0].document_id);
-  if (existingDocumentId !== documentId) throw new DocumentVersionRequestConflictError();
+  if (existingDocumentId !== documentId)
+    throw new DocumentVersionRequestConflictError();
   return true;
 }
 
-export async function getDocumentVersionUploadTarget(member: AuthenticatedMember, documentId: string, expectedVersion: number): Promise<DocumentVersionUploadTarget> {
+export async function getDocumentVersionUploadTarget(
+  member: AuthenticatedMember,
+  documentId: string,
+  expectedVersion: number,
+): Promise<DocumentVersionUploadTarget> {
   requirePermission(member, "documents.write");
   const sql = getDatabase();
-  const rows = await sql`SELECT documents.id, documents.order_id, documents.version AS record_version, document_versions.version_number
+  const rows =
+    await sql`SELECT documents.id, documents.order_id, documents.version AS record_version, document_versions.version_number
     FROM documents
     JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.id = documents.current_version_id
     WHERE documents.organization_id = ${member.organizationId} AND documents.id = ${documentId} AND documents.archived_at IS NULL`;
   if (!rows.length) throw new DocumentNotFoundError();
-  const target = z.object({ id: uuidSchema, order_id: uuidSchema, record_version: z.number().int().positive(), version_number: z.number().int().positive() }).parse(rows[0]);
-  if (target.record_version !== expectedVersion) throw new DocumentVersionConflictError();
-  return { documentId: target.id, orderId: target.order_id, recordVersion: target.record_version, versionNumber: target.version_number + 1 };
+  const target = z
+    .object({
+      id: uuidSchema,
+      order_id: uuidSchema,
+      record_version: z.number().int().positive(),
+      version_number: z.number().int().positive(),
+    })
+    .parse(rows[0]);
+  if (target.record_version !== expectedVersion)
+    throw new DocumentVersionConflictError();
+  return {
+    documentId: target.id,
+    orderId: target.order_id,
+    recordVersion: target.record_version,
+    versionNumber: target.version_number + 1,
+  };
 }
 
 export async function createDocumentVersion(
   member: AuthenticatedMember,
-  input: CreateDocumentVersionInput & { versionNumber: number; filename: string; mimeType: string; extension: string; sizeBytes: number; sha256: string; storageKey: string },
+  input: CreateDocumentVersionInput & {
+    versionNumber: number;
+    filename: string;
+    mimeType: string;
+    extension: string;
+    sizeBytes: number;
+    sha256: string;
+    storageKey: string;
+  },
 ) {
   requirePermission(member, "documents.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
-    const existingVersions = await transaction`SELECT document_id, version_number FROM document_versions
+    const existingVersions =
+      await transaction`SELECT document_id, version_number FROM document_versions
       WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
     if (existingVersions.length) {
-      const existing = z.object({ document_id: uuidSchema, version_number: z.number().int().positive() }).parse(existingVersions[0]);
-      if (existing.document_id !== input.documentId) throw new DocumentVersionRequestConflictError();
+      const existing = z
+        .object({
+          document_id: uuidSchema,
+          version_number: z.number().int().positive(),
+        })
+        .parse(existingVersions[0]);
+      if (existing.document_id !== input.documentId)
+        throw new DocumentVersionRequestConflictError();
       return existing.version_number;
     }
 
-    const documentRows = await transaction`SELECT documents.version AS record_version, documents.current_version_id,
+    const documentRows =
+      await transaction`SELECT documents.version AS record_version, documents.current_version_id,
         current_version.version_number, current_version.sha256
       FROM documents
       JOIN document_versions current_version ON current_version.organization_id = documents.organization_id AND current_version.id = documents.current_version_id
       WHERE documents.organization_id = ${member.organizationId} AND documents.id = ${input.documentId} AND documents.archived_at IS NULL
       FOR UPDATE OF documents`;
     if (!documentRows.length) throw new DocumentNotFoundError();
-    const document = z.object({ record_version: z.number().int().positive(), current_version_id: uuidSchema, version_number: z.number().int().positive(), sha256: z.string().regex(/^[0-9a-f]{64}$/) }).parse(documentRows[0]);
-    if (document.record_version !== input.expectedVersion || document.version_number + 1 !== input.versionNumber) throw new DocumentVersionConflictError();
-    if (document.sha256 === input.sha256) throw new DocumentVersionDuplicateContentError();
+    const document = z
+      .object({
+        record_version: z.number().int().positive(),
+        current_version_id: uuidSchema,
+        version_number: z.number().int().positive(),
+        sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+      .parse(documentRows[0]);
+    if (
+      document.record_version !== input.expectedVersion ||
+      document.version_number + 1 !== input.versionNumber
+    )
+      throw new DocumentVersionConflictError();
+    if (document.sha256 === input.sha256)
+      throw new DocumentVersionDuplicateContentError();
 
     await transaction`INSERT INTO document_versions (
       id, organization_id, document_id, version_number, original_filename, storage_key, mime_type, extension,
@@ -424,7 +689,8 @@ export async function createDocumentVersion(
       ${input.idempotencyKey}, ${member.organizationId}, ${input.documentId}, ${input.versionNumber}, ${input.filename}, ${input.storageKey},
       ${input.mimeType}, ${input.extension}, ${input.sizeBytes}, ${input.sha256}, ${member.memberId}, ${input.changeNote}
     )`;
-    const updatedDocuments = await transaction`UPDATE documents SET current_version_id = ${input.idempotencyKey},
+    const updatedDocuments =
+      await transaction`UPDATE documents SET current_version_id = ${input.idempotencyKey},
         version = version + 1, updated_at = now()
       WHERE organization_id = ${member.organizationId} AND id = ${input.documentId} AND version = ${input.expectedVersion}
       RETURNING version`;
@@ -450,10 +716,14 @@ export async function createDocumentVersion(
   });
 }
 
-export async function getDocumentDownload(member: AuthenticatedMember, documentId: string): Promise<DocumentDownload> {
+export async function getDocumentDownload(
+  member: AuthenticatedMember,
+  documentId: string,
+): Promise<DocumentDownload> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
-  const rows = await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
+  const rows =
+    await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
       document_versions.original_filename, document_versions.mime_type,
       document_versions.size_bytes, document_versions.sha256, document_versions.storage_key
     FROM documents
@@ -463,13 +733,26 @@ export async function getDocumentDownload(member: AuthenticatedMember, documentI
   const document = downloadSchema.parse(rows[0]);
   await sql`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id)
     VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document.downloaded', 'document', ${document.document_id})`;
-  return { id: document.version_id, documentId: document.document_id, filename: document.original_filename, mimeType: document.mime_type, sizeBytes: document.size_bytes, sha256: document.sha256, storageKey: document.storage_key };
+  return {
+    id: document.version_id,
+    documentId: document.document_id,
+    filename: document.original_filename,
+    mimeType: document.mime_type,
+    sizeBytes: document.size_bytes,
+    sha256: document.sha256,
+    storageKey: document.storage_key,
+  };
 }
 
-export async function getDocumentVersionDownload(member: AuthenticatedMember, documentId: string, versionId: string): Promise<DocumentDownload> {
+export async function getDocumentVersionDownload(
+  member: AuthenticatedMember,
+  documentId: string,
+  versionId: string,
+): Promise<DocumentDownload> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
-  const rows = await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
+  const rows =
+    await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
       document_versions.original_filename, document_versions.mime_type, document_versions.size_bytes,
       document_versions.sha256, document_versions.storage_key
     FROM documents
@@ -481,13 +764,25 @@ export async function getDocumentVersionDownload(member: AuthenticatedMember, do
   await sql`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
     VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document.version_downloaded', 'document_version', ${document.version_id},
       ${sql.json({ documentId: document.document_id })})`;
-  return { id: document.version_id, documentId: document.document_id, filename: document.original_filename, mimeType: document.mime_type, sizeBytes: document.size_bytes, sha256: document.sha256, storageKey: document.storage_key };
+  return {
+    id: document.version_id,
+    documentId: document.document_id,
+    filename: document.original_filename,
+    mimeType: document.mime_type,
+    sizeBytes: document.size_bytes,
+    sha256: document.sha256,
+    storageKey: document.storage_key,
+  };
 }
 
-export async function getDocumentBatchExport(member: AuthenticatedMember, documentIds: string[]): Promise<DocumentExportFile[]> {
+export async function getDocumentBatchExport(
+  member: AuthenticatedMember,
+  documentIds: string[],
+): Promise<DocumentExportFile[]> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
-  const rows = await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
+  const rows =
+    await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
       document_versions.original_filename, document_versions.mime_type, document_versions.size_bytes,
       document_versions.sha256, document_versions.storage_key, documents.client_id, clients.legal_name AS client_name,
       documents.object_id, client_objects.name AS object_name, orders.order_number, documents.category
@@ -520,10 +815,159 @@ export async function getDocumentBatchExport(member: AuthenticatedMember, docume
   });
 }
 
-export async function recordDocumentBatchExport(member: AuthenticatedMember, files: DocumentExportFile[], totalSizeBytes: number) {
+export async function recordDocumentBatchExport(
+  member: AuthenticatedMember,
+  files: DocumentExportFile[],
+  totalSizeBytes: number,
+) {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
   await sql`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
     VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'documents.batch_exported', 'organization', ${member.organizationId},
       ${sql.json({ documentIds: files.map((file) => file.documentId), documentCount: files.length, totalSizeBytes, format: "zip" })})`;
+}
+
+export async function listDocumentFolders(
+  member: AuthenticatedMember,
+): Promise<DocumentFolder[]> {
+  requirePermission(member, "documents.read");
+  const rows =
+    await getDatabase()`SELECT folders.id, folders.parent_folder_id, folders.name, folders.updated_at,
+      count(documents.id)::integer AS document_count
+    FROM document_folders folders
+    LEFT JOIN documents ON documents.organization_id = folders.organization_id
+      AND documents.folder_id = folders.id AND documents.archived_at IS NULL
+    WHERE folders.organization_id = ${member.organizationId}
+    GROUP BY folders.id
+    ORDER BY lower(folders.name), folders.id`;
+  return rows.map((value) => {
+    const row = documentFolderRowSchema.parse(value);
+    return {
+      id: row.id,
+      parentFolderId: row.parent_folder_id,
+      name: row.name,
+      documentCount: row.document_count,
+      updatedAt: row.updated_at.toISOString(),
+    };
+  });
+}
+
+function isUniqueViolation(error: unknown, constraint: string) {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "23505" &&
+    "constraint_name" in error &&
+    error.constraint_name === constraint,
+  );
+}
+
+export async function createDocumentFolder(
+  member: AuthenticatedMember,
+  input: CreateDocumentFolderInput,
+) {
+  requirePermission(member, "documents.write");
+  const sql = getDatabase();
+  try {
+    return await sql.begin(async (transaction) => {
+      if (input.parentFolderId) {
+        const parents = await transaction`SELECT id FROM document_folders
+          WHERE organization_id = ${member.organizationId} AND id = ${input.parentFolderId} FOR KEY SHARE`;
+        if (!parents.length) throw new DocumentFolderNotFoundError();
+      }
+      const [folder] =
+        await transaction`INSERT INTO document_folders (organization_id, parent_folder_id, name, created_by)
+        VALUES (${member.organizationId}, ${input.parentFolderId}, ${input.name}, ${member.memberId}) RETURNING id`;
+      const folderId = uuidSchema.parse(folder.id);
+      await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+        VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document_folder.create', 'document_folder', ${folderId},
+          ${transaction.json({ parentFolderId: input.parentFolderId, name: input.name })})`;
+      return folderId;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, "document_folders_sibling_name_unique_idx"))
+      throw new DocumentFolderConflictError();
+    throw error;
+  }
+}
+
+export async function moveArchiveItems(
+  member: AuthenticatedMember,
+  input: MoveArchiveItemsInput,
+) {
+  requirePermission(member, "documents.write");
+  const sql = getDatabase();
+  try {
+    await sql.begin(async (transaction) => {
+      await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${member.organizationId}::text, 0))`;
+      let movedFolderIds = input.folderIds;
+      if (input.targetFolderId) {
+        const targets = await transaction`SELECT id FROM document_folders
+          WHERE organization_id = ${member.organizationId} AND id = ${input.targetFolderId} FOR KEY SHARE`;
+        if (!targets.length) throw new DocumentFolderNotFoundError();
+      }
+      if (input.folderIds.length) {
+        const folders = await transaction`SELECT id FROM document_folders
+          WHERE organization_id = ${member.organizationId} AND id = ANY(${input.folderIds}::uuid[]) FOR UPDATE`;
+        if (folders.length !== input.folderIds.length)
+          throw new DocumentFolderNotFoundError();
+        if (input.folderIds.length > 1) {
+          const nestedSelections =
+            await transaction`WITH RECURSIVE ancestry AS (
+              SELECT selected.id AS selected_id, selected.parent_folder_id AS ancestor_id
+              FROM document_folders selected
+              WHERE selected.organization_id = ${member.organizationId}
+                AND selected.id = ANY(${input.folderIds}::uuid[])
+              UNION ALL
+              SELECT ancestry.selected_id, parent.parent_folder_id
+              FROM ancestry
+              JOIN document_folders parent
+                ON parent.organization_id = ${member.organizationId}
+                AND parent.id = ancestry.ancestor_id
+              WHERE ancestry.ancestor_id IS NOT NULL
+            )
+            SELECT DISTINCT selected_id
+            FROM ancestry
+            WHERE ancestor_id = ANY(${input.folderIds}::uuid[])`;
+          const nestedSelectionIds = new Set(
+            nestedSelections.map((row) => uuidSchema.parse(row.selected_id)),
+          );
+          movedFolderIds = input.folderIds.filter(
+            (folderId) => !nestedSelectionIds.has(folderId),
+          );
+        }
+        if (input.targetFolderId) {
+          const cycles = await transaction`WITH RECURSIVE descendants AS (
+              SELECT id FROM document_folders
+              WHERE organization_id = ${member.organizationId} AND id = ANY(${movedFolderIds}::uuid[])
+              UNION ALL
+              SELECT children.id FROM document_folders children
+              JOIN descendants ON children.parent_folder_id = descendants.id
+              WHERE children.organization_id = ${member.organizationId}
+            ) SELECT id FROM descendants WHERE id = ${input.targetFolderId} LIMIT 1`;
+          if (cycles.length) throw new DocumentFolderCycleError();
+        }
+        await transaction`UPDATE document_folders SET parent_folder_id = ${input.targetFolderId}, version = version + 1, updated_at = now()
+          WHERE organization_id = ${member.organizationId} AND id = ANY(${movedFolderIds}::uuid[])`;
+      }
+      if (input.documentIds.length) {
+        const documents = await transaction`SELECT id FROM documents
+          WHERE organization_id = ${member.organizationId} AND archived_at IS NULL
+            AND id = ANY(${input.documentIds}::uuid[]) FOR UPDATE`;
+        if (documents.length !== input.documentIds.length)
+          throw new DocumentNotFoundError();
+        await transaction`UPDATE documents SET folder_id = ${input.targetFolderId}, version = version + 1, updated_at = now()
+          WHERE organization_id = ${member.organizationId} AND id = ANY(${input.documentIds}::uuid[])`;
+      }
+      const auditEntityId = input.folderIds[0] ?? input.documentIds[0];
+      await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+        VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document_archive.move', 'document_archive', ${auditEntityId},
+          ${transaction.json({ selectedFolderIds: input.folderIds, movedFolderIds, documentIds: input.documentIds, targetFolderId: input.targetFolderId })})`;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, "document_folders_sibling_name_unique_idx"))
+      throw new DocumentFolderConflictError();
+    throw error;
+  }
 }

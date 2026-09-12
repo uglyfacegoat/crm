@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import type { AuthenticatedMember } from "@/server/auth/types";
+import { requirePermission } from "@/server/auth/permissions";
 import { getDatabase } from "@/server/database";
 import type { CreateSupportRequestInput } from "./schemas";
 import type { SupportCenterSnapshot } from "./types";
@@ -13,6 +14,7 @@ export class SupportRequestLimitError extends Error {
 }
 
 export async function getSupportCenterSnapshot(member: AuthenticatedMember): Promise<SupportCenterSnapshot> {
+  requirePermission(member, "help.read");
   const sql = getDatabase();
   const [administratorRows, requestRows] = await Promise.all([
     sql`SELECT id, display_name, email FROM organization_members
@@ -35,6 +37,7 @@ export async function getSupportCenterSnapshot(member: AuthenticatedMember): Pro
 }
 
 export async function createSupportRequest(member: AuthenticatedMember, input: CreateSupportRequestInput) {
+  requirePermission(member, "support.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
     const request = await transaction`INSERT INTO idempotency_requests (organization_id, idempotency_key, operation)

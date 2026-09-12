@@ -1,7 +1,8 @@
 import "server-only";
 import { z } from "zod";
 import { escapeSearchPattern, getSearchDigits, globalSearchResultSchema, parseSearchDate, type GlobalSearchResult } from "@/lib/global-search";
-import { AuthorizationError, hasPermission } from "@/server/auth/permissions";
+import { normalizeSearchText } from "@/lib/search-normalization";
+import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 
@@ -37,10 +38,10 @@ function mapRows(rows: readonly unknown[]): RankedSearchResult[] {
 }
 
 export async function searchGlobal(member: AuthenticatedMember, query: string): Promise<GlobalSearchResult[]> {
-  if (member.role === "master") throw new AuthorizationError();
+  requirePermission(member, "search.use");
 
   const sql = getDatabase();
-  const normalized = query.toLocaleLowerCase("ru");
+  const normalized = normalizeSearchText(query);
   const escaped = escapeSearchPattern(normalized);
   const containsPattern = `%${escaped}%`;
   const prefixPattern = `${escaped}%`;
@@ -71,13 +72,13 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       FROM clients
       WHERE clients.organization_id = ${member.organizationId}
         AND (
-          lower(clients.legal_name || ' ' || coalesce(clients.tax_id, '') || ' ' || coalesce(clients.primary_phone, '') || ' ' || coalesce(clients.primary_email, '')) LIKE ${containsPattern} ESCAPE '\'
+          crm_search_matches(concat_ws(' ', clients.legal_name, clients.tax_id, clients.primary_phone, clients.primary_email), ${query})
           OR (${phonePattern}::text IS NOT NULL AND regexp_replace(coalesce(clients.primary_phone, ''), '\D', '', 'g') LIKE ${phonePattern})
           OR EXISTS (
             SELECT 1 FROM client_contacts
             WHERE client_contacts.organization_id = clients.organization_id AND client_contacts.client_id = clients.id
               AND (
-                lower(client_contacts.full_name || ' ' || client_contacts.phone || ' ' || coalesce(client_contacts.email, '')) LIKE ${containsPattern} ESCAPE '\'
+                crm_search_matches(concat_ws(' ', client_contacts.full_name, client_contacts.phone, client_contacts.email), ${query})
                 OR (${phonePattern}::text IS NOT NULL AND regexp_replace(client_contacts.phone, '\D', '', 'g') LIKE ${phonePattern})
               )
           )
@@ -104,7 +105,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       FROM client_objects
       JOIN clients ON clients.organization_id = client_objects.organization_id AND clients.id = client_objects.client_id
       WHERE client_objects.organization_id = ${member.organizationId}
-        AND lower(client_objects.name || ' ' || client_objects.address || ' ' || coalesce(client_objects.onsite_contact, '')) LIKE ${containsPattern} ESCAPE '\'
+        AND crm_search_matches(concat_ws(' ', client_objects.name, client_objects.address, client_objects.onsite_contact), ${query})
       ORDER BY score DESC, client_objects.name
       LIMIT 5
     `);
@@ -132,7 +133,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       FROM orders
       WHERE orders.organization_id = ${member.organizationId}
         AND (
-          lower(orders.order_number || ' ' || orders.client_name_snapshot || ' ' || orders.object_name_snapshot || ' ' || orders.object_address_snapshot || ' ' || coalesce(orders.contact_name_snapshot, '') || ' ' || coalesce(orders.contact_phone_snapshot, '') || ' ' || coalesce(orders.master_name_snapshot, '')) LIKE ${containsPattern} ESCAPE '\'
+          crm_search_matches(concat_ws(' ', orders.order_number, orders.client_name_snapshot, orders.object_name_snapshot, orders.object_address_snapshot, orders.contact_name_snapshot, orders.contact_phone_snapshot, orders.master_name_snapshot), ${query})
           OR (${phonePattern}::text IS NOT NULL AND regexp_replace(coalesce(orders.contact_phone_snapshot, ''), '\D', '', 'g') LIKE ${phonePattern})
         )
       ORDER BY score DESC, orders.created_at DESC
@@ -161,7 +162,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
       JOIN client_objects ON client_objects.organization_id = contracts.organization_id AND client_objects.id = contracts.object_id
       WHERE contracts.organization_id = ${member.organizationId}
-        AND lower(contracts.contract_number || ' ' || clients.legal_name || ' ' || client_objects.name || ' ' || client_objects.address || ' ' || coalesce(contracts.notes, '')) LIKE ${containsPattern} ESCAPE '\'
+        AND crm_search_matches(concat_ws(' ', contracts.contract_number, clients.legal_name, client_objects.name, client_objects.address, contracts.notes), ${query})
       ORDER BY score DESC, contracts.updated_at DESC
       LIMIT 5
     `);
@@ -189,10 +190,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
       JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
       WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
-        AND (
-          lower(documents.title || ' ' || coalesce(documents.description, '')) LIKE ${containsPattern} ESCAPE '\'
-          OR lower(document_versions.original_filename) LIKE ${containsPattern} ESCAPE '\'
-        )
+        AND crm_search_matches(concat_ws(' ', documents.title, documents.description, document_versions.original_filename), ${query})
       ORDER BY score DESC, documents.updated_at DESC
       LIMIT 5
     `);
@@ -219,7 +217,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       FROM masters
       WHERE masters.organization_id = ${member.organizationId}
         AND (
-          lower(masters.full_name || ' ' || masters.phone || ' ' || masters.normalized_phone || ' ' || coalesce(masters.messenger, '') || ' ' || masters.service_region || ' ' || masters.service_zone) LIKE ${containsPattern} ESCAPE '\'
+          crm_search_matches(concat_ws(' ', masters.full_name, masters.phone, masters.normalized_phone, masters.messenger, masters.service_region, masters.service_zone), ${query})
           OR (${phonePattern}::text IS NOT NULL AND regexp_replace(masters.normalized_phone, '\D', '', 'g') LIKE ${phonePattern})
         )
       ORDER BY score DESC, masters.active DESC, masters.full_name
@@ -255,7 +253,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
           (${searchDate}::date IS NOT NULL
             AND service_visits.scheduled_start_at >= (${searchDate}::date::timestamp AT TIME ZONE organizations.timezone)
             AND service_visits.scheduled_start_at < ((${searchDate}::date + 1)::timestamp AT TIME ZONE organizations.timezone))
-          OR lower(service_visits.client_name_snapshot || ' ' || service_visits.object_name_snapshot || ' ' || service_visits.object_address_snapshot || ' ' || coalesce(service_visits.master_name_snapshot, '') || ' ' || coalesce(orders.order_number, '')) LIKE ${containsPattern} ESCAPE '\'
+          OR crm_search_matches(concat_ws(' ', service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot, service_visits.master_name_snapshot, orders.order_number), ${query})
         )
       ORDER BY score DESC, service_visits.scheduled_start_at DESC
       LIMIT 5

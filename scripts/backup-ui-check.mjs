@@ -12,7 +12,7 @@ if (!browserPath) throw new Error("Chrome or Edge was not found. Set CHROME_PATH
 if (!identity || !password) throw new Error("Backup UI check credentials are required.");
 
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
-const page = await browser.newPage({ viewport: { width: 320, height: 568 }, colorScheme: "dark" });
+const page = await browser.newPage({ viewport: { width: 320, height: 568 }, colorScheme: "light" });
 const pageErrors = [];
 const consoleErrors = [];
 page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));

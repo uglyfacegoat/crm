@@ -74,26 +74,26 @@ export function NotificationsWorkspace({ initialSnapshot }: { initialSnapshot: N
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
       <section className="surface-panel overflow-hidden">
-        <header className="flex flex-col gap-3 border-b border-white/[0.07] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+        <header className="flex flex-col gap-3 border-b border-[var(--line)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <div className="flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {([
               ["all", "Все", snapshot.items.length],
               ["unread", "Непрочитанные", snapshot.unreadCount],
               ["critical", "Критичные", snapshot.items.filter((item) => item.severity === "critical").length],
-            ] as const).map(([value, label, count]) => <button key={value} type="button" onClick={() => setFilter(value)} className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-[11px] px-3 text-xs transition-colors ${filter === value ? "bg-[var(--accent)] text-[#111509]" : "text-[#838d92] hover:bg-white/[0.04] hover:text-white"}`}>{label}<span className={`rounded-full px-1.5 py-0.5 text-[9px] ${filter === value ? "bg-black/10" : "bg-white/[0.05]"}`}>{count}</span></button>)}
+            ] as const).map(([value, label, count]) => <button key={value} type="button" onClick={() => setFilter(value)} className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-[11px] px-3 text-xs transition-colors ${filter === value ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>{label}<span className={`rounded-full px-1.5 py-0.5 text-[9px] ${filter === value ? "bg-white/15" : "bg-[var(--surface-soft)]"}`}>{count}</span></button>)}
           </div>
           <div className="flex shrink-0 gap-2">
-            <button type="button" disabled={refreshing} onClick={refresh} className="focus-ring soft-button grid size-10 place-items-center rounded-[11px] text-[#838d92] hover:text-white disabled:opacity-45" aria-label="Обновить уведомления">{refreshing ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}</button>
-            <button type="button" disabled={!snapshot.unreadCount || pendingId !== null} onClick={markAll} className="focus-ring flex min-h-10 items-center gap-2 rounded-[11px] border border-white/[0.08] px-3 text-xs text-[#adb5b8] hover:bg-white/[0.04] hover:text-white disabled:cursor-not-allowed disabled:opacity-40">{pendingId === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}Прочитать всё</button>
+            <button type="button" disabled={refreshing} onClick={refresh} className="focus-ring soft-button grid size-10 place-items-center rounded-[11px] text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-45" aria-label="Обновить уведомления">{refreshing ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}</button>
+            <button type="button" disabled={!snapshot.unreadCount || pendingId !== null} onClick={markAll} className="focus-ring flex min-h-10 items-center gap-2 rounded-[11px] border border-[var(--line)] px-3 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40">{pendingId === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}Прочитать всё</button>
           </div>
         </header>
-        {errorMessage ? <div role="alert" className="border-b border-[#ef646a]/15 bg-[#ef646a]/[0.045] px-4 py-3 text-xs text-[#e38b90]">{errorMessage}</div> : null}
-        <div className="divide-y divide-white/[0.055]">
+        {errorMessage ? <div role="alert" className="border-b border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-xs text-[var(--danger-ink)]">{errorMessage}</div> : null}
+        <div className="divide-y divide-[var(--line)]">
           {filteredItems.map((notification) => <NotificationListItem key={notification.id} notification={notification} pending={pendingId === notification.id} onOpen={openNotification} />)}
         </div>
-        {!filteredItems.length ? <div className="grid min-h-72 place-items-center px-6 text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-[15px] border border-white/[0.07] bg-white/[0.025] text-[#657078]"><CheckCheck className="size-5" /></span><p className="mt-4 text-sm font-medium text-[#b3babd]">Здесь всё разобрано</p><p className="mt-1 max-w-sm text-xs leading-5 text-[#626c72]">Система добавит сюда просроченные задачи, выезды без мастера, договоры и новые документы.</p></div></div> : null}
+        {!filteredItems.length ? <div className="grid min-h-72 place-items-center px-6 text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-[15px] border border-[var(--line)] bg-[var(--surface-inset)] text-[var(--muted)]"><CheckCheck className="size-5" /></span><p className="mt-4 text-sm font-medium text-[var(--text-secondary)]">Здесь всё разобрано</p><p className="mt-1 max-w-sm text-xs leading-5 text-[var(--muted)]">Система добавит сюда просроченные задачи, выезды без мастера, договоры и новые документы.</p></div></div> : null}
       </section>
-      <p className="mt-3 text-[10px] leading-5 text-[#586269]">Лента обновляется фоновым процессом раз в минуту. Прочтение персональное: действия одного сотрудника не скрывают событие у остальных.</p>
+      <p className="mt-3 text-[10px] leading-5 text-[var(--muted)]">Лента обновляется фоновым процессом раз в минуту. Прочтение персональное: действия одного сотрудника не скрывают событие у остальных.</p>
     </div>
   );
 }

@@ -12,7 +12,7 @@ import type { DocumentTemplateListItem } from "@/server/document-templates/types
 import type { ImportJobListItem } from "@/server/imports/types";
 import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
 import type { OrganizationSummary } from "@/server/organizations/types";
-import type { DigitStyle, FontScale } from "@/lib/appearance";
+import type { AppearanceTheme, DigitStyle, FontScale } from "@/lib/appearance";
 
 const settingTabs = [
   { id: "members", label: "Пользователи" },
@@ -34,18 +34,19 @@ type SettingsWorkspaceProps = {
   currentMemberId: string;
   preview: boolean;
   organizations: OrganizationSummary[];
+  theme: AppearanceTheme;
   fontScale: FontScale;
   digitStyle: DigitStyle;
 };
 
-export function SettingsWorkspace({ members, masterOptions, templates, backupSnapshot, importJobs, currentMemberId, preview, organizations, fontScale, digitStyle }: SettingsWorkspaceProps) {
+export function SettingsWorkspace({ members, masterOptions, templates, backupSnapshot, importJobs, currentMemberId, preview, organizations, theme, fontScale, digitStyle }: SettingsWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<SettingTab>("members");
 
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-      <div className="flex gap-1 overflow-x-auto border-b border-white/[0.06] pb-px" role="tablist" aria-label="Настройки CRM">
+      <div className="flex gap-1 overflow-x-auto border-b border-[var(--line)] pb-px" role="tablist" aria-label="Настройки CRM">
         {settingTabs.map((tab) => (
-          <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`settings-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={`focus-ring h-11 shrink-0 border-b-2 px-3 text-xs transition-colors ${activeTab === tab.id ? "border-[var(--accent)] text-[var(--accent)]" : "border-transparent text-[#788288] hover:text-white"}`}>
+          <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`settings-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={`focus-ring h-11 shrink-0 border-b-2 px-3 text-xs transition-colors ${activeTab === tab.id ? "border-[var(--accent)] text-[var(--accent-ink)]" : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"}`}>
             {tab.label}
           </button>
         ))}
@@ -54,7 +55,7 @@ export function SettingsWorkspace({ members, masterOptions, templates, backupSna
       <section id={`settings-${activeTab}`} role="tabpanel">
         {activeTab === "members" ? <MemberAdminPanel members={members} masterOptions={masterOptions} currentMemberId={currentMemberId} preview={preview} /> : null}
         {activeTab === "organizations" ? <OrganizationPanel organizations={organizations} preview={preview} /> : null}
-        {activeTab === "appearance" ? <AppearancePanel fontScale={fontScale} digitStyle={digitStyle} /> : null}
+        {activeTab === "appearance" ? <AppearancePanel theme={theme} fontScale={fontScale} digitStyle={digitStyle} /> : null}
         {activeTab === "templates" ? <DocumentTemplatePanel templates={templates} preview={preview} /> : null}
         {activeTab === "import" ? <ImportPanel jobs={importJobs} preview={preview} /> : null}
         {activeTab === "system" ? <BackupSystemPanel snapshot={backupSnapshot} preview={preview} /> : null}

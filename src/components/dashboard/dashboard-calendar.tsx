@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
+export type DashboardVisitTone = "warning" | "support" | "accent" | "success" | "danger";
+
 export type DashboardVisit = {
   id: string;
   orderId: string | null;
@@ -13,14 +15,15 @@ export type DashboardVisit = {
   client: string;
   address: string;
   master: string;
-  color: keyof typeof eventColors;
+  tone: DashboardVisitTone;
 };
 
-const eventColors = {
-  lime: "border-[#dce63c]/25 bg-[#dce63c]/15 text-[#e5eb85]",
-  violet: "border-[#9c82e8]/25 bg-[#9c82e8]/15 text-[#c2b3ed]",
-  mint: "border-[#55d5ca]/25 bg-[#55d5ca]/15 text-[#9ae2da]",
-  yellow: "border-[#f2a84b]/25 bg-[#f2a84b]/15 text-[#efc38b]",
+const eventColors: Record<DashboardVisitTone, string> = {
+  warning: "border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)]",
+  support: "border-[var(--support-strong)] bg-[var(--support-soft)] text-[var(--support-strong)]",
+  accent: "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]",
+  success: "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]",
+  danger: "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]",
 };
 
 const millisecondsPerDay = 86_400_000;
@@ -58,38 +61,39 @@ export function DashboardCalendar({ visits, initialDate }: { visits: DashboardVi
   });
 
   return (
-    <section className="surface-panel animate-rise min-w-0" style={{ animationDelay: "420ms" }}>
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3.5">
+    <section aria-labelledby="dashboard-calendar-heading" className="surface-panel dashboard-panel animate-rise min-w-0" style={{ animationDelay: "420ms" }}>
+      <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3.5">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-white">Календарь выездов</h2>
-          <p className="mt-1 truncate text-[9px] capitalize text-[#69737a]">{selectedDateFormatter.format(selectedDateValue)}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--accent)]">Планирование</p>
+          <h2 id="dashboard-calendar-heading" className="mt-2 text-[clamp(1rem,0.9rem+0.23vw,1.2rem)] font-semibold tracking-[-0.025em] text-[var(--text)]">Календарь выездов</h2>
+          <p className="mt-1 truncate text-[10px] capitalize text-[var(--muted)]">{selectedDateFormatter.format(selectedDateValue)}</p>
         </div>
-        <div className="flex shrink-0 items-center rounded-full border border-white/[0.07] bg-black/10 p-1">
-          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, -1))} aria-label="Предыдущий день" className="focus-ring grid size-8 place-items-center rounded-full text-[#778188] hover:bg-white/[0.05] hover:text-white"><ChevronLeft className="size-3.5" /></button>
-          <span className="px-2 text-[9px] font-medium text-[#a9b1b4]">День</span>
-          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, 1))} aria-label="Следующий день" className="focus-ring grid size-8 place-items-center rounded-full text-[#778188] hover:bg-white/[0.05] hover:text-white"><ChevronRight className="size-3.5" /></button>
+        <div className="flex shrink-0 items-center rounded-full border border-[var(--line)] bg-[var(--surface-inset)] p-1">
+          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, -1))} aria-label="Предыдущий день" className="focus-ring grid size-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><ChevronLeft className="size-3.5" /></button>
+          <span className="px-2 text-[9px] font-medium text-[var(--text-secondary)]">День</span>
+          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, 1))} aria-label="Следующий день" className="focus-ring grid size-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><ChevronRight className="size-3.5" /></button>
         </div>
       </div>
 
       <div className="p-4">
-        <div className="grid grid-cols-7 gap-1 border-b border-white/[0.06] pb-2">
+        <div className="grid grid-cols-7 gap-1 border-b border-[var(--line)] pb-3">
           {days.map((day) => (
-            <button key={day.date} type="button" onClick={() => setSelectedDate(day.date)} aria-pressed={day.date === selectedDate} className={`focus-ring min-w-0 rounded-full py-2 text-center text-[9px] capitalize transition-colors ${day.date === selectedDate ? "bg-[var(--accent)] font-semibold text-[#111508]" : "text-[#788289] hover:bg-white/[0.04] hover:text-white"}`}>{day.label}</button>
+            <button key={day.date} type="button" onClick={() => setSelectedDate(day.date)} aria-pressed={day.date === selectedDate} className={`focus-ring min-w-0 rounded-full py-2 text-center text-[9px] capitalize transition-colors ${day.date === selectedDate ? "bg-[var(--accent)] font-semibold text-[var(--on-accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>{day.label}</button>
           ))}
         </div>
 
-        <div className="mt-2 overflow-hidden rounded-xl border border-white/[0.045] bg-[#0a1013]/45 p-2">
-          {selectedVisits.length ? <div className="space-y-1.5">{selectedVisits.slice(0, 4).map((visit) => {
+        <div className="mt-3 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-2">
+          {selectedVisits.length ? <div className="divide-y divide-[var(--line)] border-y border-[var(--line)]">{selectedVisits.slice(0, 4).map((visit) => {
             const destination = visit.orderId ? `/orders/${visit.orderId}` : `/calendar?date=${visit.date}`;
-            return <Link key={visit.id} href={destination} title={`${visit.time} · ${visit.client} · ${visit.address}`} className={`focus-ring grid min-h-[3.2rem] grid-cols-[3.4rem_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border px-2.5 py-2 transition-[border-color,filter] hover:brightness-110 ${eventColors[visit.color]}`}>
+            return <Link key={visit.id} href={destination} title={`${visit.time} · ${visit.client} · ${visit.address}`} className={`focus-ring grid min-h-[3.2rem] grid-cols-[3.4rem_minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-2 transition-[filter] hover:brightness-[0.97] ${eventColors[visit.tone]}`}>
               <strong className="font-display text-[9px] font-semibold">{visit.time}</strong>
-              <span className="min-w-0"><span className="block truncate text-[9px] font-medium text-white">{visit.client}</span><span className="mt-0.5 block truncate text-[8px] opacity-65">{visit.address} · {visit.master}</span></span>
+              <span className="min-w-0"><span className="block truncate text-[9px] font-medium text-[var(--text)]">{visit.client}</span><span className="mt-0.5 block truncate text-[8px] opacity-65">{visit.address} · {visit.master}</span></span>
               <span className="shrink-0 text-[8px] opacity-65">{visit.orderNumber ?? "Без заказа"}</span>
             </Link>;
-          })}{selectedVisits.length > 4 ? <Link href={`/calendar?date=${selectedDate}`} className="focus-ring block rounded-full py-2 text-center text-[9px] text-[var(--accent)]">Ещё {selectedVisits.length - 4} выезд.</Link> : null}</div> : <div className="grid place-items-center px-5 py-7 text-center"><div><CalendarDays className="mx-auto size-6 text-[#465159]" /><p className="mt-2 text-[10px] text-[#69737a]">На этот день выездов нет</p></div></div>}
+          })}{selectedVisits.length > 4 ? <Link href={`/calendar?date=${selectedDate}`} className="focus-ring block py-2 text-center text-[9px] text-[var(--accent-ink)]">Ещё {selectedVisits.length - 4} выезд.</Link> : null}</div> : <div className="grid place-items-center py-7 text-center"><div><CalendarDays className="mx-auto size-6 text-[var(--muted-subtle)]" /><p className="mt-2 text-[10px] text-[var(--muted)]">На этот день выездов нет</p></div></div>}
         </div>
 
-        <Link href={`/calendar?date=${selectedDate}`} className="focus-ring mt-2 flex w-fit items-center gap-2 rounded-full px-2 py-1 text-[11px] font-semibold text-[var(--accent)] hover:bg-white/[0.04]">Открыть день в календаре <ArrowRight className="size-3.5" /></Link>
+        <Link href={`/calendar?date=${selectedDate}`} className="focus-ring mt-3 inline-flex w-fit items-center gap-2 rounded-full px-2 py-1.5 text-[11px] font-semibold text-[var(--accent-ink)] hover:bg-[var(--surface-soft)]">Открыть день в календаре <ArrowRight className="size-3.5" /></Link>
       </div>
     </section>
   );

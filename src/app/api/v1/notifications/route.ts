@@ -1,5 +1,6 @@
 import { notificationQuerySchema } from "@/lib/notifications";
 import { getAuthMode } from "@/server/auth/config";
+import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
 import { getPreviewNotifications } from "@/server/notifications/preview";
 import { listNotifications } from "@/server/notifications/repository";
@@ -9,6 +10,12 @@ const privateHeaders = { "Cache-Control": "private, no-store" };
 export async function GET(request: Request) {
   const member = await getCurrentSession();
   if (!member) return Response.json({ error: { code: "unauthenticated", message: "Требуется вход." } }, { status: 401, headers: privateHeaders });
+  try {
+    requirePermission(member, "notifications.read");
+  } catch (error) {
+    if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для просмотра уведомлений." } }, { status: 403, headers: privateHeaders });
+    throw error;
+  }
   const url = new URL(request.url);
   const parsed = notificationQuerySchema.safeParse({
     limit: url.searchParams.get("limit") ?? undefined,
@@ -21,6 +28,7 @@ export async function GET(request: Request) {
       : await listNotifications(member, { limit: parsed.data.limit, unreadOnly: parsed.data.unread });
     return Response.json({ data: snapshot }, { headers: privateHeaders });
   } catch (error) {
+    if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для просмотра уведомлений." } }, { status: 403, headers: privateHeaders });
     console.error(JSON.stringify({ operation: "notifications.list", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
     return Response.json({ error: { code: "service_unavailable", message: "Не удалось загрузить уведомления." } }, { status: 503, headers: privateHeaders });
   }

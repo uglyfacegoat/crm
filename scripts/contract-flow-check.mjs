@@ -15,7 +15,7 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for con
 
 const sql = postgres(process.env.DATABASE_URL, { max: 1 });
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
-const page = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
 const pageErrors = [];
 const consoleErrors = [];
 page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
@@ -46,7 +46,8 @@ try {
   await dialog.locator('input[name="endsOn"]').fill("2026-12-03");
   await dialog.getByRole("button", { name: "Создать договор" }).click();
   await dialog.waitFor({ state: "hidden" });
-  await page.getByRole("heading", { name: contractNumber, exact: true }).waitFor();
+  const contractLink = page.getByRole("link", { name: contractNumber, exact: true });
+  await contractLink.waitFor();
 
   const [contract] = await sql`SELECT id FROM contracts WHERE contract_number = ${contractNumber}`;
   if (!contract) throw new Error("The created contract is absent from PostgreSQL.");
@@ -66,7 +67,10 @@ try {
   const foundContract = searchResult.payload?.data?.results?.find((result) => result.entityType === "contract" && result.id === contractId);
   if (searchResult.status !== 200 || !foundContract) throw new Error(`Global contract search failed: ${JSON.stringify(searchResult)}`);
 
-  await page.getByRole("button", { name: `История договора ${contractNumber}` }).click();
+  await contractLink.click();
+  await page.waitForURL((url) => url.pathname === `/contracts/${contractId}`);
+  await page.getByRole("heading", { name: contractNumber, exact: true }).waitFor();
+  await page.getByRole("button", { name: "История", exact: true }).click();
   const history = page.getByRole("dialog", { name: "История договора" });
   await history.getByText("Договор создан", { exact: true }).waitFor();
   await page.setViewportSize({ width: 3840, height: 2160 });

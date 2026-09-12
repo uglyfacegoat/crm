@@ -1,10 +1,13 @@
 import { z } from "zod";
+import { normalizeSearchText } from "./search-normalization.ts";
 
 export const globalSearchEntityTypes = ["order", "client", "object", "visit", "document", "master", "contract"] as const;
 
 export const globalSearchQuerySchema = z.string()
   .transform((value) => value.trim().replace(/\s+/g, " "))
-  .pipe(z.string().min(2, "Введите не меньше 2 символов.").max(100, "Запрос не должен превышать 100 символов."));
+  .pipe(z.string()
+    .max(100, "Запрос не должен превышать 100 символов.")
+    .refine((value) => normalizeSearchText(value).replace(/\s/g, "").length >= 2, "Введите не меньше 2 символов."));
 
 export const globalSearchResultSchema = z.object({
   id: z.string().min(1),

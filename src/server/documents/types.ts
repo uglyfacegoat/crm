@@ -1,4 +1,12 @@
-export const documentCategories = ["contract", "act", "visit_card", "invoice", "receipt", "photo", "other"] as const;
+export const documentCategories = [
+  "contract",
+  "act",
+  "visit_card",
+  "invoice",
+  "receipt",
+  "photo",
+  "other",
+] as const;
 export type DocumentCategory = (typeof documentCategories)[number];
 
 export const documentCategoryLabels: Record<DocumentCategory, string> = {
@@ -27,6 +35,8 @@ export type DocumentVersionListItem = {
 
 export type DocumentListItem = {
   id: string;
+  folderId: string | null;
+  contractId: string | null;
   title: string;
   category: DocumentCategory;
   categoryLabel: string;
@@ -55,10 +65,21 @@ export type DocumentListItem = {
 
 export type DocumentOrderOption = {
   id: string;
+  clientId: string;
+  objectId: string;
   number: string;
   client: string;
   object: string;
   address: string;
+};
+
+export type DocumentContractOption = {
+  id: string;
+  contractNumber: string;
+  clientId: string;
+  objectId: string;
+  clientName: string;
+  objectName: string;
 };
 
 export type DocumentVisitOption = {
@@ -71,6 +92,15 @@ export type DocumentVisitOption = {
 export type DocumentUploadOptions = {
   orders: DocumentOrderOption[];
   visits: DocumentVisitOption[];
+  contracts: DocumentContractOption[];
+};
+
+export type DocumentFolder = {
+  id: string;
+  parentFolderId: string | null;
+  name: string;
+  documentCount: number;
+  updatedAt: string;
 };
 
 export type DocumentDownload = {

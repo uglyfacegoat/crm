@@ -12,9 +12,9 @@ export function getPreviewWebsiteSnapshot(): WebsiteSnapshot {
     summary: { totalSites: 4, activeSites: 2, visitors: 32_920, pageviews: 68_235, searchClicks: 8_420, leads: 541, paidOrders: 86, paidRevenueMinor: 21_830_000, conversionPercent: 1.64 },
     sites,
     trafficTrend: { labels: ["04 авг", "09 авг", "14 авг", "19 авг", "24 авг", "29 авг", "02 сен"], series: [
-      { label: "Посетители", color: "#edf43b", values: [3210, 3880, 3560, 4210, 4890, 5560, 5910] },
-      { label: "Просмотры", color: "#65b7ee", values: [6820, 7310, 7010, 8420, 9630, 10820, 11240] },
-      { label: "Поисковые клики", color: "#9c82e8", values: [710, 840, 790, 980, 1120, 1270, 1390] },
+      { label: "Посетители", color: "#000000", values: [3210, 3880, 3560, 4210, 4890, 5560, 5910] },
+      { label: "Просмотры", color: "#a2beff", values: [6820, 7310, 7010, 8420, 9630, 10820, 11240] },
+      { label: "Поисковые клики", color: "#25272c", values: [710, 840, 790, 980, 1120, 1270, 1390] },
     ] },
     trafficSources: [
       { label: "Органический поиск", value: 46, amount: 249 },

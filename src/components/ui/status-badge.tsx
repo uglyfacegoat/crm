@@ -1,13 +1,13 @@
 import type { OrderDisplayStatus } from "@/server/orders/types";
 
 const styles: Record<OrderDisplayStatus, string> = {
-  Новый: "bg-white/[0.07] text-[#c8ced1] ring-white/10",
-  "В работе": "bg-[#9b83e8]/12 text-[#bdaaf7] ring-[#9b83e8]/20",
-  "На согласовании": "bg-[#efc85d]/10 text-[#efc85d] ring-[#efc85d]/20",
-  Запланирован: "bg-[#dce64a]/10 text-[#dce64a] ring-[#dce64a]/20",
-  Выполнен: "bg-[#63c99d]/10 text-[#74d9ac] ring-[#63c99d]/20",
-  Просрочен: "bg-[#ef646a]/10 text-[#f27a80] ring-[#ef646a]/20",
-  Отменён: "bg-[#ef646a]/10 text-[#f27a80] ring-[#ef646a]/20",
+  Новый: "bg-[var(--surface-soft)] text-[var(--text-secondary)] ring-[var(--line-strong)]",
+  "В работе": "bg-[var(--info-bg)] text-[var(--info)] ring-[var(--info-border)]/55",
+  "На согласовании": "bg-[var(--warning-bg)] text-[var(--warning)] ring-[var(--warning-border)]/55",
+  Запланирован: "bg-[var(--support-soft)] text-[var(--support-strong)] ring-[var(--support-strong)]/45",
+  Выполнен: "bg-[var(--success-bg)] text-[var(--success)] ring-[var(--success-border)]/55",
+  Просрочен: "bg-[var(--danger-bg)] text-[var(--danger-ink)] ring-[var(--danger-border)]/55",
+  Отменён: "bg-[var(--danger-bg)] text-[var(--danger-ink)] ring-[var(--danger-border)]/55",
 };
 
 export function StatusBadge({ status }: { status: OrderDisplayStatus }) {

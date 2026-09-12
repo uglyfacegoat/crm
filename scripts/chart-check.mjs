@@ -12,7 +12,7 @@ if (!browserPath) throw new Error("Chrome or Edge was not found. Set CHROME_PATH
 if (!identity || !password) throw new Error("Chart-check credentials are required.");
 
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
-const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, colorScheme: "dark", reducedMotion: "reduce" });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, colorScheme: "light", reducedMotion: "reduce" });
 const browserErrors = [];
 page.on("pageerror", (error) => browserErrors.push(error.message));
 page.on("console", (message) => { if (message.type() === "error") browserErrors.push(message.text()); });

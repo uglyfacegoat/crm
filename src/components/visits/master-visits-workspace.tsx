@@ -12,11 +12,11 @@ import type { ServiceVisit, VisitStatus } from "@/server/visits/types";
 
 const initialStartState: StartVisitState = { status: "idle", message: null, version: null };
 const statusStyles: Record<VisitStatus, string> = {
-  planned: "border-[#dce63c]/20 bg-[#dce63c]/[0.06] text-[#dfe76d]",
-  confirmed: "border-[#5f9cf4]/20 bg-[#5f9cf4]/[0.06] text-[#82b2f6]",
-  in_progress: "border-[#9c82e8]/20 bg-[#9c82e8]/[0.07] text-[#b7a2ef]",
-  completed: "border-[#63c99d]/20 bg-[#63c99d]/[0.06] text-[#7ed5ae]",
-  cancelled: "border-[#ef646a]/20 bg-[#ef646a]/[0.06] text-[#ee8b90]",
+  planned: "border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)]",
+  confirmed: "border-[var(--info-border)] bg-[var(--info-bg)] text-[var(--info)]",
+  in_progress: "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]",
+  completed: "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]",
+  cancelled: "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]",
 };
 
 function localDateKey(visit: ServiceVisit) {
@@ -39,41 +39,41 @@ function formatTime(visit: ServiceVisit) {
 
 function StartVisitButton({ visit }: { visit: ServiceVisit }) {
   const [state, action, pending] = useActionState(startAssignedVisitAction, initialStartState);
-  if (visit.statusCode === "in_progress") return <span className="flex min-h-11 items-center justify-center gap-2 rounded-[12px] border border-[#9c82e8]/20 bg-[#9c82e8]/[0.06] px-4 text-xs font-semibold text-[#b7a2ef]"><Navigation className="size-4" />Работа идёт</span>;
+  if (visit.statusCode === "in_progress") return <span className="flex min-h-11 items-center justify-center gap-2 rounded-[12px] border border-[var(--accent)] bg-[var(--accent-soft)] px-4 text-xs font-semibold text-[var(--accent-ink)]"><Navigation className="size-4" />Работа идёт</span>;
   return <form action={action} className="min-w-0 flex-1 sm:flex-none">
     <input type="hidden" name="visitId" value={visit.id} />
     <input type="hidden" name="expectedVersion" value={visit.version} />
-    <button disabled={pending || state.status === "success"} className="focus-ring flex min-h-11 w-full items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308] disabled:opacity-55">
+    <button disabled={pending || state.status === "success"} className="focus-ring flex min-h-11 w-full items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] px-4 text-xs font-semibold text-[var(--on-accent)] disabled:opacity-55">
       {pending ? <LoaderCircle className="size-4 animate-spin" /> : state.status === "success" ? <Check className="size-4" /> : <Play className="size-4" />}
       {pending ? "Сохраняем…" : state.status === "success" ? "Работа начата" : "Начать работу"}
     </button>
-    {state.status === "error" ? <p role="alert" className="mt-2 max-w-64 text-[10px] leading-4 text-[#e8898e]">{state.message}</p> : null}
+    {state.status === "error" ? <p role="alert" className="mt-2 max-w-64 text-[10px] leading-4 text-[var(--danger-ink)]">{state.message}</p> : null}
   </form>;
 }
 
 function VisitCard({ visit, onComplete }: { visit: ServiceVisit; onComplete: (visit: ServiceVisit) => void }) {
   const terminal = visit.statusCode === "completed" || visit.statusCode === "cancelled";
   const mapHref = `https://yandex.ru/maps/?text=${encodeURIComponent(visit.address)}`;
-  return <article className="surface-panel overflow-hidden">
-    <div className="border-b border-white/[0.06] p-4 sm:p-5">
+  return <article className="overflow-hidden border-y border-l-2 border-[var(--line)] border-l-[var(--accent)] bg-[var(--surface-raised)]">
+    <div className="border-b border-[var(--line)] p-4 sm:p-5">
       <div className="flex items-start gap-3">
-        <div className="grid size-12 shrink-0 place-items-center rounded-[14px] border border-[var(--accent)]/15 bg-[var(--accent)]/[0.055] text-[var(--accent)]"><Route className="size-5" /></div>
+        <div className="grid size-12 shrink-0 place-items-center rounded-[14px] border border-[var(--line-strong)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"><Route className="size-5" /></div>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-display text-base font-semibold text-white">{formatTime(visit)}</p><span className={`rounded-full border px-2.5 py-1 text-[9px] ${statusStyles[visit.statusCode]}`}>{visit.status}</span></div>
-          <p className="mt-2 text-sm font-semibold leading-5 text-[#e1e5e2]">{visit.client}</p>
-          <p className="mt-1 text-xs leading-5 text-[#7f898f]">{visit.object}</p>
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-display text-base font-semibold text-[var(--text)]">{formatTime(visit)}</p><span className={`rounded-full border px-2.5 py-1 text-[9px] ${statusStyles[visit.statusCode]}`}>{visit.status}</span></div>
+          <p className="mt-2 text-sm font-semibold leading-5 text-[var(--text)]">{visit.client}</p>
+          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{visit.object}</p>
         </div>
       </div>
-      <a href={mapHref} target="_blank" rel="noreferrer" className="focus-ring mt-4 flex min-h-12 items-center gap-3 rounded-[13px] border border-white/[0.07] bg-black/10 px-3 text-left hover:border-white/[0.12]">
-        <MapPin className="size-4 shrink-0 text-[#74d5ab]" /><span className="min-w-0 flex-1 text-xs leading-5 text-[#b4bcbe]">{visit.address}</span><ExternalLink className="size-3.5 shrink-0 text-[#687279]" />
+      <a href={mapHref} target="_blank" rel="noreferrer" className="focus-ring mt-4 flex min-h-12 items-center gap-3 rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 text-left hover:bg-[var(--surface-soft)]">
+        <MapPin className="size-4 shrink-0 text-[var(--support-strong)]" /><span className="min-w-0 flex-1 text-xs leading-5 text-[var(--text-secondary)]">{visit.address}</span><ExternalLink className="size-3.5 shrink-0 text-[var(--muted)]" />
       </a>
-      {visit.notes ? <div className="mt-3 rounded-[12px] border border-white/[0.055] bg-white/[0.022] px-3 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[#687279]">Комментарий офиса</p><p className="mt-1.5 text-[11px] leading-5 text-[#9aa3a7]">{visit.notes}</p></div> : null}
+      {visit.notes ? <div className="mt-3 border-l-2 border-[var(--support-strong)] bg-[var(--surface-inset)] px-3 py-2.5"><p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">Комментарий офиса</p><p className="mt-1.5 text-[11px] leading-5 text-[var(--text-secondary)]">{visit.notes}</p></div> : null}
     </div>
-    <footer className="flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:p-4">
+    <footer className="flex flex-col gap-2 bg-[var(--surface)] p-3 sm:flex-row sm:items-start sm:p-4">
       <VisitDispatchCardButton visitId={visit.id} className="min-h-11 flex-1 sm:flex-none" />
       {!terminal ? <StartVisitButton visit={visit} /> : null}
-      {!terminal ? <button type="button" onClick={() => onComplete(visit)} className="focus-ring flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[12px] border border-[#63c99d]/20 bg-[#63c99d]/[0.055] px-4 text-xs font-semibold text-[#78d4aa] sm:flex-none"><FileCheck2 className="size-4" />Завершить с актом</button> : null}
-      {visit.statusCode === "completed" ? <span className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[12px] border border-[#63c99d]/15 bg-[#63c99d]/[0.04] px-4 text-xs text-[#76cda6]"><ShieldCheck className="size-4" />Акт сохранён</span> : null}
+      {!terminal ? <button type="button" onClick={() => onComplete(visit)} className="focus-ring flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[12px] border border-[var(--success-border)] bg-[var(--success-bg)] px-4 text-xs font-semibold text-[var(--success)] sm:flex-none"><FileCheck2 className="size-4" />Завершить с актом</button> : null}
+      {visit.statusCode === "completed" ? <span className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[12px] border border-[var(--success-border)] bg-[var(--success-bg)] px-4 text-xs text-[var(--success)]"><ShieldCheck className="size-4" />Акт сохранён</span> : null}
     </footer>
   </article>;
 }
@@ -103,24 +103,24 @@ export function MasterVisitsWorkspace({ visits, templates, now }: { visits: Serv
   return <>
     <header className="mb-5 sm:mb-7">
       <p className="eyebrow mb-2">Рабочий маршрут</p>
-      <h1 className="display-title text-white">Мои выезды</h1>
-      <p className="mt-2 max-w-xl text-xs leading-5 text-[#778188]">Только назначенные вам работы. Откройте карточку, начните выезд и приложите подписанный акт после завершения.</p>
+      <h1 className="display-title text-[var(--text)]">Мои выезды</h1>
+      <p className="mt-2 max-w-xl text-xs leading-5 text-[var(--muted)]">Только назначенные вам работы. Откройте карточку, начните выезд и приложите подписанный акт после завершения.</p>
     </header>
 
-    <section aria-label="Сводка" className="mb-5 grid grid-cols-3 gap-2 sm:gap-3">
+    <section aria-label="Сводка" className="mb-6 grid grid-cols-3 divide-x divide-[var(--line)] border-y border-[var(--line)]">
       {[
         { label: "Сегодня", value: todayCount, icon: CalendarClock, tone: "text-[var(--accent)]" },
-        { label: "В работе", value: activeVisits.length, icon: Navigation, tone: "text-[#a991eb]" },
-        { label: "Закрыто", value: completedCount, icon: FileCheck2, tone: "text-[#69d3a4]" },
-      ].map((metric) => <div key={metric.label} className="surface-panel min-w-0 p-3 sm:p-4"><metric.icon className={`size-4 ${metric.tone}`} /><strong className="mt-3 block font-display text-xl text-white sm:text-2xl">{metric.value}</strong><span className="mt-1 block truncate text-[9px] text-[#737d83] sm:text-[10px]">{metric.label}</span></div>)}
+        { label: "В работе", value: activeVisits.length, icon: Navigation, tone: "text-[var(--accent-ink)]" },
+        { label: "Закрыто", value: completedCount, icon: FileCheck2, tone: "text-[var(--success)]" },
+      ].map((metric) => <div key={metric.label} className="min-w-0 p-3 sm:p-4"><metric.icon className={`size-4 ${metric.tone}`} /><strong className="mt-3 block font-display text-xl text-[var(--text)] sm:text-2xl">{metric.value}</strong><span className="mt-1 block truncate text-[9px] text-[var(--muted)] sm:text-[10px]">{metric.label}</span></div>)}
     </section>
 
-    {templates.length ? <section aria-labelledby="act-templates-title" className="surface-panel mb-6 p-4 sm:p-5"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-[#9c82e8]/[0.08] text-[#b29ced]"><FileCheck2 className="size-4" /></span><div className="min-w-0 flex-1"><h2 id="act-templates-title" className="text-sm font-semibold text-white">Шаблоны актов</h2><p className="mt-1 text-[10px] leading-4 text-[#727c82]">Скачайте утверждённую форму, заполните и приложите подписанный файл при завершении.</p></div></div><div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{templates.map((template) => <a key={template.id} href={`/api/v1/document-templates/${template.id}/download`} className="focus-ring flex min-h-12 min-w-0 items-center gap-3 rounded-[12px] border border-white/[0.07] bg-black/10 px-3 hover:border-[var(--accent)]/20"><Download className="size-4 shrink-0 text-[var(--accent)]" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-white">{template.title}</span><span className="mt-0.5 block truncate text-[9px] text-[#687279]">{template.extension.toUpperCase()} · версия {template.versionNumber}</span></span></a>)}</div></section> : null}
+    {templates.length ? <section aria-labelledby="act-templates-title" className="mb-6 border-y border-[var(--line)] py-4 sm:py-5"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-[var(--accent-soft)] text-[var(--accent-ink)]"><FileCheck2 className="size-4" /></span><div className="min-w-0 flex-1"><h2 id="act-templates-title" className="text-sm font-semibold text-[var(--text)]">Шаблоны актов</h2><p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">Скачайте утверждённую форму, заполните и приложите подписанный файл при завершении.</p></div></div><div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{templates.map((template) => <a key={template.id} href={`/api/v1/document-templates/${template.id}/download`} className="focus-ring flex min-h-12 min-w-0 items-center gap-3 rounded-[12px] border border-[var(--line)] bg-[var(--surface-raised)] px-3 hover:bg-[var(--surface-soft)]"><Download className="size-4 shrink-0 text-[var(--accent)]" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-[var(--text)]">{template.title}</span><span className="mt-0.5 block truncate text-[9px] text-[var(--muted)]">{template.extension.toUpperCase()} · версия {template.versionNumber}</span></span></a>)}</div></section> : null}
 
     {groups.length ? <div className="space-y-6">{groups.map(([date, dayVisits]) => <section key={date}>
-      <div className="mb-3 flex items-center gap-3"><h2 className="text-sm font-semibold capitalize text-white">{formatDay(dayVisits[0])}</h2><span className="h-px flex-1 bg-white/[0.06]" /><span className="text-[9px] text-[#687279]">{dayVisits.length} выезд.</span></div>
+      <div className="mb-3 flex items-center gap-3"><h2 className="text-sm font-semibold capitalize text-[var(--text)]">{formatDay(dayVisits[0])}</h2><span className="h-px flex-1 bg-[var(--line)]" /><span className="text-[9px] text-[var(--muted)]">{dayVisits.length} выезд.</span></div>
       <div className="grid gap-3 xl:grid-cols-2">{dayVisits.map((visit) => <VisitCard key={visit.id} visit={visit} onComplete={openCompletion} />)}</div>
-    </section>)}</div> : <section className="surface-panel grid min-h-72 place-items-center p-6 text-center"><div className="max-w-sm"><CircleAlert className="mx-auto size-8 text-[#59646a]" /><h2 className="mt-4 font-display text-lg font-semibold text-white">Назначенных выездов нет</h2><p className="mt-2 text-xs leading-5 text-[#737d83]">Новые работы появятся здесь сразу после назначения диспетчером.</p></div></section>}
+    </section>)}</div> : <section className="grid min-h-72 place-items-center border-y border-[var(--line)] p-6 text-center"><div className="max-w-sm"><CircleAlert className="mx-auto size-8 text-[var(--muted)]" /><h2 className="mt-4 font-display text-lg font-semibold text-[var(--text)]">Назначенных выездов нет</h2><p className="mt-2 text-xs leading-5 text-[var(--muted)]">Новые работы появятся здесь сразу после назначения диспетчером.</p></div></section>}
 
     <Dialog open={completionVisit !== null} onClose={() => setCompletionVisit(null)} title="Завершить выезд" description="Подписанный акт обязателен и сохранится в архиве заказа.">
       {completionVisit ? <VisitCompletionForm visit={completionVisit} requestKey={requestKey} onClose={() => setCompletionVisit(null)} /> : null}

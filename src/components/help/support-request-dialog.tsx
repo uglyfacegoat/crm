@@ -7,10 +7,10 @@ import { createSupportRequestAction, type SupportMutationState } from "@/app/(wo
 import { Dialog } from "@/components/ui/dialog";
 
 const initialState: SupportMutationState = { status: "idle", message: null, fieldErrors: {} };
-const inputClass = "focus-ring min-h-11 w-full rounded-[11px] border border-white/[0.08] bg-black/15 px-3 text-xs text-white outline-none placeholder:text-[#566067]";
+const inputClass = "focus-ring min-h-11 w-full rounded-[11px] border border-[var(--line)] bg-[var(--surface-raised)] px-3 text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
 
 function Field({ label, error, children }: { label: string; error?: string[]; children: ReactNode }) {
-  return <label className="grid gap-2 text-[10px] text-[#7b858b]"><span>{label}</span>{children}{error?.[0] ? <span className="text-[#df858a]">{error[0]}</span> : null}</label>;
+  return <label className="grid gap-2 text-[10px] text-[var(--text-secondary)]"><span>{label}</span>{children}{error?.[0] ? <span className="text-[var(--danger-ink)]">{error[0]}</span> : null}</label>;
 }
 
 function SupportForm({ onComplete }: { onComplete: () => void }) {
@@ -22,13 +22,13 @@ function SupportForm({ onComplete }: { onComplete: () => void }) {
     <Field label="Категория"><select name="category" defaultValue="usability" className={inputClass}><option value="usability">Интерфейс и удобство</option><option value="data">Данные и отчёты</option><option value="access">Доступ и аккаунт</option><option value="technical">Техническая ошибка</option></select></Field>
     <Field label="Тема *" error={state.fieldErrors.subject}><input name="subject" required minLength={5} maxLength={200} placeholder="Коротко: что нужно исправить" className={inputClass} /></Field>
     <Field label="Подробности *" error={state.fieldErrors.description}><textarea name="description" required minLength={20} maxLength={4000} placeholder="Что вы делали, что произошло, какой результат ожидали. Не указывайте пароль или секретный ключ." className={`${inputClass} min-h-40 resize-y p-3 leading-5`} /></Field>
-    <div className="rounded-[12px] border border-[#65b7ee]/15 bg-[#65b7ee]/[0.04] p-3 text-[10px] leading-5 text-[#8299a8]">Обращение видит администратор вашей организации. Пароли, токены и персональные данные клиентов прикладывать нельзя.</div>
-    {state.message ? <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[#69d3a4]/20 bg-[#69d3a4]/[0.05] text-[#8ed7b8]" : "border-[#ef646a]/20 bg-[#ef646a]/[0.05] text-[#d89599]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p> : null}
-  </div><footer className="sticky bottom-0 flex gap-2 border-t border-white/[0.07] bg-[#0d1317]/95 p-4 backdrop-blur-xl sm:px-7"><button type="button" onClick={onComplete} disabled={pending} className="focus-ring h-11 flex-1 rounded-[11px] border border-white/[0.08] text-xs text-[#899399]">Отмена</button><button type="submit" disabled={pending || state.status === "success"} className="focus-ring flex h-11 flex-[1.5] items-center justify-center gap-2 rounded-[11px] bg-[var(--accent)] text-xs font-semibold text-[#101308] disabled:opacity-60">{pending ? <><LoaderCircle className="size-4 animate-spin" />Регистрируем…</> : "Создать обращение"}</button></footer></form>;
+    <div className="rounded-[12px] border border-[var(--info-border)] bg-[var(--info-bg)] p-3 text-[10px] leading-5 text-[var(--info)]">Обращение видит администратор вашей организации. Пароли, токены и персональные данные клиентов прикладывать нельзя.</div>
+    {state.message ? <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]" : "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p> : null}
+  </div><footer className="sticky bottom-0 flex gap-2 border-t border-[var(--line)] bg-[var(--surface)] p-4 backdrop-blur-xl sm:px-7"><button type="button" onClick={onComplete} disabled={pending} className="focus-ring h-11 flex-1 rounded-[11px] border border-[var(--line)] text-xs text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={pending || state.status === "success"} className="focus-ring flex h-11 flex-[1.5] items-center justify-center gap-2 rounded-[11px] bg-[var(--accent)] text-xs font-semibold text-[var(--on-accent)] disabled:opacity-60">{pending ? <><LoaderCircle className="size-4 animate-spin" />Регистрируем…</> : "Создать обращение"}</button></footer></form>;
 }
 
 export function SupportRequestDialog() {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
-  return <><button type="button" onClick={() => setOpen(true)} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-xs font-semibold text-[#101308]"><LifeBuoy className="size-4" />Связаться с поддержкой</button><Dialog open={open} onClose={close} title="Обращение в поддержку" description="Опишите воспроизводимый сценарий — обращение сохранится в CRM.">{open ? <SupportForm onComplete={close} /> : null}</Dialog></>;
+  return <><button type="button" onClick={() => setOpen(true)} className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-xs font-semibold text-[var(--on-accent)]"><LifeBuoy className="size-4" />Связаться с поддержкой</button><Dialog open={open} onClose={close} title="Обращение в поддержку" description="Опишите воспроизводимый сценарий — обращение сохранится в CRM.">{open ? <SupportForm onComplete={close} /> : null}</Dialog></>;
 }
