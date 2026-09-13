@@ -24,9 +24,11 @@ RUN apk add --no-cache postgresql17-client \
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
+COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules/zod ./node_modules/zod
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrate.mjs ./scripts/migrate.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/seed-local-example-data.mjs ./scripts/seed-local-example-data.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/reminder-worker.mjs /app/scripts/reminder-worker-config.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-worker.mjs /app/scripts/backup-worker-config.mjs /app/scripts/backup-process.mjs /app/scripts/backup-restore.mjs /app/scripts/backup-restore-check.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/db/migrations ./db/migrations

@@ -10,7 +10,6 @@ import {
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { formatMoneyMinor, getInitials } from "@/lib/format";
 import { matchesSearchText } from "@/lib/search-normalization";
@@ -102,31 +101,14 @@ function loadTone(master: MasterListItem) {
 function MasterRosterRow({
   master,
   index,
-  onOpen,
 }: {
   master: MasterListItem;
   index: number;
-  onOpen: (masterId: string) => void;
 }) {
   const visits = master.todayVisits.slice(0, 2);
 
   return (
-    <article
-      role="link"
-      tabIndex={0}
-      aria-label={`Открыть карточку мастера ${master.fullName}`}
-      onClick={(event) => {
-        if (!(event.target as HTMLElement).closest("a, button"))
-          onOpen(master.id);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen(master.id);
-        }
-      }}
-      className="group relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--focus)] focus-visible:outline-offset-[-2px] md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] md:items-center sm:px-5"
-    >
+    <article className="relative grid min-w-0 gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 last:border-b-0 md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] md:items-center sm:px-5">
       <span className="hidden font-display text-[10px] tabular-nums text-[var(--muted-subtle)] md:block">
         {String(index + 1).padStart(2, "0")}
       </span>
@@ -137,7 +119,9 @@ function MasterRosterRow({
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-[var(--text)]">
-              {master.fullName}
+              <Link href={`/masters/${master.id}`} aria-label={`Открыть карточку мастера ${master.fullName}`} className="focus-ring rounded hover:text-[var(--accent-ink)]">
+                {master.fullName}
+              </Link>
             </h2>
             <p className="mt-1 flex items-center gap-1 truncate text-[10px] text-[var(--muted)]">
               <MapPin className="size-3 shrink-0" />
@@ -235,16 +219,14 @@ function MasterRosterRow({
               : formatMoneyMinor(master.basePaymentMinor)}
         </strong>
       </div>
-      <ArrowUpRight
-        aria-hidden
-        className="hidden size-4 shrink-0 text-[var(--muted)] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[var(--accent-ink)] md:block"
-      />
+      <span className="hidden size-7 place-items-center text-[var(--muted)] md:grid" aria-hidden="true">
+        <ArrowUpRight className="size-4" aria-hidden="true" />
+      </span>
     </article>
   );
 }
 
 export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | MasterStatusCode>("all");
   const [region, setRegion] = useState("");
@@ -412,12 +394,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
             <span />
           </header>
           {filtered.map((master, index) => (
-            <MasterRosterRow
-              key={master.id}
-              master={master}
-              index={index}
-              onOpen={(masterId) => router.push(`/masters/${masterId}`)}
-            />
+            <MasterRosterRow key={master.id} master={master} index={index} />
           ))}
         </section>
       ) : (

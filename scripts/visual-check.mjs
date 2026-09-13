@@ -18,6 +18,7 @@ const defaultBrowserPaths = {
 const visualCases = [
   { name: "dashboard-4k", path: "/", width: 3840, height: 2160 },
   { name: "dashboard-desktop", path: "/", width: 1920, height: 1080 },
+  { name: "dashboard-macbook", path: "/", width: 1440, height: 900 },
   { name: "dashboard-laptop", path: "/", width: 1366, height: 768 },
   { name: "dashboard-tablet", path: "/", width: 768, height: 1024 },
   { name: "dashboard-mobile", path: "/", width: 390, height: 844 },
@@ -46,6 +47,8 @@ const visualCases = [
   { name: "client-detail-mobile", path: "/clients/cl-1", width: 320, height: 568 },
   { name: "client-object-dialog-mobile", path: "/clients/cl-1", width: 360, height: 800, openObjectDialog: true },
   { name: "calendar-mobile", path: "/calendar", width: 390, height: 844 },
+  { name: "calendar-laptop", path: "/calendar", width: 1366, height: 768 },
+  { name: "calendar-macbook", path: "/calendar", width: 1440, height: 900 },
   { name: "calendar-desktop", path: "/calendar", width: 1920, height: 1080 },
   { name: "calendar-list-desktop", path: "/calendar", width: 1920, height: 1080, openCalendarList: true },
   { name: "calendar-list-mobile", path: "/calendar", width: 320, height: 568, openCalendarList: true },

@@ -488,6 +488,7 @@ export function ContractsWorkspace({
                   <button
                     type="button"
                     onClick={() => open(contract, "history")}
+                    aria-label={`История договора ${contract.contractNumber}`}
                     title="История"
                     className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
                   >
@@ -498,6 +499,7 @@ export function ContractsWorkspace({
                       <button
                         type="button"
                         onClick={() => open(contract, "edit")}
+                        aria-label={`Редактировать договор ${contract.contractNumber}`}
                         title="Редактировать"
                         className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
                       >
@@ -508,6 +510,7 @@ export function ContractsWorkspace({
                         <button
                           type="button"
                           onClick={() => open(contract, "renew")}
+                          aria-label={`Продлить договор ${contract.contractNumber}`}
                           title="Продлить"
                           className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)] hover:bg-[var(--accent)] hover:text-[var(--on-accent)]"
                         >

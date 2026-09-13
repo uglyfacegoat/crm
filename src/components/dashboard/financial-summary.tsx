@@ -1,6 +1,5 @@
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { Sparkline } from "@/components/charts/sparkline";
+import { DashboardPanelLink } from "@/components/dashboard/dashboard-panel-link";
 import { formatMoneyMinor } from "@/lib/format";
 import type { OrderListItem } from "@/server/orders/types";
 
@@ -27,7 +26,7 @@ export function FinancialSummary({ orders }: { orders: OrderListItem[] }) {
           </div>
         ))}
       </div>
-      <Link href="/analytics" className="focus-ring flex items-center gap-2 border-t border-[var(--line)] px-4 py-3.5 text-[11px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--surface-soft)]">Открыть аналитику <ArrowRight className="size-3.5" /></Link>
+      <DashboardPanelLink href="/analytics">Открыть аналитику</DashboardPanelLink>
     </section>
   );
 }

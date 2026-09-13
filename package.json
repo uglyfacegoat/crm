@@ -26,6 +26,7 @@
     "reminders:worker": "node --env-file-if-exists=.env.local scripts/reminder-worker.mjs",
     "db:down": "docker compose --env-file .env.local down",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "db:seed-local-example": "node --env-file-if-exists=.env.local scripts/seed-local-example-data.mjs",
     "db:up": "docker compose --env-file .env.local up -d --wait database",
     "docker:deploy": "docker compose --env-file .env.local up -d --build --wait",
     "docker:logs": "docker compose --env-file .env.local logs -f crm",

@@ -134,7 +134,7 @@ export default async function HelpPage() {
             ))}
           </nav>
         </aside>
-        <main className="space-y-5">
+        <section aria-label="Материалы помощи" className="space-y-5">
           {helpSections.map((section) => {
             const Icon = section.icon;
             return (
@@ -215,7 +215,7 @@ export default async function HelpPage() {
               </section>
             );
           })}
-        </main>
+        </section>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">

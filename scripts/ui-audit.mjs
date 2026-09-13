@@ -5,7 +5,9 @@ import { chromium } from "playwright-core";
 
 const browserCandidates = process.platform === "win32"
   ? ["C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"]
-  : ["/usr/bin/google-chrome", "/usr/bin/chromium"];
+  : process.platform === "darwin"
+    ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+    : ["/usr/bin/google-chrome", "/usr/bin/chromium"];
 const browserPath = process.env.CHROME_PATH ?? browserCandidates.find(existsSync);
 const baseUrl = process.env.UI_AUDIT_BASE_URL ?? "http://localhost:3000";
 const identity = process.env.UI_AUDIT_IDENTITY ?? process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL;
@@ -14,9 +16,9 @@ if (!browserPath) throw new Error("Chrome or Edge was not found. Set CHROME_PATH
 if (!identity || !password) throw new Error("UI audit credentials are required.");
 
 const routes = [
-  "/", "/orders", "/quick-order", "/clients", "/calendar", "/masters", "/documents",
+  "/", "/orders", "/inbox", "/quick-order", "/clients", "/calendar", "/masters", "/documents", "/documents/archive",
   "/contracts", "/finance", "/tasks", "/notifications", "/chat", "/analytics", "/sites",
-  "/settings", "/help",
+  "/companies", "/settings", "/help",
 ];
 const outputDirectory = resolve("artifacts/audit");
 mkdirSync(outputDirectory, { recursive: true });
@@ -57,6 +59,127 @@ async function openRoute(route) {
   failures.push(...routeFailures.map((failure) => `${route}: ${failure}`));
 }
 
+async function auditLaptopLayout(width, height) {
+  const viewport = `${width}x${height}`;
+  await page.setViewportSize({ width, height });
+  await openRoute("/");
+
+  const sidebarNavigation = page.getByRole("navigation", { name: "Основная навигация", exact: true });
+  const sidebar = sidebarNavigation.locator("xpath=ancestor::aside");
+  const sidebarGeometry = await sidebar.evaluate((element) => {
+    const navigation = element.querySelector('nav[aria-label="Основная навигация"]');
+    const settings = [...element.querySelectorAll("a")].find((link) => link.textContent?.trim() === "Настройки");
+    const logout = [...element.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Выйти");
+    if (!(navigation instanceof HTMLElement) || !(settings instanceof HTMLElement) || !(logout instanceof HTMLElement)) return null;
+    const asideBox = element.getBoundingClientRect();
+    const settingsBox = settings.getBoundingClientRect();
+    const logoutBox = logout.getBoundingClientRect();
+    const style = getComputedStyle(navigation);
+    return {
+      viewportHeight: window.innerHeight,
+      asideTop: asideBox.top,
+      asideBottom: asideBox.bottom,
+      settingsBottom: settingsBox.bottom,
+      logoutBottom: logoutBox.bottom,
+      navigationClientHeight: navigation.clientHeight,
+      navigationScrollHeight: navigation.scrollHeight,
+      navigationOverflowY: style.overflowY,
+    };
+  });
+  if (!sidebarGeometry) failures.push(`${viewport} sidebar: geometry is unavailable`);
+  else {
+    if (sidebarGeometry.asideTop < -1 || sidebarGeometry.asideBottom > height + 1) failures.push(`${viewport} sidebar: shell is outside the viewport`);
+    if (sidebarGeometry.settingsBottom > height + 1 || sidebarGeometry.logoutBottom > height + 1) failures.push(`${viewport} sidebar: settings or logout is clipped`);
+    if (sidebarGeometry.navigationOverflowY !== "auto") failures.push(`${viewport} sidebar: navigation overflow is ${sidebarGeometry.navigationOverflowY}`);
+    if (sidebarGeometry.navigationScrollHeight > sidebarGeometry.navigationClientHeight + 1) {
+      await sidebarNavigation.evaluate((element) => { element.scrollTop = Math.min(120, element.scrollHeight - element.clientHeight); });
+      if ((await sidebarNavigation.evaluate((element) => element.scrollTop)) <= 0) failures.push(`${viewport} sidebar: navigation cannot be scrolled`);
+    }
+  }
+  report.interactions.push({ route: "/", action: `sidebar layout ${viewport}`, result: sidebarGeometry });
+
+  const recentOrders = page.getByRole("heading", { name: "Новые и обновлённые", exact: true }).locator("xpath=ancestor::section");
+  const recentOrdersScroller = recentOrders.locator("table").locator("xpath=parent::div");
+  const recentOrdersGeometry = await recentOrdersScroller.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    left: element.getBoundingClientRect().left,
+    right: element.getBoundingClientRect().right,
+    viewportWidth: window.innerWidth,
+  }));
+  if (recentOrdersGeometry.scrollWidth > recentOrdersGeometry.clientWidth + 1) failures.push(`${viewport} dashboard: recent orders is clipped by ${recentOrdersGeometry.scrollWidth - recentOrdersGeometry.clientWidth}px`);
+  if (recentOrdersGeometry.left < -1 || recentOrdersGeometry.right > width + 1) failures.push(`${viewport} dashboard: recent orders is outside the viewport`);
+  report.interactions.push({ route: "/", action: `recent orders layout ${viewport}`, result: recentOrdersGeometry });
+
+  await openRoute("/calendar?view=week");
+  const schedule = page.getByRole("region", { name: "Прокручиваемая сетка расписания", exact: true });
+  await schedule.waitFor();
+  const scheduleGeometry = await schedule.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      overflowX: style.overflowX,
+      overflowY: style.overflowY,
+      left: box.left,
+      right: box.right,
+      top: box.top,
+      bottom: box.bottom,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  if (scheduleGeometry.overflowX !== "auto" || scheduleGeometry.overflowY !== "auto") failures.push(`${viewport} calendar: schedule is not an explicit scroll region`);
+  if (scheduleGeometry.left < -1 || scheduleGeometry.right > width + 1 || scheduleGeometry.top < -1 || scheduleGeometry.bottom > height + 4) failures.push(`${viewport} calendar: schedule is outside the viewport`);
+  if (scheduleGeometry.scrollHeight <= scheduleGeometry.clientHeight + 1) failures.push(`${viewport} calendar: vertical schedule overflow was not reproduced`);
+  const stickyHeader = schedule.locator(".sticky").first();
+  const headerTopBefore = (await stickyHeader.boundingBox())?.y ?? null;
+  await schedule.evaluate((element) => { element.scrollTop = Math.min(300, element.scrollHeight - element.clientHeight); });
+  await page.waitForTimeout(50);
+  const scrolledTop = await schedule.evaluate((element) => element.scrollTop);
+  const headerTopAfter = (await stickyHeader.boundingBox())?.y ?? null;
+  if (scrolledTop <= 0) failures.push(`${viewport} calendar: schedule cannot be scrolled vertically`);
+  if (headerTopBefore === null || headerTopAfter === null || Math.abs(headerTopBefore - headerTopAfter) > 2) failures.push(`${viewport} calendar: day header is not sticky`);
+  report.interactions.push({ route: "/calendar?view=week", action: `schedule layout ${viewport}`, result: { ...scheduleGeometry, scrolledTop, headerTopBefore, headerTopAfter } });
+}
+
+async function auditDetailRoutes() {
+  const detailChecks = [
+    { list: "/orders", prefix: "/orders/", backLabel: "К заказам", backHref: "/orders" },
+    { list: "/clients", prefix: "/clients/", backLabel: "К списку клиентов", backHref: "/clients" },
+    { list: "/masters", prefix: "/masters/", backLabel: "К списку мастеров", backHref: "/masters" },
+    { list: "/contracts", prefix: "/contracts/", backLabel: "К договорам", backHref: "/contracts" },
+    { list: "/sites", prefix: "/sites/", backLabel: "К сайтам", backHref: "/sites" },
+  ];
+
+  for (const detailCheck of detailChecks) {
+    await openRoute(detailCheck.list);
+    const href = await page.locator(`a[href^="${detailCheck.prefix}"]`).first().getAttribute("href");
+    if (!href) {
+      failures.push(`${detailCheck.list}: no detail link found for UI audit`);
+      continue;
+    }
+    await openRoute(href);
+    const backLink = page.getByRole("link", { name: detailCheck.backLabel, exact: true });
+    if (!(await backLink.count())) failures.push(`${href}: consistent back link '${detailCheck.backLabel}' is missing`);
+    else if ((await backLink.first().getAttribute("href")) !== detailCheck.backHref) failures.push(`${href}: back link does not return to ${detailCheck.backHref}`);
+    report.interactions.push({ route: href, action: "detail navigation", result: detailCheck.backLabel });
+  }
+
+  await openRoute("/settings");
+  await page.getByRole("tab", { name: "Пользователи", exact: true }).click();
+  const memberHref = await page.locator('a[href^="/settings/users/"]').first().getAttribute("href");
+  if (!memberHref) failures.push("/settings: no member detail link found for UI audit");
+  else {
+    await openRoute(memberHref);
+    const backLink = page.getByRole("link", { name: "К списку пользователей", exact: true });
+    if (!(await backLink.count())) failures.push(`${memberHref}: consistent member back link is missing`);
+    else if ((await backLink.first().getAttribute("href")) !== "/settings") failures.push(`${memberHref}: member back link does not return to /settings`);
+    report.interactions.push({ route: memberHref, action: "detail navigation", result: "К списку пользователей" });
+  }
+}
+
 async function expectDialog(route, buttonName, dialogName) {
   await openRoute(route);
   const button = page.getByRole("button", { name: buttonName, exact: true }).first();
@@ -71,12 +194,16 @@ try {
   await authenticate();
 
   for (const route of routes) await openRoute(route);
+  await auditLaptopLayout(1366, 768);
+  await auditLaptopLayout(1440, 900);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await auditDetailRoutes();
 
   await openRoute("/");
   const calendarSection = page.getByRole("heading", { name: "Календарь выездов", exact: true }).locator("xpath=ancestor::section");
-  const selectedDateBefore = await calendarSection.locator("p").first().innerText();
+  const selectedDateBefore = await calendarSection.locator("time[datetime]").innerText();
   await calendarSection.getByRole("button", { name: "Следующий день", exact: true }).click();
-  const selectedDateAfter = await calendarSection.locator("p").first().innerText();
+  const selectedDateAfter = await calendarSection.locator("time[datetime]").innerText();
   if (selectedDateBefore === selectedDateAfter) failures.push("/: mini-calendar did not change date");
   const eventLink = calendarSection.locator('a[href^="/orders/"], a[href^="/calendar?"]').first();
   if (await eventLink.count()) {
@@ -247,7 +374,7 @@ try {
   await clientRow.waitFor();
   await clientRow.click();
   await page.waitForURL((url) => url.pathname.startsWith("/clients/"));
-  report.interactions.push({ route: "/clients", action: "whole client row", result: new URL(page.url()).pathname });
+  report.interactions.push({ route: "/clients", action: "client detail link", result: new URL(page.url()).pathname });
 
   await openRoute("/masters");
   const masterCard = page.getByRole("link", { name: /Открыть карточку мастера/ }).first();
@@ -255,7 +382,14 @@ try {
   await masterCard.click();
   await page.waitForURL((url) => url.pathname.startsWith("/masters/"));
   await page.getByRole("heading", { name: "Последние выезды", exact: true }).waitFor();
-  report.interactions.push({ route: "/masters", action: "whole master card", result: new URL(page.url()).pathname });
+  report.interactions.push({ route: "/masters", action: "master detail link", result: new URL(page.url()).pathname });
+
+  await openRoute("/calendar?view=week");
+  await page.getByRole("button", { name: "Месяц", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/calendar" && url.searchParams.get("view") === "month");
+  await page.reload({ waitUntil: "networkidle" });
+  if ((await page.getByRole("button", { name: "Месяц", exact: true }).getAttribute("aria-pressed")) !== "true") failures.push("/calendar: selected view is not restored from the URL");
+  report.interactions.push({ route: "/calendar?view=week", action: "switch view and reload", result: page.url() });
 
   await openRoute("/calendar?view=day");
   const previousDay = page.getByRole("link", { name: "Предыдущий день", exact: true });
@@ -271,8 +405,10 @@ try {
   const previousMonthHref = await previousMonth.getAttribute("href");
   if (!previousMonthHref?.includes("view=month")) failures.push("/calendar month: navigation does not preserve month view");
   const draggableOrder = page.locator('aside article[draggable="true"]').first();
-  if (!(await draggableOrder.count())) failures.push("/calendar: unassigned orders are not exposed as draggable cards");
-  report.interactions.push({ route: "/calendar?view=month", action: "unassigned order drag affordance", result: await draggableOrder.count() ? "draggable" : "missing" });
+  const draggableOrderCount = await draggableOrder.count();
+  const emptyUnassignedState = await page.getByText("Все активные заказы уже в расписании", { exact: true }).count();
+  if (!draggableOrderCount && !emptyUnassignedState) failures.push("/calendar: unassigned orders expose neither draggable cards nor an empty state");
+  report.interactions.push({ route: "/calendar?view=month", action: "unassigned order drag affordance", result: draggableOrderCount ? "draggable" : "empty state" });
 
   const newVisitLink = page.locator('aside a[href*="newVisit=1"]').first();
   if (await newVisitLink.count()) {

@@ -7,6 +7,7 @@ import { DocumentTemplatePanel } from "@/components/settings/document-template-p
 import { ImportPanel } from "@/components/settings/import-panel";
 import { MemberAdminPanel } from "@/components/settings/member-admin-panel";
 import { OrganizationPanel } from "@/components/settings/organization-panel";
+import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import type { BackupSystemSnapshot } from "@/server/backups/types";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
 import type { ImportJobListItem } from "@/server/imports/types";
@@ -24,6 +25,7 @@ const settingTabs = [
 ] as const;
 
 type SettingTab = (typeof settingTabs)[number]["id"];
+const settingTabOptions = settingTabs.map(({ id, label }) => ({ value: id, label }));
 
 type SettingsWorkspaceProps = {
   members: OrganizationMemberListItem[];
@@ -44,15 +46,15 @@ export function SettingsWorkspace({ members, masterOptions, templates, backupSna
 
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-      <div className="flex gap-1 overflow-x-auto border-b border-[var(--line)] pb-px" role="tablist" aria-label="Настройки CRM">
-        {settingTabs.map((tab) => (
-          <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`settings-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={`focus-ring h-11 shrink-0 border-b-2 px-3 text-xs transition-colors ${activeTab === tab.id ? "border-[var(--accent)] text-[var(--accent-ink)]" : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"}`}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <SegmentedTabs
+        tabs={settingTabOptions}
+        value={activeTab}
+        onChange={setActiveTab}
+        label="Настройки CRM"
+        idPrefix="settings"
+      />
 
-      <section id={`settings-${activeTab}`} role="tabpanel">
+      <section id="settings-panel" role="tabpanel" aria-labelledby={`settings-${activeTab}-tab`}>
         {activeTab === "members" ? <MemberAdminPanel members={members} masterOptions={masterOptions} currentMemberId={currentMemberId} preview={preview} /> : null}
         {activeTab === "organizations" ? <OrganizationPanel organizations={organizations} preview={preview} /> : null}
         {activeTab === "appearance" ? <AppearancePanel theme={theme} fontScale={fontScale} digitStyle={digitStyle} /> : null}

@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { completeTaskAction } from "@/app/(workspace)/tasks/actions";
+import { DashboardPanelLink } from "@/components/dashboard/dashboard-panel-link";
 import type { TaskCard } from "@/server/tasks/types";
 
 const priorityPresentation = {
@@ -39,9 +38,6 @@ export function TaskList({ tasks, canWrite }: { tasks: TaskCard[]; canWrite: boo
           <h2 id="dashboard-tasks-heading" className="mt-2 text-[clamp(1rem,0.9rem+0.23vw,1.2rem)] font-semibold tracking-[-0.025em] text-[var(--text)]">Рабочая очередь</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">{tasks.length ? `${tasks.length} задач в ближайшем фокусе` : "На сегодня задач нет"}</p>
         </div>
-        <Link href="/tasks" className="focus-ring grid size-9 place-items-center rounded-full border border-[var(--line)] text-[var(--muted)] transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-[var(--line-strong)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)] active:translate-y-0" aria-label="Открыть задачи">
-          <ArrowUpRight className="size-4" />
-        </Link>
       </div>
       <div className="divide-y divide-[var(--line)]">
         {tasks.map((task) => {
@@ -60,9 +56,7 @@ export function TaskList({ tasks, canWrite }: { tasks: TaskCard[]; canWrite: boo
       </div>
       {!tasks.length ? <p className="px-5 py-9 text-center text-xs text-[var(--muted)]">Актуальных задач нет</p> : null}
       {error ? <p role="alert" className="border-t border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[10px] text-[var(--danger-ink)]">{error}</p> : null}
-      <Link href="/tasks" className="focus-ring flex items-center justify-center gap-2 border-t border-[var(--line)] px-5 py-3.5 text-[11px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--surface-soft)]">
-        Открыть все задачи <ArrowUpRight className="size-3.5" />
-      </Link>
+      <DashboardPanelLink href="/tasks">Открыть все задачи</DashboardPanelLink>
     </section>
   );
 }

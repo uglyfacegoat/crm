@@ -128,7 +128,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         <div className="flex gap-1 rounded-full bg-[var(--surface-inset)] p-1" aria-label="Период аналитики">{analyticsRanges.map((days) => <Link key={days} href={`/analytics?view=${view}&range=${days}`} aria-current={range === days ? "true" : undefined} className={`focus-ring rounded-full px-3 py-2 text-[10px] transition-colors ${range === days ? "bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_2px_rgba(0,0,0,0.1)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>{days === 365 ? "Год" : `${days} дней`}</Link>)}</div>
       </div>
 
-      <main className="space-y-3"><AnalyticsContent view={view} snapshot={snapshot} /></main>
+      <div className="space-y-3"><AnalyticsContent view={view} snapshot={snapshot} /></div>
     </div>
   );
 }

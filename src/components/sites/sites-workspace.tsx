@@ -110,7 +110,7 @@ export function SitesWorkspace({ snapshot, canWrite, preview }: { snapshot: Webs
 
     <div className="mt-4 flex flex-col gap-3 border-b border-[var(--line)] pb-3 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex min-w-0 gap-1 overflow-x-auto">
-        {filterOptions.map((option) => <button key={option.value} type="button" onClick={() => setFilter(option.value)} className={`focus-ring h-10 shrink-0 rounded-[10px] px-3 text-xs ${filter === option.value ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>{option.label}</button>)}
+        {filterOptions.map((option) => <button key={option.value} type="button" aria-pressed={filter === option.value} onClick={() => setFilter(option.value)} className={`focus-ring h-10 shrink-0 rounded-[10px] px-3 text-xs ${filter === option.value ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>{option.label}</button>)}
       </div>
       <div className="flex min-w-0 gap-2">
         <label className="relative block min-w-0 flex-1 xl:w-72 xl:flex-none">

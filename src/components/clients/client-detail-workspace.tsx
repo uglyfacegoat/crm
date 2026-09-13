@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ArrowLeft, Building2, CalendarDays, ContactRound, Mail, MapPin, Phone, ShieldAlert, UserRound } from "lucide-react";
+import { Building2, CalendarDays, ContactRound, Mail, MapPin, Phone, ShieldAlert, UserRound } from "lucide-react";
 import { ClientDetailActions } from "./client-detail-dialogs";
+import { BackLink } from "@/components/ui/back-link";
 import type { ClientDetail } from "@/server/clients/types";
 
 function DetailStat({ label, value, icon: Icon }: { label: string; value: string | number; icon: typeof Building2 }) {
@@ -21,7 +22,7 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
 
   return (
     <div className="pb-8">
-      <Link href="/clients" className="focus-ring inline-flex items-center gap-2 rounded-lg text-xs text-[var(--muted)] hover:text-[var(--text)]"><ArrowLeft className="size-4" />К списку клиентов</Link>
+      <BackLink href="/clients">К списку клиентов</BackLink>
       <header className="mt-5 flex flex-col gap-5 border-b border-[var(--line)] pb-6 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

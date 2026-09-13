@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Ban,
+  CheckCircle2,
   CircleAlert,
   ExternalLink,
   Globe2,
@@ -94,6 +95,39 @@ function StatusPill({ status }: { status: IncomingLeadStatus }) {
       <span className={"size-1.5 rounded-full " + statusDotTone[status]} />
       {incomingLeadStatusLabels[status]}
     </span>
+  );
+}
+
+function OverviewMetric({
+  label,
+  value,
+  detail,
+  icon: Icon,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  icon: typeof Inbox;
+}) {
+  return (
+    <article className="surface-panel flex min-w-0 items-center gap-3 p-4 sm:p-5">
+      <span className="grid size-10 shrink-0 place-items-center rounded-[12px] border border-[var(--accent)]/25 bg-[var(--accent-soft)] text-[var(--accent-ink)]">
+        <Icon className="size-4.5" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.11em] text-[var(--muted)]">
+          {label}
+        </p>
+        <div className="mt-1.5 flex min-w-0 items-baseline gap-2">
+          <strong className="font-display text-2xl font-semibold text-[var(--text)]">
+            {value}
+          </strong>
+          <span className="truncate text-[10px] text-[var(--muted)]">
+            {detail}
+          </span>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -332,9 +366,21 @@ export function IncomingLeadsWorkspace({
     <div>
       <PageHeading eyebrow="Первичный разбор" title="Входящие заявки" description="Новые обращения с сайтов проверяются здесь до создания клиента, объекта, заказа и первого выезда." />
 
-      <section className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-        <header className="flex flex-col gap-4 border-b border-[var(--line)] py-4 sm:py-5 xl:flex-row xl:items-end xl:justify-between">
-          <nav aria-label="Статусы входящих заявок" className="scrollbar-hidden -mb-px flex min-w-0 gap-1 overflow-x-auto">
+      <section aria-labelledby="incoming-overview-heading" className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
+        <h2 id="incoming-overview-heading" className="eyebrow">
+          Обзор данных
+        </h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <OverviewMetric label="Всего заявок" value={snapshot.counts.all} detail="за всё время" icon={Inbox} />
+          <OverviewMetric label="Требуют решения" value={snapshot.counts.new + snapshot.counts.reviewing} detail={`${snapshot.counts.new} новых`} icon={CircleAlert} />
+          <OverviewMetric label="Принятые" value={snapshot.counts.accepted} detail="переданы в работу" icon={CheckCircle2} />
+          <OverviewMetric label="Отклонённые" value={snapshot.counts.rejected} detail="сохранены в истории" icon={Ban} />
+        </div>
+      </section>
+
+      <section className="mt-5">
+        <header className="flex flex-col gap-4 py-4 sm:py-5 xl:flex-row xl:items-end xl:justify-between">
+          <nav aria-label="Статусы входящих заявок" className="scrollbar-hidden flex max-w-full min-w-0 gap-1 overflow-x-auto rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-1">
             {tabs.map((tab) => {
               const active = filter.status === tab.value;
               return (
@@ -342,10 +388,10 @@ export function IncomingLeadsWorkspace({
                   key={tab.value}
                   href={inboxHref(tab.value, filter.query)}
                   aria-current={active ? "page" : undefined}
-                  className={"focus-ring flex h-10 shrink-0 items-center gap-2 border-b-2 px-3 text-xs transition-colors " + (active ? "border-[var(--accent)] text-[var(--accent-ink)]" : "border-transparent text-[var(--text-secondary)] hover:border-[var(--line-strong)] hover:text-[var(--text)]")}
+                  className={"focus-ring flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-3 text-xs transition-colors " + (active ? "bg-[var(--accent)] font-semibold text-[var(--on-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}
                 >
                   <span>{tab.label}</span>
-                  <span className={active ? "text-[var(--accent)]" : "text-[var(--muted)]"}>{snapshot.counts[tab.value]}</span>
+                  <span className={active ? "text-[var(--on-accent)]/75" : "text-[var(--muted)]"}>{snapshot.counts[tab.value]}</span>
                 </Link>
               );
             })}

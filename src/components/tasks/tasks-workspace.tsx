@@ -238,14 +238,18 @@ export function TasksWorkspace({
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] grid gap-4 2xl:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="min-w-0">
-        <div className="surface-panel mb-4 flex min-w-0 gap-2 overflow-x-auto p-2">
+        <div role="group" aria-label="Режим отображения задач" className="surface-panel mb-4 flex min-w-0 gap-2 overflow-x-auto p-2">
           <button
+            type="button"
+            aria-pressed={activeTab === "all"}
             onClick={() => setActiveTab("all")}
             className={`focus-ring h-11 shrink-0 rounded-[12px] px-4 text-xs font-medium ${activeTab === "all" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "soft-button text-[var(--text-secondary)]"}`}
           >
             Все задачи <span className="ml-2 opacity-60">{tasks.length}</span>
           </button>
           <button
+            type="button"
+            aria-pressed={activeTab === "mine"}
             onClick={() => setActiveTab("mine")}
             className={`focus-ring h-11 shrink-0 rounded-[12px] px-4 text-xs font-medium ${activeTab === "mine" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "soft-button text-[var(--text-secondary)]"}`}
           >
@@ -259,6 +263,8 @@ export function TasksWorkspace({
             </span>
           </button>
           <button
+            type="button"
+            aria-pressed={activeTab === "completed"}
             onClick={() => setActiveTab("completed")}
             className={`focus-ring h-11 shrink-0 rounded-[12px] px-4 text-xs font-medium ${activeTab === "completed" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "soft-button text-[var(--text-secondary)]"}`}
           >

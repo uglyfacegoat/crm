@@ -77,6 +77,27 @@ function isActivePath(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
+function LogoutButton({
+  className,
+  iconClassName,
+  labelClassName,
+  role,
+}: {
+  className: string;
+  iconClassName: string;
+  labelClassName?: string;
+  role?: "menuitem";
+}) {
+  return (
+    <form action={logoutAction}>
+      <button type="submit" role={role} className={className}>
+        <LogOut className={iconClassName} strokeWidth={1.7} aria-hidden="true" />
+        <span className={labelClassName}>Выйти</span>
+      </button>
+    </form>
+  );
+}
+
 function SidebarContent({
   pathname,
   navigation,
@@ -104,7 +125,7 @@ function SidebarContent({
   return (
     <>
       {expanded ? (
-        <div className="flex h-16 items-center justify-end border-b border-[var(--line)] px-4">
+        <div className="flex h-16 shrink-0 items-center justify-end border-b border-[var(--line)] px-4">
           <button
             onClick={onNavigate}
             aria-label="Закрыть меню"
@@ -116,7 +137,7 @@ function SidebarContent({
       ) : null}
 
       {role !== "master" || (!expanded && onToggleCollapsed) ? (
-        <div className={`px-3 pt-3 ${compact ? "grid gap-2" : ""}`}>
+        <div className={`shrink-0 px-3 pt-3 ${compact ? "grid gap-2" : ""}`}>
           <div
             className={`flex overflow-hidden border border-[var(--line)] bg-[var(--surface)] ${compact ? "flex-col rounded-[13px]" : "rounded-[14px]"}`}
           >
@@ -162,7 +183,7 @@ function SidebarContent({
 
       <nav
         aria-label="Основная навигация"
-        className="flex flex-1 flex-col gap-1 px-3 py-4"
+        className="sidebar-navigation flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-3 py-4"
       >
         {navigation.map((item) => {
           const active = isActivePath(pathname, item.href);
@@ -188,7 +209,7 @@ function SidebarContent({
         })}
       </nav>
 
-      <div className="space-y-1 border-t border-[var(--line)] p-3">
+      <div className="shrink-0 space-y-1 border-t border-[var(--line)] bg-[var(--surface-raised)] p-3">
         {hasPermission(currentUser, "help.read") ? (
           <Link
             href="/help"
@@ -213,14 +234,11 @@ function SidebarContent({
             <span className={labelClass}>Настройки</span>
           </Link>
         ) : null}
-        <form action={logoutAction}>
-          <button
-            className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl ${itemAlignment} text-left text-sm text-[var(--danger-ink)] transition-colors hover:bg-[var(--danger-bg)]`}
-          >
-            <LogOut className="size-[18px]" strokeWidth={1.7} />
-            <span className={labelClass}>Выйти</span>
-          </button>
-        </form>
+        <LogoutButton
+          className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl ${itemAlignment} text-left text-sm text-[var(--danger-ink)] transition-colors hover:bg-[var(--danger-bg)]`}
+          iconClassName="size-[18px] shrink-0"
+          labelClassName={labelClass}
+        />
       </div>
     </>
   );
@@ -574,15 +592,11 @@ function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
               Настройки системы
             </Link>
           ) : null}
-          <form action={logoutAction}>
-            <button
-              role="menuitem"
-              className="focus-ring flex min-h-10 w-full items-center gap-2.5 rounded-[11px] px-2.5 text-left text-xs text-[var(--danger-ink)] hover:bg-[var(--danger-bg)]"
-            >
-              <X className="size-4" />
-              Выйти
-            </button>
-          </form>
+          <LogoutButton
+            role="menuitem"
+            className="focus-ring flex min-h-10 w-full items-center gap-2.5 rounded-[11px] px-2.5 text-left text-xs text-[var(--danger-ink)] hover:bg-[var(--danger-bg)]"
+            iconClassName="size-4 shrink-0"
+          />
         </div>
       ) : null}
     </div>
@@ -638,7 +652,7 @@ export function AppShell({
   return (
     <div className="min-h-screen bg-transparent">
       <aside
-        className={`fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-[var(--line)] bg-[var(--surface-raised)] backdrop-blur-xl transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-20" : "w-56"}`}
+        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--surface-raised)] backdrop-blur-xl transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-20" : "w-56"}`}
       >
         <SidebarContent
           pathname={pathname}
@@ -656,7 +670,7 @@ export function AppShell({
           role="presentation"
         >
           <aside
-            className="flex h-full w-[min(19rem,88vw)] flex-col border-r border-[var(--line-strong)] bg-[var(--surface-raised)] shadow-[0_20px_60px_rgba(0,0,0,0.24)]"
+            className="flex h-full w-[min(19rem,88vw)] flex-col overflow-hidden border-r border-[var(--line-strong)] bg-[var(--surface-raised)] shadow-[0_20px_60px_rgba(0,0,0,0.24)]"
             onClick={(event) => event.stopPropagation()}
           >
             <SidebarContent

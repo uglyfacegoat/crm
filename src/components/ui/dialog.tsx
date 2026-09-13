@@ -9,15 +9,21 @@ export function Dialog({ open, onClose, title, description, children }: { open: 
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const panel = panelRef.current;
     panel?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
       if (event.key !== "Tab" || !panel) return;
       const focusable = Array.from(panel.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'));
       if (!focusable.length) return;
@@ -27,8 +33,12 @@ export function Dialog({ open, onClose, title, description, children }: { open: 
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
     document.addEventListener("keydown", handleKeyDown);
-    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", handleKeyDown); };
-  }, [onClose, open]);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+      if (returnFocusTo?.isConnected) returnFocusTo.focus();
+    };
+  }, [open]);
 
   if (!open) return null;
   return createPortal(<div className="fixed inset-0 z-[70] overflow-hidden bg-black/76" onMouseDown={onClose} role="presentation"><div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onInputCapture={(event) => {

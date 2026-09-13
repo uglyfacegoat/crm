@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Building2, ContactRound, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
@@ -29,7 +29,6 @@ function Choice<T extends string>({ value, current, label, onChange }: { value: 
 }
 
 export function ClientsWorkspace({ clients }: { clients: Client[] }) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<ClientHistoryFilter>("all");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -116,8 +115,8 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
             </thead>
             <tbody className="divide-y divide-[var(--line)]">
               {filteredClients.map((client) => (
-                <tr key={client.id} role="link" tabIndex={0} aria-label={`Открыть клиента ${client.name}`} onClick={() => router.push(`/clients/${client.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/clients/${client.id}`); } }} className="cursor-pointer hover:bg-[var(--surface-raised)] focus-visible:bg-[var(--surface-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]">
-                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] font-display text-[10px] text-[var(--accent-ink)]">{client.name.replace(/[^А-ЯA-Z]/g, "").slice(0, 2)}</span><div><span className="text-xs font-semibold text-[var(--text)]">{client.name}</span><p className="mt-1 text-[9px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div></div></td>
+                <tr key={client.id}>
+                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] font-display text-[10px] text-[var(--accent-ink)]">{client.name.replace(/[^А-ЯA-Z]/g, "").slice(0, 2)}</span><div><Link href={`/clients/${client.id}`} aria-label={`Открыть клиента ${client.name}`} className="focus-ring rounded text-xs font-semibold text-[var(--text)] hover:text-[var(--accent-ink)]">{client.name}</Link><p className="mt-1 text-[9px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div></div></td>
                   <td className="px-4 py-3.5 text-xs text-[var(--text-secondary)]">{client.contact}</td>
                   <td className="px-4 py-3.5"><p className="text-xs text-[var(--text-secondary)]">{client.phone}</p><p className="mt-1 text-[9px] text-[var(--muted)]">{client.email}</p></td>
                   <td className="px-4 py-3.5 text-center font-display text-xs text-[var(--text)]">{client.objects}</td>
@@ -131,12 +130,12 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
 
         <div className="grid gap-px bg-[var(--line)] sm:grid-cols-2 lg:hidden">
           {filteredClients.map((client) => (
-            <article key={client.id} role="link" tabIndex={0} aria-label={`Открыть клиента ${client.name}`} onClick={() => router.push(`/clients/${client.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/clients/${client.id}`); } }} className="cursor-pointer bg-[var(--surface)] p-4 hover:bg-[var(--surface-raised)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]">
+            <Link key={client.id} href={`/clients/${client.id}`} aria-label={`Открыть клиента ${client.name}`} className="focus-ring block bg-[var(--surface)] p-4 hover:bg-[var(--surface-raised)]">
               <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-[var(--text)]">{client.name}</h2><p className="mt-1 text-[10px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[8px] ${client.orders > 0 ? activeClientBadgeClass : inactiveClientBadgeClass}`}>{client.orders > 0 ? "Есть заказы" : "Без заказов"}</span></div>
               <p className="mt-4 text-xs text-[var(--text-secondary)]">{client.contact}</p>
               <p className="mt-1 text-[10px] text-[var(--muted)]">{client.phone} · {client.email}</p>
               <div className="mt-4 text-[10px] text-[var(--muted)]">{client.objects} объектов · {client.orders} заказов</div>
-            </article>
+            </Link>
           ))}
         </div>
 

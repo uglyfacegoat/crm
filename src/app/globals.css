@@ -158,14 +158,37 @@ a {
   color: #000000;
 }
 
+* {
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
 ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--line-strong);
+  background-clip: padding-box;
+}
+
+.scrollbar-hidden {
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
   display: none;
 }
 
-html,
-body,
-* {
-  scrollbar-width: none;
+.sidebar-navigation {
+  scrollbar-gutter: stable;
 }
 
 @keyframes rise-in {

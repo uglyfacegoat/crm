@@ -167,8 +167,10 @@ export default async function DashboardPage() {
         />
       </div>
 
-      <div className="mt-3 grid min-w-0 items-start gap-3 xl:grid-cols-[1.05fr_0.92fr_1fr]">
-        <RecentOrders orders={dashboardOrders.slice(0, 6)} />
+      <div className="mt-3 grid min-w-0 items-start gap-3 xl:grid-cols-2 min-[1800px]:grid-cols-[1.05fr_0.92fr_1fr]">
+        <div className="min-w-0 xl:col-span-2 min-[1800px]:col-span-1">
+          <RecentOrders orders={dashboardOrders.slice(0, 6)} />
+        </div>
         <DashboardCalendar
           visits={calendarVisits}
           initialDate={initialCalendarDate}

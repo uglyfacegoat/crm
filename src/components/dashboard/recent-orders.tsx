@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { formatMoneyMinor, formatShortDate } from "@/lib/format";
 import type { OrderListItem } from "@/server/orders/types";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { DashboardPanelLink } from "@/components/dashboard/dashboard-panel-link";
 
 export function RecentOrders({ orders }: { orders: OrderListItem[] }) {
   return (
@@ -12,7 +12,6 @@ export function RecentOrders({ orders }: { orders: OrderListItem[] }) {
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--accent)]">Поток заказов</p>
           <h2 id="dashboard-orders-heading" className="mt-2 text-[clamp(1rem,0.9rem+0.23vw,1.2rem)] font-semibold tracking-[-0.025em] text-[var(--text)]">Новые и обновлённые</h2>
         </div>
-        <Link href="/orders" className="focus-ring hidden shrink-0 items-center gap-2 rounded-full px-2 py-1.5 text-xs font-semibold text-[var(--accent-ink)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)] min-[540px]:inline-flex">Все заказы <ArrowRight className="size-3.5" /></Link>
       </div>
       <div className="hidden overflow-x-auto min-[540px]:block">
         <table className="w-full min-w-[31rem] text-left">
@@ -27,7 +26,7 @@ export function RecentOrders({ orders }: { orders: OrderListItem[] }) {
           </thead>
           <tbody className="divide-y divide-[var(--line)]">
             {orders.map((order) => (
-              <tr key={order.id} className="group transition-colors hover:bg-[var(--surface-raised)]">
+              <tr key={order.id}>
                 <td className="px-6 py-4"><Link href={`/orders/${order.id}`} className="focus-ring rounded text-xs font-semibold text-[var(--text)] hover:text-[var(--accent-ink)]">№{order.number}</Link></td>
                 <td className="px-4 py-3.5"><p className="max-w-32 truncate text-xs font-medium text-[var(--text-secondary)]">{order.client}</p><p className="mt-1 max-w-32 truncate text-[9px] text-[var(--muted)]">{order.object}</p></td>
                 <td className="px-4 py-3.5 text-[10px] text-[var(--muted)]">{formatShortDate(order.createdAt)}</td>
@@ -56,7 +55,7 @@ export function RecentOrders({ orders }: { orders: OrderListItem[] }) {
         ))}
       </div>
       {!orders.length ? <p className="px-5 py-10 text-center text-xs text-[var(--muted)]">Заказов пока нет</p> : null}
-      <Link href="/orders" className="focus-ring flex items-center justify-center gap-2 border-t border-[var(--line)] px-5 py-3.5 text-[11px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--surface-soft)] min-[540px]:hidden">Все заказы <ArrowRight className="size-3.5" /></Link>
+      <DashboardPanelLink href="/orders">Все заказы</DashboardPanelLink>
     </section>
   );
 }

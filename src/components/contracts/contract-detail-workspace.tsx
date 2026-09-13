@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowLeft,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +18,7 @@ import {
   ContractDialogs,
   type ContractDialogMode,
 } from "@/components/contracts/contract-dialogs";
+import { BackLink } from "@/components/ui/back-link";
 import type {
   ContractHistoryEvent,
   ContractListItem,
@@ -158,12 +158,7 @@ export function ContractDetailWorkspace({
 
   return (
     <div className="space-y-5">
-      <Link
-        href="/contracts"
-        className="focus-ring inline-flex items-center gap-2 rounded-[9px] text-xs text-[var(--muted)] hover:text-[var(--text)]"
-      >
-        <ArrowLeft className="size-4" />К договорам
-      </Link>
+      <BackLink href="/contracts">К договорам</BackLink>
       <header className="surface-panel p-5 sm:p-7">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>

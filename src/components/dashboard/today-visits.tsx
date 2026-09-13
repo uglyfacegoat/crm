@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
+import { DashboardPanelLink } from "@/components/dashboard/dashboard-panel-link";
 import type { DashboardVisit, DashboardVisitTone } from "@/components/dashboard/dashboard-calendar";
 
 const dots: Record<DashboardVisitTone, string> = {
@@ -20,9 +21,6 @@ export function TodayVisits({ visits, dateLabel, title = "Ближайшие в�
           <h2 id="dashboard-route-heading" className="mt-2 text-[clamp(1rem,0.9rem+0.23vw,1.2rem)] font-semibold tracking-[-0.025em] text-[var(--text)]">{title}</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">{dateLabel}</p>
         </div>
-        <Link href="/calendar" className="focus-ring grid size-9 place-items-center rounded-full border border-[var(--line)] text-[var(--muted)] transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-[var(--line-strong)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)] active:translate-y-0" aria-label="Открыть календарь">
-          <ArrowUpRight className="size-4" />
-        </Link>
       </div>
       <ol className="divide-y divide-[var(--line)]">
         {visits.map((visit, index) => (
@@ -45,9 +43,7 @@ export function TodayVisits({ visits, dateLabel, title = "Ближайшие в�
         ))}
       </ol>
       {!visits.length ? <p className="px-5 py-9 text-center text-xs text-[var(--muted)]">Предстоящих выездов нет</p> : null}
-      <Link href="/calendar" className="focus-ring flex items-center justify-center gap-2 border-t border-[var(--line)] px-5 py-3.5 text-[11px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--surface-soft)]">
-        Все выезды <ArrowRight className="size-3.5" />
-      </Link>
+      <DashboardPanelLink href="/calendar">Все выезды</DashboardPanelLink>
     </section>
   );
 }
