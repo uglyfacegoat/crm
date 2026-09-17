@@ -21,6 +21,7 @@ export const createInvoiceSchema = z.object({
 
 export const createPaymentSchema = z.object({
   idempotencyKey: z.string().uuid(),
+  receiptDocumentId: z.string().uuid(),
   invoiceId: z.string().uuid(),
   amount: positiveMoney,
   receivedOn: z.iso.date("Укажите дату оплаты"),
@@ -31,6 +32,7 @@ export const createPaymentSchema = z.object({
 
 export const createPayoutSchema = z.object({
   idempotencyKey: z.string().uuid(),
+  receiptDocumentId: z.string().uuid(),
   orderId: z.string().uuid(),
   amount: positiveMoney,
   paidOn: z.iso.date("Укажите дату выплаты"),

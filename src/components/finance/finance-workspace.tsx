@@ -44,6 +44,7 @@ const statusLabels: Record<string, string> = {
 type ReceivableState = "all" | "debt" | "overdue" | "paid" | "uninvoiced";
 type LedgerFilter = "all" | "posted" | "reversed";
 type FinanceSort = "debt-desc" | "debt-asc" | "amount-desc" | "number";
+type FinanceTab = "receivables" | "payouts" | "closed";
 type FinanceFilters = {
   receivableState: ReceivableState;
   ledger: LedgerFilter;
@@ -159,6 +160,9 @@ function PaymentRow({
           <p className="mt-1 truncate text-[9px] text-[var(--muted)]">
             {payment.note}
           </p>
+        ) : null}
+        {payment.receiptDocumentId ? (
+          <a href={`/api/v1/documents/${payment.receiptDocumentId}/download`} onClick={(event) => event.stopPropagation()} className="focus-ring mt-1 inline-flex items-center gap-1 text-[9px] text-[var(--accent-ink)] hover:text-[var(--accent)]"><ArrowDownToLine className="size-3" />Открыть чек</a>
         ) : null}
       </div>
       <LedgerStatus
@@ -457,6 +461,9 @@ function PayoutRow({
       <p className="mt-2 truncate text-[10px] text-[var(--text-secondary)] sm:mt-0">
         {methodLabels[payout.method]}
         {payout.reference ? ` · ${payout.reference}` : ""}
+        {payout.receiptDocumentId ? (
+          <a href={`/api/v1/documents/${payout.receiptDocumentId}/download`} onClick={(event) => event.stopPropagation()} className="focus-ring mt-1 flex items-center gap-1 text-[9px] text-[var(--accent-ink)] hover:text-[var(--accent)]"><ArrowDownToLine className="size-3" />Открыть чек</a>
+        ) : null}
       </p>
       <div className="mt-3 sm:mt-0">
         <LedgerStatus
@@ -491,7 +498,7 @@ export function FinanceWorkspace({
   snapshot: FinanceSnapshot;
   canWrite: boolean;
 }) {
-  const [tab, setTab] = useState<"receivables" | "payouts">("receivables");
+  const [tab, setTab] = useState<FinanceTab>("receivables");
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState(defaultFilters);
@@ -565,6 +572,21 @@ export function FinanceWorkspace({
       ]);
     });
   }, [filters, query, snapshot.payouts]);
+  const closedCustomerPayments = useMemo(
+    () => snapshot.orders.flatMap((order) =>
+      order.invoices.flatMap((invoice) =>
+        invoice.payments
+          .filter((payment) => payment.status === "posted")
+          .filter((payment) => matchesSearchText(query, [order.number, order.client, order.object, invoice.number, payment.reference]))
+          .map((payment) => ({ order, invoice, payment })),
+      ),
+    ),
+    [query, snapshot.orders],
+  );
+  const closedMasterPayouts = useMemo(
+    () => snapshot.payouts.filter((payout) => payout.status === "posted" && matchesSearchText(query, [payout.masterName, payout.orderNumber, payout.reference])),
+    [query, snapshot.payouts],
+  );
   const payoutOrders = snapshot.orders.filter(
     (order) => order.masterDueMinor > 0 && order.masterId,
   );
@@ -603,13 +625,13 @@ export function FinanceWorkspace({
           Boolean(filters.amountMax),
           filters.sort !== "debt-desc",
         ].filter(Boolean).length
-      : [
+      : tab === "payouts" ? [
           filters.ledger !== "all",
           filters.method !== "all",
           Boolean(filters.master),
           Boolean(filters.dateFrom),
           Boolean(filters.dateTo),
-        ].filter(Boolean).length;
+        ].filter(Boolean).length : 0;
 
   function resetFilters() {
     setQuery("");
@@ -617,7 +639,7 @@ export function FinanceWorkspace({
     setDraftFilters(defaultFilters);
     setFilterError(null);
   }
-  function switchTab(nextTab: "receivables" | "payouts") {
+  function switchTab(nextTab: FinanceTab) {
     setTab(nextTab);
     setFiltersOpen(false);
     setFilterError(null);
@@ -703,6 +725,22 @@ export function FinanceWorkspace({
               >
                 Мастера
               </button>
+              <button
+                id="finance-closed-tab"
+                type="button"
+                role="tab"
+                aria-selected={tab === "closed"}
+                aria-controls="finance-closed-panel"
+                onClick={() => switchTab("closed")}
+                className={
+                  "focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " +
+                  (tab === "closed"
+                    ? "bg-[var(--accent)] text-[var(--on-accent)]"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")
+                }
+              >
+                Закрытые
+              </button>
             </div>
             <p className="mt-3 max-w-md text-[10px] leading-5 text-[var(--muted)]">
               Счета, оплаты и выплаты хранятся в одной последовательности
@@ -718,13 +756,15 @@ export function FinanceWorkspace({
                 placeholder={
                   tab === "receivables"
                     ? "Заказ, клиент, объект или счёт"
-                    : "Мастер, заказ или операция"
+                    : tab === "payouts"
+                      ? "Мастер, заказ или операция"
+                      : "Клиент, мастер, заказ или операция"
                 }
                 className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
               />
             </label>
             <div className="flex shrink-0 items-center gap-2">
-              <button
+              {tab !== "closed" ? <button
                 type="button"
                 onClick={() => {
                   setDraftFilters(filters);
@@ -745,7 +785,7 @@ export function FinanceWorkspace({
                     {activeFilterCount}
                   </span>
                 ) : null}
-              </button>
+              </button> : null}
               {query.trim() || activeFilterCount ? (
                 <button
                   type="button"
@@ -828,7 +868,7 @@ export function FinanceWorkspace({
               )}
             </section>
           </div>
-        ) : (
+        ) : tab === "payouts" ? (
           <div
             id="finance-payouts-panel"
             role="tabpanel"
@@ -935,13 +975,41 @@ export function FinanceWorkspace({
               </section>
             </div>
           </div>
+        ) : (
+          <div id="finance-closed-panel" role="tabpanel" aria-labelledby="finance-closed-tab" className="grid gap-4 xl:grid-cols-2">
+            <section className="surface-panel p-5 sm:p-6">
+              <header className="flex items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
+                <div><h2 className="text-base font-semibold text-[var(--text)]">Поступления от клиентов</h2><p className="mt-1.5 text-[10px] leading-5 text-[var(--muted)]">Проведённые оплаты по счетам и прикреплённые подтверждения.</p></div>
+                <span className="font-display text-lg text-[var(--text)]">{closedCustomerPayments.length}</span>
+              </header>
+              <div className="mt-3 space-y-2">
+                {closedCustomerPayments.length ? closedCustomerPayments.map(({ order, invoice, payment }) => (
+                  <article key={payment.id} className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-4">
+                    <div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="truncate text-xs font-semibold text-[var(--text)]">{order.client}</p><Link href={`/orders/${order.id}`} className="mt-1 block truncate text-[10px] text-[var(--muted)] hover:text-[var(--accent-ink)]">{order.number} · счёт {invoice.number}</Link></div><strong className="shrink-0 font-display text-sm text-[var(--success)]">{formatMoneyMinor(payment.amountMinor)}</strong></div>
+                    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--line)] pt-3 text-[10px] text-[var(--text-secondary)]"><span>{formatDate(payment.receivedOn)}</span><span>{methodLabels[payment.method]}</span>{payment.reference ? <span>{payment.reference}</span> : null}{payment.receiptDocumentId ? <a href={`/api/v1/documents/${payment.receiptDocumentId}/download`} className="focus-ring ml-auto inline-flex items-center gap-1 text-[var(--accent-ink)] hover:text-[var(--accent)]"><ArrowDownToLine className="size-3.5" />Чек</a> : <span className="ml-auto text-[var(--muted)]">Без файла</span>}</div>
+                  </article>
+                )) : <p className="py-12 text-center text-xs text-[var(--muted)]">Проведённых поступлений не найдено.</p>}
+              </div>
+            </section>
+            <section className="surface-panel p-5 sm:p-6">
+              <header className="flex items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
+                <div><h2 className="text-base font-semibold text-[var(--text)]">Закрытые выплаты мастерам</h2><p className="mt-1.5 text-[10px] leading-5 text-[var(--muted)]">Проведённые расчёты с исполнителями по заказам.</p></div>
+                <span className="font-display text-lg text-[var(--text)]">{closedMasterPayouts.length}</span>
+              </header>
+              <div className="mt-3 space-y-3">
+                {closedMasterPayouts.length ? closedMasterPayouts.map((payout) => <PayoutRow key={payout.id} payout={payout} canWrite={false} onReverse={() => undefined} />) : <p className="py-12 text-center text-xs text-[var(--muted)]">Проведённых выплат не найдено.</p>}
+              </div>
+            </section>
+          </div>
         )}
         <footer className="surface-panel flex items-center justify-between gap-3 px-4 py-3 text-[10px] text-[var(--muted)]">
           <span>
             Показано{" "}
             {tab === "receivables"
               ? visibleOrders.length
-              : visiblePayouts.length}
+              : tab === "payouts"
+                ? visiblePayouts.length
+                : closedCustomerPayments.length + closedMasterPayouts.length}
           </span>
           <span>
             {activeFilterCount

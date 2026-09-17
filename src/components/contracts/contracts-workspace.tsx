@@ -60,15 +60,14 @@ const statuses: Array<{ value: "all" | ContractStatus; label: string }> = [
   { value: "completed", label: "Завершён" },
   { value: "cancelled", label: "Отменён" },
 ];
-const quickFilters: Array<{ value: QuickFilter; label: string; tone: string }> =
+const quickFilters: Array<{ value: QuickFilter; label: string }> =
   [
-    { value: "all", label: "Все договоры", tone: "var(--accent)" },
-    { value: "active", label: "Действуют", tone: "var(--success)" },
-    { value: "expiring", label: "Требуют продления", tone: "var(--warning)" },
+    { value: "all", label: "Все договоры" },
+    { value: "active", label: "Действуют" },
+    { value: "expiring", label: "Требуют продления" },
     {
       value: "scheduled",
       label: "С плановыми выездами",
-      tone: "var(--support)",
     },
   ];
 const statusPresentation = {
@@ -302,7 +301,7 @@ export function ContractsWorkspace({
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] space-y-4">
       <section
         aria-label="Быстрые фильтры договоров"
-        className="flex gap-1 overflow-x-auto rounded-[14px] border border-[var(--line)] bg-[var(--surface-inset)] p-1.5"
+        className="surface-panel scrollbar-hidden flex gap-1 overflow-x-auto p-2"
       >
         {quickFilters.map((entry) => (
           <button
@@ -310,15 +309,11 @@ export function ContractsWorkspace({
             type="button"
             onClick={() => setQuickFilter(entry.value)}
             aria-pressed={quickFilter === entry.value}
-            className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-[10px] px-3 text-xs transition-colors ${quickFilter === entry.value ? "bg-[var(--surface)] text-[var(--text)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
+            className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors ${quickFilter === entry.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
           >
-            <span
-              className="size-1.5 rounded-full"
-              style={{ backgroundColor: entry.tone }}
-            />
             {entry.label}
             <span
-              className={`rounded-full px-1.5 py-0.5 font-display text-[9px] ${quickFilter === entry.value ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "bg-[var(--surface-soft)] text-[var(--muted)]"}`}
+              className={`font-display text-[9px] ${quickFilter === entry.value ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}`}
             >
               {counts[entry.value]}
             </span>

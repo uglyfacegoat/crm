@@ -39,11 +39,15 @@ import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 import { matchesSearchText } from "@/lib/search-normalization";
 import {
   hasPermission,
-  permissions,
+  configurablePermissions,
   permissionSections,
   type Permission,
 } from "@/server/auth/permissions";
-import type { OrganizationRole } from "@/server/auth/types";
+import {
+  assignableOrganizationRoles,
+  type AssignableOrganizationRole,
+  type OrganizationRole,
+} from "@/server/auth/types";
 import type {
   MemberMasterOption,
   OrganizationMemberListItem,
@@ -55,12 +59,17 @@ const initialState: MemberMutationState = {
   fieldErrors: {},
 };
 const roleLabels: Record<OrganizationRole, string> = {
+  developer: "Разработчик",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
   accountant: "Бухгалтер",
   master: "Мастер",
 };
+const assignableRoleOptions = assignableOrganizationRoles.map((value) => ({
+  value,
+  label: roleLabels[value],
+}));
 
 function MutationStatus({ state }: { state: MemberMutationState }) {
   if (!state.message) return null;
@@ -174,7 +183,7 @@ function PermissionMatrix({
         </div>
         <div className="flex flex-wrap gap-2 text-[9px]">
           <span className="rounded-full border border-[var(--line)] bg-[var(--surface-inset)] px-2.5 py-1 text-[var(--muted)]">
-            {permissionSections.length} разделов · {permissions.length} функций
+            {permissionSections.length} разделов · {configurablePermissions.length} функций
           </span>
           <span className="rounded-full border border-[var(--info-border)] bg-[var(--info-bg)] px-2.5 py-1 text-[var(--info)]">
             {Object.keys(overrides).length} исключений
@@ -268,12 +277,9 @@ function RoleAndMasterFields({
         <CustomSelect
           name="role"
           value={role}
-          onChange={(value) => onRoleChange(value as OrganizationRole)}
+          onChange={(value) => onRoleChange(value as AssignableOrganizationRole)}
           ariaLabel="Роль сотрудника"
-          options={Object.entries(roleLabels).map(([value, label]) => ({
-            value,
-            label,
-          }))}
+          options={assignableRoleOptions}
           className={orderInputClass}
         />
       </OrderField>
@@ -801,14 +807,20 @@ export function MemberAdminPanel({
                 </p>
               </div>
               <div className="flex items-center gap-2 lg:justify-end">
-                <Link
-                  href={`/settings/users/${member.id}`}
-                  aria-label={`Открыть настройки: ${member.displayName}`}
-                  className="focus-ring flex h-10 items-center gap-2 rounded-[9px] border border-[var(--line)] px-3 text-[10px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)]/30 hover:text-[var(--text)]"
-                >
-                  <UserRoundCog className="size-4" />
-                  Открыть
-                </Link>
+                {member.role === "developer" ? (
+                  <span className="inline-flex h-10 items-center rounded-[9px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 text-[10px] text-[var(--muted)]">
+                    Системная учётка
+                  </span>
+                ) : (
+                  <Link
+                    href={`/settings/users/${member.id}`}
+                    aria-label={`Открыть настройки: ${member.displayName}`}
+                    className="focus-ring flex h-10 items-center gap-2 rounded-[9px] border border-[var(--line)] px-3 text-[10px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)]/30 hover:text-[var(--text)]"
+                  >
+                    <UserRoundCog className="size-4" />
+                    Открыть
+                  </Link>
+                )}
               </div>
             </article>
           ))}

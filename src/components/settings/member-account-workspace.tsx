@@ -16,6 +16,7 @@ import type {
 } from "@/server/members/types";
 
 const roleLabels = {
+  developer: "Разработчик",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -40,6 +41,7 @@ export function MemberAccountWorkspace({
   const [section, setSection] = useState<"access" | "security">("access");
   const [requestKey] = useState(() => crypto.randomUUID());
   const isCurrentMember = member.id === currentMemberId;
+  const isProtectedDeveloper = member.role === "developer";
 
   return (
     <div className="mx-auto max-w-[96rem]">
@@ -84,7 +86,22 @@ export function MemberAccountWorkspace({
         </dl>
       </header>
 
-      {isCurrentMember ? (
+      {isProtectedDeveloper ? (
+        <section className="surface-panel mt-6 p-5 sm:p-6">
+          <div className="flex gap-3">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+            <div>
+              <h2 className="text-sm font-medium text-[var(--text)]">
+                Защищённая учётная запись разработчика
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-[var(--muted)]">
+                Эту роль нельзя назначить, отключить или изменить через CRM.
+                Её системные функции не входят в матрицу прав организации.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : isCurrentMember ? (
         <section className="mt-6 border-l-2 border-[var(--accent)] bg-[var(--surface)] px-5 py-4">
           <div className="flex gap-3">
             <UserRound className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />

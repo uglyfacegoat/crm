@@ -31,12 +31,14 @@ try {
     await page.getByPlaceholder("Email или телефон").fill(identity);
     await page.getByPlaceholder("Пароль").fill(password);
     await page.getByRole("button", { name: "Войти в CRM" }).click();
-    await page.waitForURL(`${baseUrl}/help`);
+    await page.waitForURL((url) => url.pathname !== "/login");
+    await page.goto(`${baseUrl}/help`, { waitUntil: "networkidle" });
   }
   await page.getByRole("heading", { name: "Документация и поддержка", exact: true }).waitFor();
   await page.getByRole("button", { name: "Связаться с поддержкой", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Обращение в поддержку" });
-  await dialog.locator('select[name="category"]').selectOption("technical");
+  await dialog.getByRole("button", { name: "Категория обращения", exact: true }).click();
+  await dialog.getByRole("option", { name: "Техническая ошибка", exact: true }).click();
   await dialog.locator('input[name="subject"]').fill(subject);
   await dialog.locator('textarea[name="description"]').fill(description);
   await dialog.getByRole("button", { name: "Создать обращение", exact: true }).click();
@@ -53,13 +55,48 @@ try {
     WHERE organization_id = ${request.organization_id} AND entity_type = 'support_request' AND entity_id = ${requestId}`;
   if (!audit || audit.changes.includes(description)) throw new Error("Support request description leaked into the audit log.");
 
+  await page.goto(`${baseUrl}/developer/support`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Очередь обращений", exact: true }).waitFor();
+  const ticket = page.locator("article").filter({ hasText: subject });
+  await ticket.getByRole("button", { name: `Статус обращения ${subject}`, exact: true }).click();
+  await ticket.getByRole("option", { name: "В работе", exact: true }).click();
+  await ticket.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await ticket.getByText("Статус сохранён.", { exact: true }).waitFor();
+
+  const [updatedRequest] = await sql`SELECT status, version, handled_by_email
+    FROM support_requests WHERE id = ${requestId}`;
+  if (updatedRequest?.status !== "in_progress" || updatedRequest?.version !== 2 || !updatedRequest?.handled_by_email) {
+    throw new Error(`Developer queue update is inconsistent: ${JSON.stringify(updatedRequest)}`);
+  }
+
   for (const [width, height] of [[320, 568], [3840, 2160]]) {
     await page.setViewportSize({ width, height });
+    await page.waitForTimeout(300);
+    const layout = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+    if (layout.document > layout.viewport) throw new Error(`Support queue overflow at ${width}px: ${layout.document}px.`);
+  }
+
+  await page.goto(`${baseUrl}/help`, { waitUntil: "networkidle" });
+  if (await page.getByRole("link", { name: "Очередь обращений", exact: true }).count()) {
+    throw new Error("Developer support queue is still exposed inside the help page.");
+  }
+  for (const [width, height] of [[320, 568], [3840, 2160]]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(300);
     const layout = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
     if (layout.document > layout.viewport) throw new Error(`Help page overflow at ${width}px: ${layout.document}px.`);
   }
+
+  await page.setViewportSize({ width: 430, height: 900 });
+  await page.goto(`${baseUrl}/developer/pwa-preview`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "PWA мастера", exact: true }).waitFor();
+  await page.getByText("Предпросмотр разработчика", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Чат", exact: true }).click();
+  await page.getByTestId("chat-workspace").waitFor();
+  const pwaLayout = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+  if (pwaLayout.document > pwaLayout.viewport) throw new Error(`Developer PWA preview overflow: ${pwaLayout.document}px.`);
   if (pageErrors.length || consoleErrors.length) throw new Error(`Browser errors: ${JSON.stringify({ pageErrors, consoleErrors })}`);
-  console.log(JSON.stringify({ operation: "support.flow_check", status: "succeeded", requestId, auditProtected: true, viewports: [320, 3840] }));
+  console.log(JSON.stringify({ operation: "support.flow_check", status: "succeeded", requestId, auditProtected: true, developerQueue: true, developerPwaPreview: true, viewports: [320, 430, 3840] }));
 } finally {
   await browser.close();
   try {

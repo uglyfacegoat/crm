@@ -4,6 +4,15 @@ import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
 import {
+  DocumentFileValidationError,
+  validateDocumentFile,
+} from "@/server/documents/file-validation";
+import {
+  createDocumentStorageKey,
+  removeDocumentFile,
+  writeDocumentFile,
+} from "@/server/documents/storage";
+import {
   createInvoice,
   createMasterPayout,
   createPayment,
@@ -17,6 +26,7 @@ import {
   reverseMasterPayout,
   reversePayment,
   voidInvoice,
+  type FinanceReceiptFile,
 } from "@/server/finance/repository";
 import {
   createInvoiceSchema,
@@ -60,9 +70,48 @@ function logUnexpected(operation: string, memberId: string, error: unknown) {
 
 function refreshFinance(orderId?: string) {
   revalidatePath("/finance");
+  revalidatePath("/documents");
+  revalidatePath("/documents/archive");
   revalidatePath("/analytics");
   revalidatePath("/");
   if (orderId) revalidatePath(`/orders/${orderId}`);
+}
+
+async function storeReceipt(
+  formData: FormData,
+  organizationId: string,
+  documentId: string,
+): Promise<{ file: FinanceReceiptFile; created: boolean } | null> {
+  const uploadedFile = formData.get("receipt");
+  if (!(uploadedFile instanceof File) || uploadedFile.size === 0) return null;
+  const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+  const validated = validateDocumentFile({
+    filename: uploadedFile.name,
+    declaredMimeType: uploadedFile.type,
+    buffer,
+  });
+  const storageKey = createDocumentStorageKey(
+    organizationId,
+    documentId,
+    validated.extension,
+  );
+  let created = true;
+  try {
+    await writeDocumentFile(storageKey, buffer);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    created = false;
+  }
+  return { file: { documentId, storageKey, ...validated }, created };
+}
+
+async function removeUncommittedReceipt(receipt: { file: FinanceReceiptFile; created: boolean } | null) {
+  if (!receipt?.created) return;
+  try {
+    await removeDocumentFile(receipt.file.storageKey);
+  } catch (error) {
+    console.error(JSON.stringify({ operation: "finance.receipt.cleanup", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+  }
 }
 
 export async function createInvoiceAction(_previous: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
@@ -88,15 +137,19 @@ export async function createPaymentAction(_previous: FinanceActionState, formDat
   if (getAuthMode() === "preview") return { ...emptyState, status: "error", message: "Предпросмотр не записывает финансовые операции." };
   const member = await requireSession();
   const parsed = createPaymentSchema.safeParse({
-    idempotencyKey: formData.get("idempotencyKey"), invoiceId: formData.get("invoiceId"), amount: formData.get("amount"),
+    idempotencyKey: formData.get("idempotencyKey"), receiptDocumentId: formData.get("receiptDocumentId"), invoiceId: formData.get("invoiceId"), amount: formData.get("amount"),
     receivedOn: formData.get("receivedOn"), paymentMethod: formData.get("paymentMethod"), reference: formData.get("reference"), note: formData.get("note"),
   });
   if (!parsed.success) return validationFailure(parsed.error, "Проверьте сумму и реквизиты оплаты.");
+  let receipt: Awaited<ReturnType<typeof storeReceipt>> = null;
   try {
-    await createPayment(member, parsed.data);
+    receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
+    await createPayment(member, parsed.data, receipt?.file ?? null);
     refreshFinance();
     return { ...emptyState, status: "success", message: "Оплата проведена." };
   } catch (error) {
+    await removeUncommittedReceipt(receipt);
+    if (error instanceof DocumentFileValidationError) return { ...emptyState, status: "error", message: error.message, fieldErrors: { receipt: [error.message] } };
     const known = knownFailure(error); if (known) return { ...emptyState, status: "error", message: known };
     logUnexpected("finance.payment.create", member.memberId, error);
     return { ...emptyState, status: "error", message: "Не удалось провести оплату. Данные не сохранены." };
@@ -107,15 +160,19 @@ export async function createPayoutAction(_previous: FinanceActionState, formData
   if (getAuthMode() === "preview") return { ...emptyState, status: "error", message: "Предпросмотр не записывает финансовые операции." };
   const member = await requireSession();
   const parsed = createPayoutSchema.safeParse({
-    idempotencyKey: formData.get("idempotencyKey"), orderId: formData.get("orderId"), amount: formData.get("amount"),
+    idempotencyKey: formData.get("idempotencyKey"), receiptDocumentId: formData.get("receiptDocumentId"), orderId: formData.get("orderId"), amount: formData.get("amount"),
     paidOn: formData.get("paidOn"), paymentMethod: formData.get("paymentMethod"), reference: formData.get("reference"), note: formData.get("note"),
   });
   if (!parsed.success) return validationFailure(parsed.error, "Проверьте сумму и реквизиты выплаты.");
+  let receipt: Awaited<ReturnType<typeof storeReceipt>> = null;
   try {
-    await createMasterPayout(member, parsed.data);
+    receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
+    await createMasterPayout(member, parsed.data, receipt?.file ?? null);
     refreshFinance(parsed.data.orderId);
     return { ...emptyState, status: "success", message: "Выплата мастеру проведена." };
   } catch (error) {
+    await removeUncommittedReceipt(receipt);
+    if (error instanceof DocumentFileValidationError) return { ...emptyState, status: "error", message: error.message, fieldErrors: { receipt: [error.message] } };
     const known = knownFailure(error); if (known) return { ...emptyState, status: "error", message: known };
     logUnexpected("finance.payout.create", member.memberId, error);
     return { ...emptyState, status: "error", message: "Не удалось провести выплату. Данные не сохранены." };

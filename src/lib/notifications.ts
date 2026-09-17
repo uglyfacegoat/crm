@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { OrganizationRole } from "@/server/auth/types";
 
 export const notificationKinds = [
   "visit_upcoming",
@@ -50,7 +51,7 @@ export type NotificationSnapshot = z.infer<typeof notificationSnapshotSchema>;
 export type NotificationSeverity = (typeof notificationSeverities)[number];
 export type NotificationTargetType = (typeof notificationTargetTypes)[number];
 
-export function notificationHref(targetType: NotificationTargetType, targetId: string, role: "admin" | "dispatcher" | "manager" | "accountant" | "master") {
+export function notificationHref(targetType: NotificationTargetType, targetId: string, role: OrganizationRole) {
   if (role === "master") return "/my-visits";
   switch (targetType) {
     case "order": return `/orders/${targetId}`;

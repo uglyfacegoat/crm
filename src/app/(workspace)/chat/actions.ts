@@ -118,7 +118,7 @@ export async function updateChatChannelMembersAction(_previous: ChatMutationStat
   } catch (error) {
     if (error instanceof ChatChannelNotFoundError) return { status: "error", message: "Группа больше не существует.", fieldErrors: {}, entityId: null };
     if (error instanceof ChatChannelVersionConflictError) return { status: "error", message: "Состав уже изменил другой сотрудник. Обновите страницу.", fieldErrors: {}, entityId: null };
-    if (error instanceof ChatGeneralChannelMutationError) return { status: "error", message: "Состав общего канала обновляется автоматически.", fieldErrors: {}, entityId: null };
+    if (error instanceof ChatGeneralChannelMutationError) return { status: "error", message: "Состав системного канала обновляется автоматически.", fieldErrors: {}, entityId: null };
     if (error instanceof ChatMemberReferenceError) return { status: "error", message: "Один из сотрудников больше недоступен.", fieldErrors: { memberIds: ["Обновите список"] }, entityId: null };
     logUnexpected("chat.channel.members_update", member.memberId, error);
     return { status: "error", message: "Не удалось обновить состав группы.", fieldErrors: {}, entityId: null };

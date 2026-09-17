@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CalendarRange, ChevronRight, Grid2X2, List, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
@@ -40,6 +41,7 @@ function FilterChoice<T extends string>({ value, current, label, onChange }: { v
 }
 
 export function OrdersTable({ orders }: { orders: OrderListItem[] }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<OrderDisplayStatus | "Все">("Все");
   const [view, setView] = useState<"list" | "grid">("list");
@@ -101,7 +103,7 @@ export function OrdersTable({ orders }: { orders: OrderListItem[] }) {
           <div className="ml-auto flex shrink-0 rounded-[11px] border border-[var(--line)] p-1"><button type="button" onClick={() => setView("list")} aria-label="Показать списком" aria-pressed={view === "list"} className={`grid size-8 place-items-center rounded-[8px] ${view === "list" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--muted)]"}`}><List className="size-4" /></button><button type="button" onClick={() => setView("grid")} aria-label="Показать карточками" aria-pressed={view === "grid"} className={`grid size-8 place-items-center rounded-[8px] ${view === "grid" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--muted)]"}`}><Grid2X2 className="size-4" /></button></div>
         </div>
       </div>
-      <div className="flex gap-1.5 overflow-x-auto border-b border-[var(--line)] bg-[var(--surface-inset)] px-4 py-3 [scrollbar-width:none] sm:px-5 [&::-webkit-scrollbar]:hidden" aria-label="Фильтр по статусу">{statusOptions.map((option) => <button key={option} type="button" onClick={() => setStatus(option)} aria-pressed={status === option} className={`focus-ring flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[10px] font-medium transition-colors ${status === option ? "bg-[var(--surface-raised)] text-[var(--text)] ring-1 ring-[var(--line-strong)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>{option}<span className={status === option ? "text-[var(--accent)]" : "text-[var(--muted-subtle)]"}>{statusCounts.get(option)}</span></button>)}</div>
+      <div className="scrollbar-hidden flex gap-1 overflow-x-auto border-b border-[var(--line)] bg-[var(--surface-raised)] px-4 py-3 sm:px-5" aria-label="Фильтр по статусу"><div className="flex rounded-[13px] bg-[var(--surface-inset)] p-1">{statusOptions.map((option) => <button key={option} type="button" onClick={() => setStatus(option)} aria-pressed={status === option} className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-[10px] font-medium transition-colors ${status === option ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>{option}<span className={status === option ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}>{statusCounts.get(option)}</span></button>)}</div></div>
       <div className={`${view === "list" ? "hidden lg:block" : "hidden"} overflow-x-auto`}>
         <table className="w-full min-w-[900px] text-left">
           <thead className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
@@ -117,14 +119,11 @@ export function OrdersTable({ orders }: { orders: OrderListItem[] }) {
           </thead>
           <tbody className="divide-y divide-[var(--line)]">
             {filteredOrders.map((order) => (
-              <tr key={order.id}>
+              <tr key={order.id} role="link" tabIndex={0} aria-label={`Открыть заказ ${order.number}`} onClick={() => router.push(`/orders/${order.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/orders/${order.id}`); } }} className="cursor-pointer transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]">
                 <td className="px-5 py-4">
-                  <Link
-                    href={`/orders/${order.id}`}
-                    className="focus-ring rounded font-display text-[11px] font-semibold text-[var(--text)] transition-colors hover:text-[var(--accent)]"
-                  >
+                  <span className="font-display text-[11px] font-semibold text-[var(--text)]">
                     {order.number}
-                  </Link>
+                  </span>
                 </td>
                 <td className="px-4 py-4 text-xs font-medium text-[var(--text)]">{order.client}</td>
                 <td className="px-4 py-4">

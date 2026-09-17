@@ -36,7 +36,8 @@ test("enforces role grants and organization boundaries", () => {
   assert.equal(hasPermission("accountant", "chat.write"), true);
   assert.equal(hasPermission("accountant", "chat.manage"), false);
   assert.equal(hasPermission("accountant", "tasks.write"), false);
-  assert.equal(hasPermission("master", "chat.read"), false);
+  assert.equal(hasPermission("master", "chat.read"), true);
+  assert.equal(hasPermission("master", "chat.write"), true);
   assert.equal(hasPermission("master", "finance.read"), false);
   assert.equal(hasPermission("master", "orders.read"), false);
   assert.equal(hasPermission("master", "visits.write"), true);
@@ -45,9 +46,16 @@ test("enforces role grants and organization boundaries", () => {
   assert.equal(hasPermission("master", "notifications.read"), true);
   assert.equal(hasPermission("master", "companies.read"), false);
   assert.equal(hasPermission("master", "assistant.use"), false);
+  assert.equal(hasPermission("developer", "support.manage"), true);
+  assert.equal(hasPermission("developer", "developer.preview"), true);
+  assert.equal(hasPermission("admin", "support.manage"), false);
+  assert.equal(hasPermission("admin", "developer.preview"), false);
   const member: AuthenticatedMember = { sessionId: crypto.randomUUID(), organizationId: crypto.randomUUID(), organizationName: "CRM", memberId: crypto.randomUUID(), displayName: "Admin", email: "admin@example.com", role: "admin", masterId: null, permissionOverrides: {} };
   assert.equal(hasPermission({ ...member, role: "dispatcher", permissionOverrides: { "orders.write": false } }, "orders.write"), false);
   assert.equal(hasPermission({ ...member, role: "accountant", permissionOverrides: { "orders.write": true } }, "orders.write"), true);
+  assert.equal(hasPermission({ ...member, permissionOverrides: { "support.manage": true } }, "support.manage"), false);
+  assert.equal(hasPermission({ ...member, permissionOverrides: { "developer.preview": true } }, "developer.preview"), false);
+  assert.equal(hasPermission({ ...member, role: "developer", permissionOverrides: { "support.manage": false } }, "support.manage"), true);
   assert.doesNotThrow(() => requireSameOrganization(member, member.organizationId));
   assert.throws(() => requireSameOrganization(member, crypto.randomUUID()), AuthorizationError);
 });

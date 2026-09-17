@@ -5,6 +5,7 @@ export type ChatChannel = {
   name: string;
   description: string | null;
   kind: "general" | "group";
+  managed: boolean;
   memberCount: number;
   unreadCount: number;
   lastMessage: string | null;

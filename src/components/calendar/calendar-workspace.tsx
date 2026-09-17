@@ -612,8 +612,8 @@ function ScheduleGrid({
               return (
                 <span
                   key={hour}
-                  className="absolute right-2 -translate-y-1/2 text-[9px] text-[var(--muted)]"
-                  style={{ top: index * HOUR_HEIGHT }}
+                  className={`absolute right-2 text-[9px] text-[var(--muted)] ${index === 0 ? "top-2" : "-translate-y-1/2"}`}
+                  style={index === 0 ? undefined : { top: index * HOUR_HEIGHT }}
                 >
                   {String(hour).padStart(2, "0")}:00
                 </span>

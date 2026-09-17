@@ -182,7 +182,7 @@ function DocumentDetails({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/70 p-2 sm:p-3 2xl:static 2xl:z-auto 2xl:bg-transparent 2xl:p-0"
+      className="fixed inset-0 z-50 bg-black/70 p-2 sm:p-3 2xl:sticky 2xl:top-[5.25rem] 2xl:z-auto 2xl:h-[calc(100dvh-6.5rem)] 2xl:self-start 2xl:bg-transparent 2xl:p-0"
       onMouseDown={onClose}
     >
       <aside

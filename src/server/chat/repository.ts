@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { requirePermission } from "@/server/auth/permissions";
+import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { organizationRoles } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
@@ -14,6 +14,7 @@ const channelRowSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   kind: z.enum(["general", "group"]),
+  managed: z.boolean(),
   member_count: countSchema,
   unread_count: countSchema,
   last_message: z.string().nullable(),
@@ -62,7 +63,7 @@ export class ChatChannelVersionConflictError extends Error {
 }
 
 export class ChatGeneralChannelMutationError extends Error {
-  constructor() { super("The general channel membership is managed automatically."); this.name = "ChatGeneralChannelMutationError"; }
+  constructor() { super("The system channel membership is managed automatically."); this.name = "ChatGeneralChannelMutationError"; }
 }
 
 function databaseConstraint(error: unknown, code = "23505") {
@@ -77,6 +78,7 @@ function mapChannel(row: unknown): ChatChannel {
     name: channel.name,
     description: channel.description,
     kind: channel.kind,
+    managed: channel.managed,
     memberCount: channel.member_count,
     unreadCount: channel.unread_count,
     lastMessage: channel.last_message,
@@ -96,12 +98,67 @@ async function ensureGeneralChannel(member: AuthenticatedMember) {
   return uuidSchema.parse(channelRows[0]?.id);
 }
 
+async function ensureMasterDirectChannel(member: AuthenticatedMember) {
+  const sql = getDatabase();
+  return sql.begin(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${'master-direct-chat:' + member.organizationId + ':' + member.memberId}, 0))`;
+    const existingRows = await transaction`SELECT id FROM chat_channels
+      WHERE organization_id = ${member.organizationId} AND audience_kind = 'master_direct'
+        AND subject_member_id = ${member.memberId} AND archived_at IS NULL
+      LIMIT 1`;
+    let channelId = existingRows.length ? uuidSchema.parse(existingRows[0].id) : null;
+    const ownerRows = await transaction`SELECT id FROM organization_members
+      WHERE organization_id = ${member.organizationId} AND active AND role <> 'master'
+      ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'dispatcher' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END, created_at
+      LIMIT 1`;
+    if (!ownerRows.length) throw new Error("A master chat requires an active office member.");
+    const ownerMemberId = uuidSchema.parse(ownerRows[0].id);
+
+    if (!channelId) {
+      const suffix = member.memberId.replaceAll("-", "").slice(0, 4).toUpperCase();
+      const [created] = await transaction`INSERT INTO chat_channels
+        (organization_id, name, description, kind, created_by, audience_kind, subject_member_id)
+        VALUES (${member.organizationId}, ${`Связь с мастером · ${member.displayName} · ${suffix}`},
+          'Персональный рабочий канал мастера и офиса', 'group', ${ownerMemberId}, 'master_direct', ${member.memberId})
+        RETURNING id`;
+      channelId = uuidSchema.parse(created.id);
+      await transaction`INSERT INTO audit_events
+        (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+        VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'chat.master_channel.provisioned',
+          'chat_channel', ${channelId}, ${transaction.json({ subjectMemberId: member.memberId })})`;
+    }
+
+    await transaction`DELETE FROM chat_channel_members membership
+      USING organization_members members
+      WHERE membership.organization_id = ${member.organizationId} AND membership.channel_id = ${channelId}
+        AND members.organization_id = membership.organization_id AND members.id = membership.member_id
+        AND (NOT members.active OR (members.role = 'master' AND members.id <> ${member.memberId}))`;
+    await transaction`INSERT INTO chat_channel_members AS membership
+      (organization_id, channel_id, member_id, channel_role, joined_by)
+      SELECT members.organization_id, ${channelId}, members.id,
+        CASE WHEN members.id = ${ownerMemberId} THEN 'owner' ELSE 'member' END, ${ownerMemberId}
+      FROM organization_members members
+      WHERE members.organization_id = ${member.organizationId} AND members.active
+        AND (members.id = ${member.memberId} OR members.role <> 'master')
+      ON CONFLICT (organization_id, channel_id, member_id) DO UPDATE
+        SET channel_role = EXCLUDED.channel_role
+        WHERE membership.channel_role IS DISTINCT FROM EXCLUDED.channel_role`;
+    return channelId;
+  });
+}
+
+async function ensureAccessibleChatChannels(member: AuthenticatedMember) {
+  if (member.role === "master") return ensureMasterDirectChannel(member);
+  return ensureGeneralChannel(member);
+}
+
 export async function getChatWorkspace(member: AuthenticatedMember, requestedChannelId: string | null): Promise<ChatWorkspaceData> {
   requirePermission(member, "chat.read");
-  await ensureGeneralChannel(member);
+  await ensureAccessibleChatChannels(member);
   const sql = getDatabase();
   const channelRows = await sql`
     SELECT channels.id, channels.name, channels.description, channels.kind, channels.version,
+      channels.audience_kind <> 'office' OR channels.kind = 'general' AS managed,
       (SELECT count(*) FROM chat_channel_members all_members WHERE all_members.organization_id = channels.organization_id AND all_members.channel_id = channels.id) AS member_count,
       (SELECT count(*) FROM chat_messages unread_messages
         WHERE unread_messages.organization_id = channels.organization_id AND unread_messages.channel_id = channels.id
@@ -124,7 +181,7 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
   const activeChannel = channels.find((channel) => channel.id === requestedChannelId) ?? channels[0] ?? null;
   if (!activeChannel) return { channels, activeChannel: null, messages: [], members: [], memberOptions: [] };
 
-  const canManage = member.role === "admin" || member.role === "dispatcher" || member.role === "manager";
+  const canManage = hasPermission(member, "chat.manage");
   const [messageRows, channelMemberRows, memberOptionRows] = await Promise.all([
     sql`SELECT ordered_messages.id, ordered_messages.body, ordered_messages.created_at, ordered_messages.edited_at,
         ordered_messages.author_id, ordered_messages.author_name, ordered_messages.author_role, ordered_messages.message_kind,
@@ -132,25 +189,35 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
         ordered_messages.attachment_extension, ordered_messages.attachment_size_bytes
       FROM (
         SELECT messages.id, messages.body, messages.created_at, messages.edited_at, messages.author_id,
-          authors.display_name AS author_name, authors.role AS author_role, messages.message_kind,
+          authors.display_name AS author_name,
+          CASE WHEN author_developers.email IS NOT NULL THEN 'developer' ELSE authors.role END AS author_role,
+          messages.message_kind,
           attachments.id AS attachment_id, attachments.original_filename AS attachment_filename,
           attachments.mime_type AS attachment_mime_type, attachments.extension AS attachment_extension,
           attachments.size_bytes AS attachment_size_bytes
         FROM chat_messages messages
         LEFT JOIN organization_members authors ON authors.organization_id = messages.organization_id AND authors.id = messages.author_id
+        LEFT JOIN developer_accounts author_developers ON author_developers.email = authors.email
         LEFT JOIN chat_message_attachments attachments ON attachments.organization_id = messages.organization_id AND attachments.message_id = messages.id
         JOIN chat_channel_members access ON access.organization_id = messages.organization_id AND access.channel_id = messages.channel_id AND access.member_id = ${member.memberId}
         WHERE messages.organization_id = ${member.organizationId} AND messages.channel_id = ${activeChannel.id} AND messages.deleted_at IS NULL
         ORDER BY messages.created_at DESC LIMIT 150
       ) ordered_messages ORDER BY ordered_messages.created_at`,
-    sql`SELECT members.id, members.display_name, members.email, members.role, membership.channel_role
+    sql`SELECT members.id, members.display_name, members.email,
+        CASE WHEN developers.email IS NOT NULL THEN 'developer' ELSE members.role END AS role,
+        membership.channel_role
       FROM chat_channel_members membership
       JOIN organization_members members ON members.organization_id = membership.organization_id AND members.id = membership.member_id
+      LEFT JOIN developer_accounts developers ON developers.email = members.email
       WHERE membership.organization_id = ${member.organizationId} AND membership.channel_id = ${activeChannel.id} AND members.active
       ORDER BY CASE membership.channel_role WHEN 'owner' THEN 0 ELSE 1 END, members.display_name`,
     canManage
-      ? sql`SELECT id, display_name, email, role FROM organization_members
-          WHERE organization_id = ${member.organizationId} AND active AND role <> 'master' ORDER BY display_name`
+      ? sql`SELECT members.id, members.display_name, members.email,
+          CASE WHEN developers.email IS NOT NULL THEN 'developer' ELSE members.role END AS role
+          FROM organization_members members
+          LEFT JOIN developer_accounts developers ON developers.email = lower(members.email)
+          WHERE members.organization_id = ${member.organizationId} AND members.active
+          ORDER BY members.display_name`
       : Promise.resolve([]),
   ]);
   const messages: ChatMessage[] = messageRows.map((row) => { const message = messageRowSchema.parse(row); return {
@@ -189,7 +256,7 @@ export async function createChatChannel(member: AuthenticatedMember, input: Crea
 
       const selectedMemberIds = [...new Set([...input.memberIds, member.memberId])];
       const validMembers = await transaction`SELECT id FROM organization_members
-        WHERE organization_id = ${member.organizationId} AND active AND role <> 'master' AND id = ANY(${selectedMemberIds}::uuid[])`;
+        WHERE organization_id = ${member.organizationId} AND active AND id = ANY(${selectedMemberIds}::uuid[])`;
       if (validMembers.length !== selectedMemberIds.length) throw new ChatMemberReferenceError();
       const [channel] = await transaction`INSERT INTO chat_channels (organization_id, name, description, kind, created_by)
         VALUES (${member.organizationId}, ${input.name}, ${input.description}, 'group', ${member.memberId}) RETURNING id`;
@@ -255,12 +322,12 @@ export async function updateChatChannelMembers(member: AuthenticatedMember, inpu
   requirePermission(member, "chat.manage");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
-    const [channel] = await transaction`SELECT kind, version FROM chat_channels
+    const [channel] = await transaction`SELECT kind, audience_kind, version FROM chat_channels
       WHERE organization_id = ${member.organizationId} AND id = ${input.channelId} AND archived_at IS NULL
       FOR UPDATE`;
     if (!channel) throw new ChatChannelNotFoundError();
-    const parsedChannel = z.object({ kind: z.enum(["general", "group"]), version: z.number().int().positive() }).parse(channel);
-    if (parsedChannel.kind === "general") throw new ChatGeneralChannelMutationError();
+    const parsedChannel = z.object({ kind: z.enum(["general", "group"]), audience_kind: z.enum(["office", "master_direct"]), version: z.number().int().positive() }).parse(channel);
+    if (parsedChannel.kind === "general" || parsedChannel.audience_kind !== "office") throw new ChatGeneralChannelMutationError();
     if (parsedChannel.version !== input.expectedVersion) throw new ChatChannelVersionConflictError();
 
     const ownerRows = await transaction`SELECT member_id FROM chat_channel_members
@@ -269,7 +336,7 @@ export async function updateChatChannelMembers(member: AuthenticatedMember, inpu
     const selectedMemberIds = [...new Set([...input.memberIds, ...ownerIds])];
     const validMembers = selectedMemberIds.length
       ? await transaction`SELECT id FROM organization_members
-          WHERE organization_id = ${member.organizationId} AND active AND role <> 'master' AND id = ANY(${selectedMemberIds}::uuid[])`
+          WHERE organization_id = ${member.organizationId} AND active AND id = ANY(${selectedMemberIds}::uuid[])`
       : [];
     if (validMembers.length !== selectedMemberIds.length) throw new ChatMemberReferenceError();
 

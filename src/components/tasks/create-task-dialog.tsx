@@ -29,6 +29,7 @@ function FieldError({ errors }: { errors?: string[] }) {
 }
 
 const roleLabels = {
+  developer: "Разработчик",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",

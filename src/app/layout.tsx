@@ -11,11 +11,20 @@ export const metadata: Metadata = {
     template: "%s · CRM",
   },
   description: "Управление заказами, клиентами, выездами и документами",
+  applicationName: "CRM Мастер",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "CRM",
+  },
 };
 
 export const viewport: Viewport = {
   colorScheme: "light dark",
-  themeColor: "#f6f5f0",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F6F5F0" },
+    { media: "(prefers-color-scheme: dark)", color: "#25272C" },
+  ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",

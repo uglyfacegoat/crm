@@ -2,7 +2,7 @@ import postgres from "postgres";
 import { z } from "zod";
 import { normalizeLoginIdentity } from "../src/server/auth/identity.ts";
 import { hashPassword } from "../src/server/auth/password.ts";
-import { organizationRoles } from "../src/server/auth/types.ts";
+import { assignableOrganizationRoles } from "../src/server/auth/types.ts";
 
 const environmentSchema = z.object({
   DATABASE_URL: z.string().url(),
@@ -11,7 +11,7 @@ const environmentSchema = z.object({
   AUTH_MEMBER_EMAIL: z.string().email().transform((value) => value.toLocaleLowerCase("en")),
   AUTH_MEMBER_PHONE: z.string().optional(),
   AUTH_MEMBER_PASSWORD: z.string().min(12).max(128),
-  AUTH_MEMBER_ROLE: z.enum(organizationRoles),
+  AUTH_MEMBER_ROLE: z.enum(assignableOrganizationRoles),
   AUTH_MEMBER_MASTER_ID: z.string().uuid().optional(),
 });
 

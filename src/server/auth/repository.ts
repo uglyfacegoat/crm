@@ -126,7 +126,7 @@ export async function findSessionByTokenHash(tokenHash: string) {
       COALESCE(sessions.active_member_id, sessions.member_id) AS member_id,
       members.display_name,
       members.email,
-      members.role,
+      CASE WHEN developer_accounts.email IS NOT NULL THEN 'developer' ELSE members.role END AS role,
       members.master_id,
       COALESCE(permission_overrides.values, '{}'::jsonb) AS permission_overrides
     FROM auth_sessions sessions
@@ -134,6 +134,7 @@ export async function findSessionByTokenHash(tokenHash: string) {
       ON members.organization_id = COALESCE(sessions.active_organization_id, sessions.organization_id)
       AND members.id = COALESCE(sessions.active_member_id, sessions.member_id)
     JOIN organizations ON organizations.id = COALESCE(sessions.active_organization_id, sessions.organization_id)
+    LEFT JOIN developer_accounts ON developer_accounts.email = members.email
     LEFT JOIN LATERAL (
       SELECT jsonb_object_agg(permission, allowed) AS values
       FROM member_permission_overrides

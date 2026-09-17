@@ -112,12 +112,13 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const params = await searchParams;
   const range = parseRange(params.range);
   const view = parseView(params.view);
-  const snapshot = getAuthMode() === "preview" ? getPreviewAnalytics(range) : await getAnalyticsSnapshot(member, range);
+  const preview = getAuthMode() === "preview";
+  const snapshot = preview ? getPreviewAnalytics(range) : await getAnalyticsSnapshot(member, range);
   const copy = viewCopy[view];
 
   return (
     <div className="space-y-[clamp(1.5rem,1.2rem+0.8vw,2.5rem)]">
-      <PageHeading eyebrow={copy.eyebrow} title={copy.title} description={copy.description} action={<a href={`/api/v1/analytics/export?range=${range}`} className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border border-[var(--line)] px-4 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"><Download className="size-4" />Экспорт CSV</a>} />
+      <PageHeading eyebrow={copy.eyebrow} title={copy.title} description={preview ? `Демонстрационные показатели. В рабочем режиме все графики строятся из данных CRM. ${copy.description}` : copy.description} action={<a href={`/api/v1/analytics/export?range=${range}`} className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border border-[var(--line)] px-4 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"><Download className="size-4" />Экспорт CSV</a>} />
 
       <div className="sticky top-[calc(var(--header-height)+0.55rem)] z-20">
         <nav aria-label="Разделы аналитики" className="flex gap-1 overflow-x-auto border-b border-[var(--line)] bg-[var(--canvas)]/94 py-1 backdrop-blur-xl">{analyticsViews.map((entry) => <Link key={entry.id} href={`/analytics?view=${entry.id}&range=${range}`} aria-current={view === entry.id ? "page" : undefined} className={`focus-ring shrink-0 rounded-[13px] px-3.5 py-2.5 text-xs font-medium transition-colors ${view === entry.id ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>{entry.label}</Link>)}</nav>

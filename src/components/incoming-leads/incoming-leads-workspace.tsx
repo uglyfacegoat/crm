@@ -307,7 +307,7 @@ function LeadQueue({
   onSelect: (leadId: string) => void;
 }) {
   return (
-    <div className="divide-y divide-[var(--line)]">
+    <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-4 2xl:grid-cols-3">
       {leads.map((lead) => {
         const selected = selectedId === lead.id;
         return (
@@ -317,15 +317,15 @@ function LeadQueue({
             onClick={() => onSelect(lead.id)}
             aria-current={selected ? "true" : undefined}
             aria-controls="incoming-lead-details"
-            className={"focus-ring relative block w-full border-l-2 px-5 py-4 text-left transition-[background-color,border-color,transform] active:translate-y-px sm:px-6 " + (selected ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-transparent bg-transparent hover:bg-[var(--surface-soft)]")}
+            className={"focus-ring block min-h-36 w-full rounded-[15px] border p-4 text-left transition-[background-color,border-color,transform] active:translate-y-px " + (selected ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]")}
           >
-            <span className="flex items-start justify-between gap-3">
+            <span className="flex min-h-20 items-start justify-between gap-3">
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
                   <span className={"size-1.5 shrink-0 rounded-full " + statusDotTone[lead.status]} />
-                  <strong className="truncate text-sm font-medium text-[var(--text)]">{lead.contactName || lead.phone || lead.email || "Без имени"}</strong>
+                  <strong className="line-clamp-2 text-sm font-medium leading-5 text-[var(--text)]">{lead.contactName || lead.phone || lead.email || "Без имени"}</strong>
                 </span>
-                <span className="mt-2 block truncate text-xs text-[var(--text-secondary)]">{lead.serviceInterest || "Услуга не указана"}</span>
+                <span className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{lead.serviceInterest || "Услуга не указана"}</span>
               </span>
               <time dateTime={lead.receivedAt} className="shrink-0 text-[11px] text-[var(--muted)]">{dateFormatter.format(new Date(lead.receivedAt))}</time>
             </span>
@@ -378,8 +378,8 @@ export function IncomingLeadsWorkspace({
         </div>
       </section>
 
-      <section className="mt-5">
-        <header className="flex flex-col gap-4 py-4 sm:py-5 xl:flex-row xl:items-end xl:justify-between">
+      <section className="surface-panel mt-5 overflow-hidden p-4 sm:p-5">
+        <header className="flex flex-col gap-4 border-b border-[var(--line)] pb-4 xl:flex-row xl:items-end xl:justify-between">
           <nav aria-label="Статусы входящих заявок" className="scrollbar-hidden flex max-w-full min-w-0 gap-1 overflow-x-auto rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-1">
             {tabs.map((tab) => {
               const active = filter.status === tab.value;
@@ -408,24 +408,24 @@ export function IncomingLeadsWorkspace({
         </header>
 
         {snapshot.leads.length ? (
-          <div className="grid lg:min-h-[36rem] lg:grid-cols-[minmax(20rem,0.76fr)_minmax(0,1.24fr)]">
-            <section aria-label="Список входящих заявок" className={(mobileDetailOpen ? "hidden lg:flex " : "flex ") + "min-h-0 flex-col overflow-hidden border-b border-[var(--line)] lg:border-b-0 lg:border-r lg:pr-8"}>
-              <div className="flex items-center justify-between border-b border-[var(--line)] py-5 lg:pt-0">
+          <div className="mt-4 grid min-w-0 gap-4">
+            <section aria-label="Список входящих заявок" className={(mobileDetailOpen ? "hidden lg:flex " : "flex ") + "min-w-0 flex-col overflow-hidden rounded-[18px] border border-[var(--line)] bg-[var(--surface-raised)]"}>
+              <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4 sm:px-6">
                 <div>
                   <p className="text-sm font-semibold text-[var(--text)]">Очередь проверки</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">Выберите обращение для разбора</p>
                 </div>
                 <span className="inline-flex min-h-8 items-center rounded-full bg-[var(--surface-inset)] px-3 text-[11px] text-[var(--text-secondary)]">{snapshot.leads.length} из {snapshot.counts[filter.status]}</span>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto"><LeadQueue leads={snapshot.leads} selectedId={selectedLead?.id ?? null} onSelect={selectLead} /></div>
+              <div className="scrollbar-hidden min-h-0 overflow-y-auto lg:max-h-[34rem]"><LeadQueue leads={snapshot.leads} selectedId={selectedLead?.id ?? null} onSelect={selectLead} /></div>
             </section>
 
-            <section className={(mobileDetailOpen ? "flex " : "hidden lg:flex ") + "min-w-0 flex-col overflow-hidden lg:pl-8"}>
+            <section className={(mobileDetailOpen ? "flex " : "hidden lg:flex ") + "min-h-[32rem] min-w-0 flex-col overflow-hidden rounded-[18px] border border-[var(--line)] bg-[var(--surface-raised)]"}>
               {selectedLead ? <LeadDetails lead={selectedLead} canWrite={canWrite} onReject={() => setRejectingLead(selectedLead)} onBack={() => setMobileDetailOpen(false)} /> : <div className="grid min-h-[20rem] flex-1 place-items-center px-8 text-center"><div><Link2 className="mx-auto size-7 text-[var(--muted)]" /><p className="mt-3 text-sm text-[var(--muted)]">Выберите заявку в очереди</p></div></div>}
             </section>
           </div>
         ) : (
-          <div className="grid justify-items-center border-b border-[var(--line)] px-8 py-16 text-center sm:py-20">
+          <div className="mt-4 grid justify-items-center rounded-[18px] border border-[var(--line)] bg-[var(--surface-raised)] px-8 py-16 text-center sm:py-20">
             <div><Inbox className="mx-auto size-6 text-[var(--muted)]" /><h2 className="mt-4 text-sm font-medium text-[var(--text)]">{filter.query || filter.status !== "all" ? "Заявки не найдены" : "Очередь пуста"}</h2><p className="mx-auto mt-2 max-w-xs text-xs leading-5 text-[var(--muted)]">{preview ? "В рабочем режиме обращения появятся после подключения webhook сайта." : "Новые обращения появятся автоматически после отправки формы на подключённом сайте."}</p></div>
           </div>
         )}

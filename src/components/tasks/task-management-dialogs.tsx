@@ -38,6 +38,7 @@ const initialUpdateState: UpdateTaskState = {
   taskId: null,
 };
 const roleLabels = {
+  developer: "Разработчик",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",

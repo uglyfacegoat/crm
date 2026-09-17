@@ -36,7 +36,7 @@ const initialUnitState: OrganizationUnitActionState = {
 
 function EmptyLevel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-44 place-items-center border-y border-dashed border-[var(--line)] p-6 text-center text-xs leading-5 text-[var(--muted)]">
+    <div className="grid min-h-32 place-items-center rounded-[14px] border border-dashed border-[var(--line)] bg-[var(--surface-inset)] p-5 text-center text-xs leading-5 text-[var(--muted)]">
       {children}
     </div>
   );
@@ -156,13 +156,17 @@ export function CompanySelectionWorkspace({
   const cities =
     selectedOrganization?.units.filter((unit) => unit.kind === "city") ?? [];
   const selectedCity =
-    cities.find((city) => city.id === selectedCityId) ?? cities[0] ?? null;
+    selectedCityId === null
+      ? null
+      : (cities.find((city) => city.id === selectedCityId) ?? null);
   const areas =
     selectedOrganization?.units.filter(
       (unit) => unit.kind === "area" && unit.parentId === selectedCity?.id,
     ) ?? [];
   const selectedArea =
-    areas.find((area) => area.id === selectedAreaId) ?? areas[0] ?? null;
+    selectedAreaId === null
+      ? null
+      : (areas.find((area) => area.id === selectedAreaId) ?? null);
   const canEditSelected = Boolean(
     canManage &&
     selectedOrganization?.current &&
@@ -179,19 +183,19 @@ export function CompanySelectionWorkspace({
   }
 
   return (
-    <section aria-label="Структура компаний" className="mt-8 space-y-4">
-      <header className="surface-panel grid gap-5 p-5 lg:grid-cols-[1fr_auto] lg:items-end lg:p-6">
+    <section aria-label="Структура компаний" className="mt-6 space-y-4">
+      <header className="surface-panel flex flex-col gap-4 p-5 sm:p-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="eyebrow">Организационная структура</p>
-          <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">
-            Компания → город → район
+          <h2 className="mt-2 font-display text-xl font-semibold tracking-[-0.04em] text-[var(--text)]">
+            Рабочие контуры и зоны присутствия
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-            Выберите уровень слева направо. Рабочая база переключается целиком,
-            а города и районы помогают ориентироваться внутри компании.
+            Сначала выберите компанию. Город и зона необязательны: можно
+            остановиться на любом уровне и не сужать рабочий контур дальше.
           </p>
         </div>
-        <dl className="grid grid-cols-2 gap-5 rounded-[14px] bg-[var(--surface-inset)] px-5 py-3 text-right">
+        <dl className="flex items-center gap-5 rounded-[14px] bg-[var(--surface-inset)] px-4 py-3 text-right">
           <div>
             <dt className="text-[9px] uppercase tracking-[0.12em] text-[var(--muted)]">
               Компаний
@@ -211,9 +215,9 @@ export function CompanySelectionWorkspace({
         </dl>
       </header>
 
-      <div className="surface-panel grid min-h-[34rem] overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <aside className="border-b border-[var(--line)] bg-[var(--surface-inset)] lg:border-b-0 lg:border-r">
-          <header className="border-b border-[var(--line)] px-5 py-4">
+      <div className="space-y-4">
+        <aside className="surface-panel overflow-hidden">
+          <header className="flex flex-wrap items-end justify-between gap-3 px-5 py-4 sm:px-6">
             <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
               Рабочие контуры
             </p>
@@ -221,7 +225,7 @@ export function CompanySelectionWorkspace({
               {organizations.length} доступно
             </p>
           </header>
-          <nav aria-label="Компании" className="divide-y divide-[var(--line)]">
+          <nav aria-label="Компании" className="scrollbar-hidden flex gap-2 overflow-x-auto border-t border-[var(--line)] p-3">
             {organizations.map((organization, index) => {
               const cityCount = organization.units.filter(
                 (unit) => unit.kind === "city",
@@ -236,10 +240,10 @@ export function CompanySelectionWorkspace({
                     setSelectedCityId(null);
                     setSelectedAreaId(null);
                   }}
-                  className={`focus-ring group grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 px-5 py-4 text-left transition-colors ${selected ? "bg-[var(--text)] text-[var(--canvas)]" : "text-[var(--text)] hover:bg-[var(--surface-soft)]"}`}
+                  className={`focus-ring group grid min-h-20 min-w-[15rem] flex-1 grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border px-4 py-3 text-left transition-[background-color,border-color,transform] active:translate-y-px ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]" : "border-[var(--line)] bg-[var(--surface-raised)] text-[var(--text)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]"}`}
                 >
                   <span
-                    className={`font-display text-[10px] tabular-nums ${selected ? "text-[var(--canvas)]/55" : "text-[var(--muted-subtle)]"}`}
+                    className={`font-display text-[10px] tabular-nums ${selected ? "text-[var(--accent-ink)]" : "text-[var(--muted-subtle)]"}`}
                   >
                     {String(index + 1).padStart(2, "0")}
                   </span>
@@ -248,7 +252,7 @@ export function CompanySelectionWorkspace({
                       {organization.name}
                     </span>
                     <span
-                      className={`mt-1 block text-[9px] ${selected ? "text-[var(--canvas)]/65" : "text-[var(--muted)]"}`}
+                      className={`mt-1 block text-[9px] ${selected ? "text-[var(--accent-ink)]" : "text-[var(--muted)]"}`}
                     >
                       {organization.kind === "center"
                         ? "Центр управления"
@@ -263,7 +267,7 @@ export function CompanySelectionWorkspace({
           </nav>
         </aside>
 
-        <div className="min-w-0">
+        <div className="surface-panel min-w-0 overflow-hidden">
           <header className="flex flex-col gap-4 border-b border-[var(--line)] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--muted)]">
@@ -287,6 +291,9 @@ export function CompanySelectionWorkspace({
               <h2 className="mt-2 font-display text-xl font-semibold tracking-[-0.03em] text-[var(--text)]">
                 Карта присутствия
               </h2>
+              <p className="mt-2 text-[10px] text-[var(--muted)]">
+                Уровень выбора: {selectedArea ? "зона" : selectedCity ? "город" : "вся компания"}
+              </p>
             </div>
             {!selectedOrganization.current ? (
               <form action={switchAction}>
@@ -316,7 +323,7 @@ export function CompanySelectionWorkspace({
             )}
           </header>
 
-          <div className="grid min-h-[27rem] lg:grid-cols-[minmax(15rem,0.72fr)_minmax(0,1.28fr)]">
+          <div className="grid lg:grid-cols-[minmax(19rem,0.8fr)_minmax(0,1.2fr)]">
             <section className="border-b border-[var(--line)] p-5 lg:border-b-0 lg:border-r sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -339,7 +346,27 @@ export function CompanySelectionWorkspace({
                 ) : null}
               </div>
               {cities.length ? (
-                <ol className="relative mt-6 space-y-1 before:absolute before:bottom-5 before:left-[0.47rem] before:top-5 before:w-px before:bg-[var(--line-strong)]">
+                <ol className="mt-5 grid gap-2">
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCityId(null);
+                        setSelectedAreaId(null);
+                      }}
+                      aria-current={selectedCity === null ? "true" : undefined}
+                      className={`focus-ring group grid min-h-16 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border px-3 py-2.5 text-left transition-[background-color,border-color,transform] active:translate-y-px ${selectedCity === null ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]" : "border-[var(--line)] bg-[var(--surface)] text-[var(--text-secondary)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]"}`}
+                    >
+                      <span className={`grid size-9 place-items-center rounded-[11px] ${selectedCity === null ? "bg-[var(--accent)] text-[var(--on-accent)]" : "bg-[var(--surface-inset)] text-[var(--muted)]"}`}>
+                        <Building2 className="size-4" />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-semibold">Вся компания</span>
+                        <span className="mt-1 block text-[9px] text-[var(--muted)]">Без ограничения по городу</span>
+                      </span>
+                      <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                    </button>
+                  </li>
                   {cities.map((city) => {
                     const areaCount = selectedOrganization.units.filter(
                       (unit) =>
@@ -347,18 +374,20 @@ export function CompanySelectionWorkspace({
                     ).length;
                     const selected = city.id === selectedCity?.id;
                     return (
-                      <li key={city.id} className="relative">
+                      <li key={city.id}>
                         <button
                           type="button"
                           onClick={() => {
                             setSelectedCityId(city.id);
                             setSelectedAreaId(null);
                           }}
-                          className={`focus-ring group grid w-full grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-3 rounded-[11px] px-0 py-3 text-left ${selected ? "text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"}`}
+                          className={`focus-ring group grid min-h-16 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border px-3 py-2.5 text-left transition-[background-color,border-color,transform] active:translate-y-px ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]" : "border-[var(--line)] bg-[var(--surface)] text-[var(--text-secondary)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]"}`}
                         >
                           <span
-                            className={`relative z-10 size-2.5 rounded-full border-2 ${selected ? "border-[var(--text)] bg-[var(--surface)]" : "border-[var(--line-strong)] bg-[var(--surface-raised)]"}`}
-                          />
+                            className={`grid size-9 place-items-center rounded-[11px] ${selected ? "bg-[var(--accent)] text-[var(--on-accent)]" : "bg-[var(--surface-inset)] text-[var(--muted)]"}`}
+                          >
+                            <MapPin className="size-4" />
+                          </span>
                           <span>
                             <span className="block text-sm font-semibold">
                               {city.name}
@@ -413,36 +442,53 @@ export function CompanySelectionWorkspace({
                 ) : null}
               </div>
               {areas.length ? (
-                <div className="mt-6 overflow-hidden rounded-[16px] border border-[var(--line)]">
-                  <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] bg-[var(--surface-inset)] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                    <span>№</span>
-                    <span>Зона</span>
-                    <span>Адрес</span>
-                  </div>
-                  {areas.map((area, index) => {
-                    const selected = area.id === selectedArea?.id;
-                    return (
-                      <button
-                        key={area.id}
-                        type="button"
-                        onClick={() => setSelectedAreaId(area.id)}
-                        className={`focus-ring grid w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center border-t border-[var(--line)] px-4 py-4 text-left transition-colors ${selected ? "bg-[var(--surface-soft)]" : "bg-[var(--surface)] hover:bg-[var(--surface-raised)]"}`}
-                      >
-                        <span className="font-display text-[10px] tabular-nums text-[var(--muted-subtle)]">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span className="flex min-w-0 items-center gap-2">
-                          <Map className="size-3.5 shrink-0 text-[var(--muted)]" />
-                          <span className="truncate text-sm font-semibold text-[var(--text)]">
-                            {area.name}
+                <div className="mt-6 grid gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAreaId(null)}
+                    aria-current={selectedArea === null ? "true" : undefined}
+                    className={`focus-ring flex min-h-14 items-center gap-3 rounded-[14px] border px-3 text-left transition-[background-color,border-color,transform] active:translate-y-px ${selectedArea === null ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]"}`}
+                  >
+                    <span className={`grid size-8 shrink-0 place-items-center rounded-[10px] ${selectedArea === null ? "bg-[var(--accent)] text-[var(--on-accent)]" : "bg-[var(--surface-inset)] text-[var(--muted)]"}`}>
+                      <Map className="size-3.5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-semibold text-[var(--text)]">Весь город</span>
+                      <span className="mt-0.5 block text-[9px] text-[var(--muted)]">Без ограничения по зоне</span>
+                    </span>
+                    <ChevronRight className="size-3.5 text-[var(--muted)]" />
+                  </button>
+                  <div className="overflow-hidden rounded-[16px] border border-[var(--line)]">
+                    <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] bg-[var(--surface-inset)] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                      <span>№</span>
+                      <span>Зона</span>
+                      <span>Адрес</span>
+                    </div>
+                    {areas.map((area, index) => {
+                      const selected = area.id === selectedArea?.id;
+                      return (
+                        <button
+                          key={area.id}
+                          type="button"
+                          onClick={() => setSelectedAreaId(area.id)}
+                          className={`focus-ring grid w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center border-t border-[var(--line)] px-4 py-4 text-left transition-colors ${selected ? "bg-[var(--surface-soft)]" : "bg-[var(--surface)] hover:bg-[var(--surface-raised)]"}`}
+                        >
+                          <span className="font-display text-[10px] tabular-nums text-[var(--muted-subtle)]">
+                            {String(index + 1).padStart(2, "0")}
                           </span>
-                        </span>
-                        <span className="max-w-48 truncate pl-3 text-[10px] text-[var(--muted)]">
-                          {area.address ?? "Рабочая зона"}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <span className="flex min-w-0 items-center gap-2">
+                            <Map className="size-3.5 shrink-0 text-[var(--muted)]" />
+                            <span className="truncate text-sm font-semibold text-[var(--text)]">
+                              {area.name}
+                            </span>
+                          </span>
+                          <span className="max-w-48 truncate pl-3 text-[10px] text-[var(--muted)]">
+                            {area.address ?? "Рабочая зона"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : (
                 <div className="mt-6">

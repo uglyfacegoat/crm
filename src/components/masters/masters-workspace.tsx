@@ -10,6 +10,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { formatMoneyMinor, getInitials } from "@/lib/format";
 import { matchesSearchText } from "@/lib/search-normalization";
@@ -105,10 +106,12 @@ function MasterRosterRow({
   master: MasterListItem;
   index: number;
 }) {
+  const router = useRouter();
   const visits = master.todayVisits.slice(0, 2);
+  const href = `/masters/${master.id}`;
 
   return (
-    <article className="relative grid min-w-0 gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 last:border-b-0 md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] md:items-center sm:px-5">
+    <article role="link" tabIndex={0} aria-label={`Открыть карточку мастера ${master.fullName}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return; router.push(href); }} onKeyDown={(event) => { if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); router.push(href); }} className="relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] md:items-center sm:px-5">
       <span className="hidden font-display text-[10px] tabular-nums text-[var(--muted-subtle)] md:block">
         {String(index + 1).padStart(2, "0")}
       </span>

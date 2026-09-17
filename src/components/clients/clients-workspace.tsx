@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Building2, ContactRound, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
@@ -29,6 +30,7 @@ function Choice<T extends string>({ value, current, label, onChange }: { value: 
 }
 
 export function ClientsWorkspace({ clients }: { clients: Client[] }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<ClientHistoryFilter>("all");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -94,11 +96,11 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
         </div>
 
         <div className="flex flex-col gap-3 border-b border-[var(--line)] bg-[var(--surface-raised)] px-4 py-3 sm:flex-row sm:items-center sm:px-5">
-          <div className="flex min-w-0 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Фильтр по истории заказов">
+          <div className="scrollbar-hidden flex min-w-0 gap-1 overflow-x-auto rounded-[13px] bg-[var(--surface-inset)] p-1" aria-label="Фильтр по истории заказов">
             {historyOptions.map((option) => (
-              <button key={option.value} type="button" onClick={() => setHistory(option.value)} aria-pressed={history === option.value} className={`focus-ring flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[10px] font-medium ${history === option.value ? "bg-[var(--surface-soft)] text-[var(--text)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>
+              <button key={option.value} type="button" onClick={() => setHistory(option.value)} aria-pressed={history === option.value} className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-[10px] font-medium transition-colors ${history === option.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>
                 {option.label}
-                <span className={history === option.value ? "text-[var(--accent)]" : "text-[var(--muted-subtle)]"}>{historyCounts.get(option.value)}</span>
+                <span className={history === option.value ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}>{historyCounts.get(option.value)}</span>
               </button>
             ))}
           </div>
@@ -115,8 +117,8 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
             </thead>
             <tbody className="divide-y divide-[var(--line)]">
               {filteredClients.map((client) => (
-                <tr key={client.id}>
-                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] font-display text-[10px] text-[var(--accent-ink)]">{client.name.replace(/[^А-ЯA-Z]/g, "").slice(0, 2)}</span><div><Link href={`/clients/${client.id}`} aria-label={`Открыть клиента ${client.name}`} className="focus-ring rounded text-xs font-semibold text-[var(--text)] hover:text-[var(--accent-ink)]">{client.name}</Link><p className="mt-1 text-[9px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div></div></td>
+                <tr key={client.id} role="link" tabIndex={0} aria-label={`Открыть клиента ${client.name}`} onClick={() => router.push(`/clients/${client.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/clients/${client.id}`); } }} className="cursor-pointer transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]">
+                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] font-display text-[10px] text-[var(--accent-ink)]">{client.name.replace(/[^А-ЯA-Z]/g, "").slice(0, 2)}</span><div><p className="text-xs font-semibold text-[var(--text)]">{client.name}</p><p className="mt-1 text-[9px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div></div></td>
                   <td className="px-4 py-3.5 text-xs text-[var(--text-secondary)]">{client.contact}</td>
                   <td className="px-4 py-3.5"><p className="text-xs text-[var(--text-secondary)]">{client.phone}</p><p className="mt-1 text-[9px] text-[var(--muted)]">{client.email}</p></td>
                   <td className="px-4 py-3.5 text-center font-display text-xs text-[var(--text)]">{client.objects}</td>

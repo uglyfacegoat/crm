@@ -8,6 +8,7 @@ import { DocumentFileValidationError, validateDocumentFile } from "@/server/docu
 import { createDocumentStorageKey, removeDocumentFile, writeDocumentFile } from "@/server/documents/storage";
 import {
   completeVisitWithClosingDocument,
+  createAssignedVisitEvidence,
   createVisit,
   createVisitSeries,
   rescheduleVisit,
@@ -24,14 +25,16 @@ import {
   VisitStateTransitionError,
   VisitVersionConflictError,
   visitCompletionExists,
+  visitEvidenceExists,
 } from "@/server/visits/repository";
-import { completeVisitSchema, createVisitSchema, createVisitSeriesSchema, rescheduleVisitSchema, startVisitSchema, updateVisitSchema } from "@/server/visits/schemas";
+import { completeVisitSchema, createVisitSchema, createVisitSeriesSchema, rescheduleVisitSchema, startVisitSchema, updateVisitSchema, uploadVisitEvidenceSchema } from "@/server/visits/schemas";
 
 export type CreateVisitState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; visitId: string | null };
 export type CreateVisitSeriesState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; seriesId: string | null; visitCount: number | null };
 export type UpdateVisitState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; version: number | null };
 export type CompleteVisitState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; documentId: string | null };
 export type StartVisitState = { status: "idle" | "success" | "error"; message: string | null; version: number | null };
+export type VisitEvidenceState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]> };
 export type RescheduleVisitResult = {
   status: "success" | "error";
   message: string;
@@ -156,6 +159,71 @@ export async function startAssignedVisitAction(_previous: StartVisitState, formD
     if (error instanceof VisitStateTransitionError) return { status: "error", message: "Выезд уже завершён, отменён или не может быть начат.", version: null };
     logUnexpected("service_visits.start", member.memberId, error);
     return { status: "error", message: "Не удалось начать работу. Статус не изменён.", version: null };
+  }
+}
+
+export async function uploadAssignedVisitEvidenceAction(
+  _previous: VisitEvidenceState,
+  formData: FormData,
+): Promise<VisitEvidenceState> {
+  if (getAuthMode() === "preview") {
+    return { status: "error", message: previewMessage, fieldErrors: {} };
+  }
+  const member = await requireSession();
+  const parsed = uploadVisitEvidenceSchema.safeParse({
+    idempotencyKey: formData.get("idempotencyKey"),
+    visitId: formData.get("visitId"),
+    kind: formData.get("kind"),
+    note: formData.get("note"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: "Проверьте тип и описание материала.", fieldErrors: fieldErrors(parsed.error) };
+  }
+  const uploadedFile = formData.get("file");
+  if (!(uploadedFile instanceof File) || uploadedFile.size === 0) {
+    return { status: "error", message: "Выберите фотографию.", fieldErrors: { file: ["Фотография обязательна"] } };
+  }
+
+  let storageKey: string | null = null;
+  try {
+    if (await visitEvidenceExists(member, parsed.data.idempotencyKey)) {
+      return { status: "success", message: "Этот материал уже сохранён.", fieldErrors: {} };
+    }
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const file = validateDocumentFile({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
+    if (file.extension !== "jpg" && file.extension !== "png" && file.extension !== "webp") {
+      return { status: "error", message: "Загрузите фотографию в JPG, PNG или WebP.", fieldErrors: { file: ["Поддерживаются JPG, PNG и WebP"] } };
+    }
+    storageKey = createDocumentStorageKey(member.organizationId, parsed.data.idempotencyKey, file.extension);
+    await writeDocumentFile(storageKey, buffer);
+    const created = await createAssignedVisitEvidence(member, {
+      ...parsed.data,
+      ...file,
+      extension: file.extension,
+      storageKey,
+    });
+    revalidatePath("/documents");
+    revalidatePath("/my-visits");
+    revalidatePath(`/orders/${created.orderId}`);
+    return { status: "success", message: "Материал сохранён в документах заказа.", fieldErrors: {} };
+  } catch (error) {
+    if (error instanceof DocumentFileValidationError) {
+      return { status: "error", message: error.message, fieldErrors: { file: [error.message] } };
+    }
+    if (errorCode(error) === "EEXIST" && await visitEvidenceExists(member, parsed.data.idempotencyKey)) {
+      return { status: "success", message: "Этот материал уже сохранён.", fieldErrors: {} };
+    }
+    if (storageKey) {
+      try { await removeDocumentFile(storageKey); } catch (cleanupError) { logUnexpected("service_visits.evidence.cleanup", member.memberId, cleanupError); }
+    }
+    if (error instanceof AuthorizationError || error instanceof VisitNotFoundError) {
+      return { status: "error", message: "Этот выезд не назначен вашей учётной записи.", fieldErrors: {} };
+    }
+    if (error instanceof VisitImmutableError) {
+      return { status: "error", message: "К отменённому выезду нельзя добавлять материалы.", fieldErrors: {} };
+    }
+    logUnexpected("service_visits.evidence.create", member.memberId, error);
+    return { status: "error", message: "Не удалось сохранить материал.", fieldErrors: {} };
   }
 }
 

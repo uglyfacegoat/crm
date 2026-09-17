@@ -71,6 +71,7 @@ const officeNavigation: NavigationItem[] = [
 
 const masterNavigation: NavigationItem[] = [
   { href: "/my-visits", label: "Мои выезды", icon: CalendarDays, permission: "visits.read" },
+  { href: "/chat", label: "Чат", icon: MessageSquare, permission: "chat.read" },
 ];
 
 function isActivePath(pathname: string, href: string) {
@@ -531,6 +532,7 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
 }
 
 const roleLabels: Record<OrganizationRole, string> = {
+  developer: "Разработчик",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -611,6 +613,7 @@ export function AppShell({
   currentUser: ShellUser;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const canUseQuickOrder =
     hasPermission(currentUser, "clients.write") &&
     hasPermission(currentUser, "orders.write") &&
@@ -626,12 +629,27 @@ export function AppShell({
         });
   const mobileNavigation = navigation.slice(0, 4);
   const chatActive = isActivePath(pathname, "/chat");
+  const developerSupportActive = isActivePath(pathname, "/developer/support");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   function toggleSidebar() {
     setSidebarCollapsed((current) => !current);
+  }
+
+  function openDeveloperSupportQueue() {
+    const supportWindow = window.open(
+      "/developer/support",
+      "crm-developer-support",
+      "popup,width=1440,height=920,resizable=yes,scrollbars=yes",
+    );
+    if (!supportWindow) {
+      router.push("/developer/support");
+      return;
+    }
+    supportWindow.opener = null;
+    supportWindow.focus();
   }
 
   useEffect(() => {
@@ -737,6 +755,20 @@ export function AppShell({
               {hasPermission(currentUser, "assistant.use") ? (
                 <WorkspaceAssistant />
               ) : null}
+              {hasPermission(currentUser, "support.manage") ? (
+                <button
+                  type="button"
+                  onClick={openDeveloperSupportQueue}
+                  aria-label="Открыть очередь обращений"
+                  title="Очередь обращений"
+                  className={`focus-ring grid size-10 place-items-center rounded-[13px] transition-colors ${developerSupportActive ? "border border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "soft-button text-[var(--muted)] hover:text-[var(--text)]"}`}
+                >
+                  <CircleHelp
+                    className="size-[18px]"
+                    strokeWidth={developerSupportActive ? 2.1 : 1.7}
+                  />
+                </button>
+              ) : null}
               {hasPermission(currentUser, "notifications.read") ? (
                 <NotificationCenter />
               ) : null}
@@ -754,7 +786,7 @@ export function AppShell({
 
       <nav
         aria-label="Мобильная навигация"
-        className={`fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-40 grid min-w-0 ${currentUser.role === "master" ? "grid-cols-2" : "grid-cols-5"} gap-0.5 rounded-[18px] border border-[var(--line-strong)] bg-[var(--surface-raised)]/94 p-1 shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl min-[380px]:inset-x-3 min-[380px]:gap-1 min-[380px]:p-1.5 md:hidden`}
+        className={`fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-40 grid min-w-0 ${currentUser.role === "master" ? "grid-cols-3" : "grid-cols-5"} gap-0.5 rounded-[18px] border border-[var(--line-strong)] bg-[var(--surface-raised)]/94 p-1 shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl min-[380px]:inset-x-3 min-[380px]:gap-1 min-[380px]:p-1.5 md:hidden`}
       >
         {mobileNavigation.map((item) => {
           const active = isActivePath(pathname, item.href);
