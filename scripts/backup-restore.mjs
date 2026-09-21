@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import postgres from "postgres";
 import { databaseProcessEnvironment } from "./backup-worker-config.mjs";
-import { captureProcess, runProcess, sha256File } from "./backup-process.mjs";
+import { captureProcess, runProcess } from "./backup-process.mjs";
+import { BACKUP_FILE_TABLES, validateDocumentArchive, verifyBackupManifest, verifyRestoredFiles } from "./backup-integrity.mjs";
 
 const REQUIRED_TABLES = [
   "schema_migrations",
@@ -14,6 +15,7 @@ const REQUIRED_TABLES = [
   "orders",
   "documents",
   "service_visits",
+  ...BACKUP_FILE_TABLES,
 ];
 
 function restoredDatabaseUrl(databaseUrl, databaseName) {
@@ -22,50 +24,31 @@ function restoredDatabaseUrl(databaseUrl, databaseName) {
   return restoredUrl.toString();
 }
 
-async function verifyManifest(archiveDirectory) {
-  const manifestPath = join(archiveDirectory, "manifest.sha256");
-  const manifest = await readFile(manifestPath, "utf8");
-  const entries = manifest.trim().split("\n").map((line) => line.match(/^([a-f0-9]{64})  ([a-z0-9.-]+)$/));
-  if (entries.length !== 3 || entries.some((entry) => !entry)) throw new Error("Backup checksum manifest is invalid.");
-  for (const entry of entries) {
-    const [, expectedHash, fileName] = entry;
-    const actualHash = await sha256File(join(archiveDirectory, fileName));
-    if (actualHash !== expectedHash) throw new Error(`Backup checksum mismatch for ${fileName}.`);
-  }
-}
-
-function validateArchiveEntries(rawEntries) {
-  const entries = rawEntries.split("\n").filter(Boolean);
-  for (const entry of entries) {
-    const normalized = entry.replace(/^\.\//, "");
-    const segments = normalized.split("/");
-    if (entry.startsWith("/") || segments.includes("..")) {
-      throw new Error("Document backup contains an unsafe archive path.");
-    }
-  }
-}
-
 export async function verifyBackupRestore({ archiveDirectory, databaseUrl }) {
+  const startedAt = performance.now();
   const archiveName = basename(archiveDirectory);
   if (!/^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$/.test(archiveName)) {
     throw new Error("Backup archive name is invalid.");
   }
 
-  await verifyManifest(archiveDirectory);
+  await verifyBackupManifest(archiveDirectory);
   const { processEnvironment } = databaseProcessEnvironment(databaseUrl);
   const documentArchivePath = join(archiveDirectory, "documents.tar.gz");
   const archiveEntries = await captureProcess("tar", ["-tzf", documentArchivePath], { environment: processEnvironment });
-  validateArchiveEntries(archiveEntries);
+  const verboseEntries = await captureProcess("tar", ["-tvzf", documentArchivePath], { environment: processEnvironment });
+  validateDocumentArchive(archiveEntries, verboseEntries);
 
   const extractionDirectory = await mkdtemp(join(tmpdir(), "crm-documents-restore-"));
   const temporaryDatabase = `crm_restore_check_${Date.now()}_${randomBytes(4).toString("hex")}`;
   let restoredSql;
+  let databaseCreated = false;
   let restoreResult;
   let operationError;
   const cleanupErrors = [];
   try {
     await runProcess("tar", ["-xzf", documentArchivePath, "-C", extractionDirectory], { environment: processEnvironment });
     await runProcess("createdb", [temporaryDatabase], { environment: processEnvironment });
+    databaseCreated = true;
     await runProcess("pg_restore", [
       "--exit-on-error",
       "--no-owner",
@@ -89,7 +72,8 @@ export async function verifyBackupRestore({ archiveDirectory, databaseUrl }) {
     const [migrationState] = await restoredSql`SELECT count(*)::integer AS count FROM schema_migrations`;
     if (!migrationState || migrationState.count < 1) throw new Error("Restored database has no applied migration history.");
 
-    restoreResult = { archiveName, migrationCount: migrationState.count };
+    const fileVerification = await verifyRestoredFiles(restoredSql, extractionDirectory);
+    restoreResult = { archiveName, migrationCount: migrationState.count, ...fileVerification };
   } catch (error) {
     operationError = error;
   } finally {
@@ -100,10 +84,12 @@ export async function verifyBackupRestore({ archiveDirectory, databaseUrl }) {
         cleanupErrors.push(error);
       }
     }
-    try {
-      await runProcess("dropdb", ["--if-exists", "--force", temporaryDatabase], { environment: processEnvironment });
-    } catch (error) {
-      cleanupErrors.push(error);
+    if (databaseCreated) {
+      try {
+        await runProcess("dropdb", ["--if-exists", "--force", temporaryDatabase], { environment: processEnvironment });
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
     }
     try {
       await rm(extractionDirectory, { recursive: true, force: true });
@@ -114,5 +100,5 @@ export async function verifyBackupRestore({ archiveDirectory, databaseUrl }) {
   if (operationError || cleanupErrors.length) {
     throw new AggregateError([operationError, ...cleanupErrors].filter(Boolean), "Backup restore verification failed.");
   }
-  return restoreResult;
+  return { ...restoreResult, restoreDurationMs: Math.ceil(performance.now() - startedAt) };
 }

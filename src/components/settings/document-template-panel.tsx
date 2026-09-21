@@ -24,10 +24,10 @@ function UploadTemplateForm({ requestKey, onComplete }: { requestKey: string; on
   const [state, action, pending] = useActionState(uploadDocumentTemplateAction, initialState);
   const router = useRouter();
   useEffect(() => {
-    if (state.status !== "success") return;
+    if (state.status !== "success" || state.refreshRequired) return;
     const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 650);
     return () => window.clearTimeout(timeout);
-  }, [onComplete, router, state.status]);
+  }, [onComplete, router, state.status, state.refreshRequired]);
   return <form action={action} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="idempotencyKey" value={requestKey} />
     <div className="flex-1 space-y-5 p-5 sm:p-7">

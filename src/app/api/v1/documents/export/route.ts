@@ -1,11 +1,13 @@
+import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { isSameOriginRequest } from "@/server/auth/request";
 import { getCurrentSession } from "@/server/auth/session";
 import { createDocumentExportArchive, DocumentExportIntegrityError, DocumentExportLimitError, MAX_DOCUMENT_EXPORT_BYTES } from "@/server/documents/export-archive";
 import { DocumentNotFoundError, getDocumentBatchExport, recordDocumentBatchExport } from "@/server/documents/repository";
 import { documentBatchExportSchema } from "@/server/documents/schemas";
-import { readDocumentFile } from "@/server/documents/storage";
+import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 import type { DocumentExportFile } from "@/server/documents/types";
+import { InvalidJsonBodyError, readJsonBody, RequestBodyTooLargeError } from "@/server/http/json-body";
 
 export const dynamic = "force-dynamic";
 
@@ -14,22 +16,16 @@ export async function POST(request: Request) {
   if (!request.headers.get("content-type")?.toLocaleLowerCase("en").startsWith("application/json")) {
     return Response.json({ error: { code: "unsupported_media_type", message: "Ожидается JSON." } }, { status: 415 });
   }
-  const declaredBodySize = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declaredBodySize) && declaredBodySize > 16 * 1024) {
-    return Response.json({ error: { code: "payload_too_large", message: "Слишком большой запрос." } }, { status: 413 });
-  }
   const member = await getCurrentSession();
   if (!member) return Response.json({ error: { code: "unauthenticated", message: "Требуется вход." } }, { status: 401 });
 
   let payload: unknown;
   try {
-    const body = await request.text();
-    if (Buffer.byteLength(body, "utf8") > 16 * 1024) {
-      return Response.json({ error: { code: "payload_too_large", message: "Слишком большой запрос." } }, { status: 413 });
-    }
-    payload = JSON.parse(body);
-  } catch {
-    return Response.json({ error: { code: "invalid_json", message: "Некорректный JSON." } }, { status: 400 });
+    payload = await readJsonBody(request, 16 * 1024);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return Response.json({ error: { code: "payload_too_large", message: "Слишком большой запрос." } }, { status: 413 });
+    if (error instanceof InvalidJsonBodyError) return Response.json({ error: { code: "invalid_json", message: "Некорректный JSON." } }, { status: 400 });
+    throw error;
   }
   const parsed = documentBatchExportSchema.safeParse(payload);
   if (!parsed.success) {
@@ -41,11 +37,21 @@ export async function POST(request: Request) {
     const hydratedFiles: Array<DocumentExportFile & { content: Buffer }> = [];
     let selectedSizeBytes = 0;
     for (const file of files) {
+      if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes <= 0 || file.sizeBytes > MAX_DOCUMENT_SIZE_BYTES) {
+        throw new DocumentExportIntegrityError(file.documentId);
+      }
       selectedSizeBytes += file.sizeBytes;
       if (selectedSizeBytes > MAX_DOCUMENT_EXPORT_BYTES) {
         throw new DocumentExportLimitError("Общий размер выбранных документов не должен превышать 50 МБ.");
       }
-      hydratedFiles.push({ ...file, content: await readDocumentFile(file.storageKey) });
+    }
+    for (const file of files) {
+      try {
+        hydratedFiles.push({ ...file, content: await readVerifiedDocumentFile(file.storageKey, file, MAX_DOCUMENT_SIZE_BYTES) });
+      } catch (error) {
+        if (error instanceof StoredFileIntegrityError) throw new DocumentExportIntegrityError(file.documentId);
+        throw error;
+      }
     }
     const { archive, totalSizeBytes } = createDocumentExportArchive(hydratedFiles);
     await recordDocumentBatchExport(member, files, totalSizeBytes);
@@ -70,7 +76,7 @@ export async function POST(request: Request) {
       console.error(JSON.stringify({ operation: "documents.batch_export", category: "integrity_mismatch", memberId: member.memberId, documentId: error.documentId }));
       return Response.json({ error: { code: "file_integrity_error", message: "Целостность одного из файлов нарушена. Архив не создан." } }, { status: 500 });
     }
-    console.error(JSON.stringify({ operation: "documents.batch_export", category: "unexpected", memberId: member.memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "documents.batch_export", category: "export_failed", memberId: member.memberId }));
     return Response.json({ error: { code: "export_failed", message: "Не удалось сформировать архив." } }, { status: 500 });
   }
 }

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
+import { MAX_DOCUMENT_SIZE_BYTES } from "../../lib/file-limits.ts";
 
-export const MAX_DOCUMENT_SIZE_BYTES = 15 * 1024 * 1024;
+export { MAX_DOCUMENT_SIZE_BYTES };
 
 type AllowedDocumentFile = {
   extension: "pdf" | "jpg" | "png" | "webp" | "docx" | "xlsx";

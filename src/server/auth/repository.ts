@@ -118,6 +118,14 @@ export async function createSession(input: {
 
 export async function findSessionByTokenHash(tokenHash: string) {
   const sql = getDatabase();
+  await sql`
+    UPDATE auth_sessions
+    SET last_seen_at = now()
+    WHERE token_hash = ${tokenHash}
+      AND revoked_at IS NULL
+      AND expires_at > now()
+      AND last_seen_at < now() - interval '30 seconds'
+  `;
   const rows = await sql`
     SELECT
       sessions.id AS session_id,

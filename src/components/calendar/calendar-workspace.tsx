@@ -248,7 +248,7 @@ function MoveVisitDialog({
               maxLength={1000}
               name="rescheduleReason"
               placeholder="Например: клиент попросил перенести выезд"
-              className="focus-ring min-h-28 resize-y rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] placeholder:text-[var(--muted-subtle)]"
+              className="focus-ring min-h-28 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] placeholder:text-[var(--muted-subtle)]"
             />
             <span className="text-[9px] leading-4 text-[var(--muted)]">
               Причина сохранится отдельно от заметок и будет видна в истории

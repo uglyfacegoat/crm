@@ -61,8 +61,26 @@ export class FinanceEntryNotFoundError extends Error {
 export class FinanceEntryConflictError extends Error {
   constructor() { super("Ledger entry has already changed."); this.name = "FinanceEntryConflictError"; }
 }
+export class FinanceRequestConflictError extends Error {
+  constructor() { super("Idempotency key is already used by another or incomplete operation."); this.name = "FinanceRequestConflictError"; }
+}
 export class FinanceInvoiceHasPaymentsError extends Error {
   constructor() { super("An invoice with posted payments cannot be voided."); this.name = "FinanceInvoiceHasPaymentsError"; }
+}
+
+export async function financeMutationExists(
+  member: AuthenticatedMember,
+  idempotencyKey: string,
+  operation: "finance.payment.create" | "finance.payout.create",
+) {
+  requirePermission(member, "finance.write");
+  const sql = getDatabase();
+  const [existing] = await sql`SELECT operation, entity_id FROM idempotency_requests
+    WHERE organization_id = ${member.organizationId} AND idempotency_key = ${idempotencyKey}`;
+  if (!existing) return false;
+  if (existing.operation !== operation || !existing.entity_id) throw new FinanceRequestConflictError();
+  uuidSchema.parse(existing.entity_id);
+  return true;
 }
 
 function databaseConstraint(error: unknown) {
@@ -243,8 +261,8 @@ export async function createPayment(member: AuthenticatedMember, input: CreatePa
       ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING idempotency_key`;
     if (!request.length) {
       const [existing] = await transaction`SELECT operation, entity_id FROM idempotency_requests WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
-      if (existing?.operation !== "finance.payment.create" || !existing.entity_id) throw new Error("Idempotency key is already used by another operation.");
-      return uuidSchema.parse(existing.entity_id);
+      if (existing?.operation !== "finance.payment.create" || !existing.entity_id) throw new FinanceRequestConflictError();
+      return { id: uuidSchema.parse(existing.entity_id), created: false };
     }
     const [invoice] = await transaction`SELECT order_invoices.id, order_invoices.order_id, order_invoices.invoice_number,
         order_invoices.amount_minor, order_invoices.status, orders.client_id, orders.object_id,
@@ -274,7 +292,7 @@ export async function createPayment(member: AuthenticatedMember, input: CreatePa
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'finance.payment.create', 'order_payment', ${paymentId},
         ${transaction.json({ orderId: invoice.order_id, invoiceId: input.invoiceId, amountMinor: amountMinor.toString(), receivedOn: input.receivedOn, paymentMethod: input.paymentMethod })})`;
-    return paymentId;
+    return { id: paymentId, created: true };
   });
 }
 
@@ -289,8 +307,8 @@ export async function createMasterPayout(member: AuthenticatedMember, input: Cre
       ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING idempotency_key`;
     if (!request.length) {
       const [existing] = await transaction`SELECT operation, entity_id FROM idempotency_requests WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
-      if (existing?.operation !== "finance.payout.create" || !existing.entity_id) throw new Error("Idempotency key is already used by another operation.");
-      return uuidSchema.parse(existing.entity_id);
+      if (existing?.operation !== "finance.payout.create" || !existing.entity_id) throw new FinanceRequestConflictError();
+      return { id: uuidSchema.parse(existing.entity_id), created: false };
     }
     const [order] = await transaction`SELECT orders.id, orders.order_number, orders.client_id, orders.object_id, orders.assigned_master_id, orders.master_name_snapshot,
         orders.master_payment_snapshot_minor, orders.master_paid_total_minor,
@@ -320,7 +338,7 @@ export async function createMasterPayout(member: AuthenticatedMember, input: Cre
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'finance.payout.create', 'order_master_payout', ${payoutId},
         ${transaction.json({ orderId: input.orderId, masterId: order.assigned_master_id, amountMinor: amountMinor.toString(), paidOn: input.paidOn, paymentMethod: input.paymentMethod })})`;
-    return payoutId;
+    return { id: payoutId, created: true };
   });
 }
 

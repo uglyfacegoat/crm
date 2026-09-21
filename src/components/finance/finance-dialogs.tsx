@@ -49,10 +49,10 @@ function ReceiptUploadField({ errors }: { errors?: string[] }) {
 
 function useCloseOnSuccess(state: FinanceActionState, onClose: () => void) {
   useEffect(() => {
-    if (state.status !== "success") return;
+    if (state.status !== "success" || state.refreshRequired) return;
     const timeout = window.setTimeout(onClose, 550);
     return () => window.clearTimeout(timeout);
-  }, [onClose, state.status]);
+  }, [onClose, state.status, state.refreshRequired]);
 }
 
 function InvoiceForm({ order, today, onClose }: { order: FinanceOrder; today: string; onClose: () => void }) {

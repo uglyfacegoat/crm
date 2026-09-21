@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { IncomingLeadNotFoundError, IncomingLeadRateLimitError, ingestWebsiteLead } from "@/server/incoming-leads/repository";
 import { websiteLeadWebhookSchema } from "@/server/incoming-leads/schemas";
+import { InvalidJsonBodyError, readJsonBody, RequestBodyTooLargeError } from "@/server/http/json-body";
 
 export const dynamic = "force-dynamic";
 
@@ -20,19 +21,13 @@ export async function POST(request: Request) {
   if (!hasValidSecret(request, configuredSecret)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > 32_768) {
-    return Response.json({ error: "Payload is too large." }, { status: 413 });
-  }
   let payload: unknown;
   try {
-    const body = await request.text();
-    if (Buffer.byteLength(body, "utf8") > 32_768) {
-      return Response.json({ error: "Payload is too large." }, { status: 413 });
-    }
-    payload = JSON.parse(body) as unknown;
-  } catch {
-    return Response.json({ error: "Malformed JSON." }, { status: 400 });
+    payload = await readJsonBody(request, 32 * 1024);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return Response.json({ error: "Payload is too large." }, { status: 413 });
+    if (error instanceof InvalidJsonBodyError) return Response.json({ error: "Malformed JSON." }, { status: 400 });
+    throw error;
   }
   const parsed = websiteLeadWebhookSchema.safeParse(payload);
   if (!parsed.success) {

@@ -5,7 +5,19 @@ import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { formatPhoneInput } from "@/lib/phone-input";
 
-export function Dialog({ open, onClose, title, description, children }: { open: boolean; onClose: () => void; title: string; description?: string; children: React.ReactNode }) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -17,20 +29,40 @@ export function Dialog({ open, onClose, title, description, children }: { open: 
 
   useEffect(() => {
     if (!open) return;
-    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const returnFocusTo =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const panel = panelRef.current;
-    panel?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
+    const getFocusable = () =>
+      panel
+        ? Array.from(
+            panel.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter((element) => element.getClientRects().length > 0)
+        : [];
+    getFocusable()[0]?.focus();
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onCloseRef.current();
+      if (event.defaultPrevented) return;
+      if (event.key === "Escape" && !panel?.querySelector('[role="dialog"]')) {
+        onCloseRef.current();
+      }
       if (event.key !== "Tab" || !panel) return;
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'));
+      const focusable = getFocusable();
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => {
@@ -41,12 +73,61 @@ export function Dialog({ open, onClose, title, description, children }: { open: 
   }, [open]);
 
   if (!open) return null;
-  return createPortal(<div className="fixed inset-0 z-[70] overflow-hidden bg-black/76" onMouseDown={onClose} role="presentation"><div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onInputCapture={(event) => {
-    const input = event.target;
-    if (!(input instanceof HTMLInputElement) || input.inputMode !== "tel") return;
-    const formatted = formatPhoneInput(input.value);
-    if (formatted === input.value) return;
-    input.value = formatted;
-    input.setSelectionRange(formatted.length, formatted.length);
-  }} onMouseDown={(event) => event.stopPropagation()} className="animate-slide-in absolute inset-y-0 left-0 flex h-full w-[100dvw] max-w-xl flex-col overflow-hidden border-l border-[var(--line)] bg-[var(--surface)] sm:left-auto sm:right-0"><header className="flex shrink-0 items-start gap-4 border-b border-[var(--line)] bg-[var(--surface)] px-5 py-5 sm:px-7"><div className="min-w-0 flex-1"><h2 id={titleId} className="font-display text-xl font-semibold tracking-[-0.035em] text-[var(--text)]">{title}</h2>{description ? <p id={descriptionId} className="mt-2 text-xs leading-5 text-[var(--muted)]">{description}</p> : null}</div><button type="button" onClick={onClose} aria-label="Закрыть окно" className="focus-ring grid size-10 shrink-0 place-items-center rounded-[12px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"><X className="size-4" /></button></header><div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div></div></div>, document.body);
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-black/76 p-3 sm:p-6"
+      onMouseDown={onClose}
+      role="presentation"
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        onInputCapture={(event) => {
+          const input = event.target;
+          if (!(input instanceof HTMLInputElement) || input.inputMode !== "tel")
+            return;
+          const formatted = formatPhoneInput(input.value);
+          if (formatted === input.value) return;
+          input.value = formatted;
+          input.setSelectionRange(formatted.length, formatted.length);
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+        className="modal-panel animate-modal flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[780px] flex-col overflow-hidden rounded-[var(--radius-panel)] shadow-2xl sm:max-h-[calc(100dvh-3rem)]"
+      >
+        <header className="flex shrink-0 items-start gap-4 px-5 py-5 sm:px-7">
+          <div className="min-w-0 flex-1">
+            <h2
+              id={titleId}
+              className="font-display text-xl font-semibold tracking-[-0.035em] text-[var(--text)]"
+            >
+              {title}
+            </h2>
+            {description ? (
+              <p
+                id={descriptionId}
+                className="mt-2 text-xs leading-5 text-[var(--muted)]"
+              >
+                {description}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть окно"
+            className="focus-ring grid size-10 shrink-0 place-items-center rounded-[12px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"
+          >
+            <X className="size-4" />
+          </button>
+        </header>
+        <div className="modal-body flex min-h-0 flex-col overflow-y-auto overscroll-contain">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 }

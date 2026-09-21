@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
+import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
 import {
   DocumentFileValidationError,
@@ -16,6 +17,7 @@ import {
   createInvoice,
   createMasterPayout,
   createPayment,
+  financeMutationExists,
   FinanceAmountExceedsBalanceError,
   FinanceEntryConflictError,
   FinanceEntryNotFoundError,
@@ -23,6 +25,7 @@ import {
   FinanceInvoiceHasPaymentsError,
   FinanceInvoiceNumberConflictError,
   FinanceReferenceError,
+  FinanceRequestConflictError,
   reverseMasterPayout,
   reversePayment,
   voidInvoice,
@@ -41,6 +44,7 @@ export type FinanceActionState = {
   status: "idle" | "success" | "error";
   message: string | null;
   fieldErrors: Record<string, string[]>;
+  refreshRequired?: true;
 };
 
 const emptyState: FinanceActionState = { status: "idle", message: null, fieldErrors: {} };
@@ -54,6 +58,8 @@ function validationFailure(error: { flatten(): { fieldErrors: Record<string, str
 }
 
 function knownFailure(error: unknown) {
+  if (error instanceof AuthorizationError) return "У вас нет права изменять финансовые операции.";
+  if (error instanceof FinanceRequestConflictError) return "Этот запрос уже использован для другой операции. Обновите историю и откройте новую форму.";
   if (error instanceof FinanceReferenceError) return error.field === "master" ? "В заказе нет доступного мастера или начисления." : "Выбранная финансовая запись больше недоступна.";
   if (error instanceof FinanceAmountExceedsBalanceError) return `Сумма превышает доступный остаток ${formatMoneyMinor(Math.max(0, Number(error.availableMinor)))}.`;
   if (error instanceof FinanceInvoiceNumberConflictError) return "Счёт с таким номером уже существует.";
@@ -81,7 +87,7 @@ async function storeReceipt(
   formData: FormData,
   organizationId: string,
   documentId: string,
-): Promise<{ file: FinanceReceiptFile; created: boolean } | null> {
+): Promise<FinanceReceiptFile | null> {
   const uploadedFile = formData.get("receipt");
   if (!(uploadedFile instanceof File) || uploadedFile.size === 0) return null;
   const buffer = Buffer.from(await uploadedFile.arrayBuffer());
@@ -95,20 +101,19 @@ async function storeReceipt(
     documentId,
     validated.extension,
   );
-  let created = true;
   try {
     await writeDocumentFile(storageKey, buffer);
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-    created = false;
+    throw new DocumentFileValidationError("Файл этого запроса уже существует. Проверьте историю операций. Если операция не проведена, закройте форму и создайте новую.");
   }
-  return { file: { documentId, storageKey, ...validated }, created };
+  return { documentId, storageKey, ...validated };
 }
 
-async function removeUncommittedReceipt(receipt: { file: FinanceReceiptFile; created: boolean } | null) {
-  if (!receipt?.created) return;
+async function removeUncommittedReceipt(receipt: FinanceReceiptFile | null) {
+  if (!receipt) return;
   try {
-    await removeDocumentFile(receipt.file.storageKey);
+    await removeDocumentFile(receipt.storageKey);
   } catch (error) {
     console.error(JSON.stringify({ operation: "finance.receipt.cleanup", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
   }
@@ -142,17 +147,30 @@ export async function createPaymentAction(_previous: FinanceActionState, formDat
   });
   if (!parsed.success) return validationFailure(parsed.error, "Проверьте сумму и реквизиты оплаты.");
   let receipt: Awaited<ReturnType<typeof storeReceipt>> = null;
+  let committed = false;
   try {
-    receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
-    await createPayment(member, parsed.data, receipt?.file ?? null);
+    committed = await financeMutationExists(member, parsed.data.idempotencyKey, "finance.payment.create");
+    if (!committed) {
+      receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
+      const result = await createPayment(member, parsed.data, receipt);
+      committed = true;
+      if (!result.created) await removeUncommittedReceipt(receipt);
+    }
     refreshFinance();
     return { ...emptyState, status: "success", message: "Оплата проведена." };
   } catch (error) {
-    await removeUncommittedReceipt(receipt);
+    if (committed) {
+      logUnexpected("finance.payment.revalidate", member.memberId, error);
+      return { ...emptyState, status: "success", refreshRequired: true, message: "Оплата проведена, но страницу не удалось обновить. Обновите её вручную." };
+    }
     if (error instanceof DocumentFileValidationError) return { ...emptyState, status: "error", message: error.message, fieldErrors: { receipt: [error.message] } };
-    const known = knownFailure(error); if (known) return { ...emptyState, status: "error", message: known };
+    const known = knownFailure(error);
+    if (known) {
+      await removeUncommittedReceipt(receipt);
+      return { ...emptyState, status: "error", message: known };
+    }
     logUnexpected("finance.payment.create", member.memberId, error);
-    return { ...emptyState, status: "error", message: "Не удалось провести оплату. Данные не сохранены." };
+    return { ...emptyState, status: "error", message: "Не удалось подтвердить оплату. Обновите историю оплат и проверьте результат перед повторной отправкой." };
   }
 }
 
@@ -165,17 +183,30 @@ export async function createPayoutAction(_previous: FinanceActionState, formData
   });
   if (!parsed.success) return validationFailure(parsed.error, "Проверьте сумму и реквизиты выплаты.");
   let receipt: Awaited<ReturnType<typeof storeReceipt>> = null;
+  let committed = false;
   try {
-    receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
-    await createMasterPayout(member, parsed.data, receipt?.file ?? null);
+    committed = await financeMutationExists(member, parsed.data.idempotencyKey, "finance.payout.create");
+    if (!committed) {
+      receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
+      const result = await createMasterPayout(member, parsed.data, receipt);
+      committed = true;
+      if (!result.created) await removeUncommittedReceipt(receipt);
+    }
     refreshFinance(parsed.data.orderId);
     return { ...emptyState, status: "success", message: "Выплата мастеру проведена." };
   } catch (error) {
-    await removeUncommittedReceipt(receipt);
+    if (committed) {
+      logUnexpected("finance.payout.revalidate", member.memberId, error);
+      return { ...emptyState, status: "success", refreshRequired: true, message: "Выплата проведена, но страницу не удалось обновить. Обновите её вручную." };
+    }
     if (error instanceof DocumentFileValidationError) return { ...emptyState, status: "error", message: error.message, fieldErrors: { receipt: [error.message] } };
-    const known = knownFailure(error); if (known) return { ...emptyState, status: "error", message: known };
+    const known = knownFailure(error);
+    if (known) {
+      await removeUncommittedReceipt(receipt);
+      return { ...emptyState, status: "error", message: known };
+    }
     logUnexpected("finance.payout.create", member.memberId, error);
-    return { ...emptyState, status: "error", message: "Не удалось провести выплату. Данные не сохранены." };
+    return { ...emptyState, status: "error", message: "Не удалось подтвердить выплату. Обновите историю выплат и проверьте результат перед повторной отправкой." };
   }
 }
 

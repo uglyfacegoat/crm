@@ -6,6 +6,8 @@ export type DocumentArchiveSelection = {
   objectId: string | null;
   orderId: string | null;
   category: DocumentCategory | null;
+  folderId: string | null;
+  favoriteOnly: boolean;
 };
 
 export type DocumentArchiveCategoryNode = {
@@ -61,6 +63,8 @@ const archiveSelectionSchema = z.object({
   objectId: z.string().uuid().nullable(),
   orderId: z.string().uuid().nullable(),
   category: z.enum(documentCategories).nullable(),
+  folderId: z.string().uuid().nullable(),
+  favoriteOnly: z.boolean(),
 }).superRefine((selection, context) => {
   if (selection.objectId && !selection.clientId) context.addIssue({ code: "custom", path: ["objectId"], message: "Object selection requires a client." });
   if (selection.orderId && (!selection.clientId || !selection.objectId)) context.addIssue({ code: "custom", path: ["orderId"], message: "Order selection requires a client and object." });
@@ -77,9 +81,11 @@ export function parseDocumentArchiveSelection(searchParams: Record<string, strin
     objectId: firstSearchValue(searchParams.object) ?? null,
     orderId: firstSearchValue(searchParams.order) ?? null,
     category: firstSearchValue(searchParams.category) ?? null,
+    folderId: firstSearchValue(searchParams.folder) ?? null,
+    favoriteOnly: firstSearchValue(searchParams.favorite) === "1",
   };
   const parsed = archiveSelectionSchema.safeParse(candidate);
-  return parsed.success ? parsed.data : { clientId: null, objectId: null, orderId: null, category: null };
+  return parsed.success ? parsed.data : { clientId: null, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: false };
 }
 
 export function buildDocumentArchiveTree(branches: DocumentArchiveBranch[]): DocumentArchiveTree {

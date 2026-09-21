@@ -1,8 +1,11 @@
-import type { AnalyticsRange, AnalyticsSnapshot } from "./types";
+import { createPreviewPeriod } from "../preview-period.ts";
+import type { AnalyticsRange, AnalyticsSnapshot } from "./types.ts";
 
-export function getPreviewAnalytics(range: AnalyticsRange): AnalyticsSnapshot {
+export function getPreviewAnalytics(range: AnalyticsRange, now = new Date()): AnalyticsSnapshot {
+  const financialPeriod = createPreviewPeriod(range, 8, now);
+  const activityPeriod = createPreviewPeriod(range, 30, now);
   return {
-    range: { days: range, startDate: "2026-08-01", endDate: "2026-08-30", timezone: "Europe/Moscow" },
+    range: { days: range, startDate: financialPeriod.startDate, endDate: financialPeriod.endDate, timezone: financialPeriod.timezone },
     metrics: [
       { id: "agreed", label: "Согласовано", value: 12_500_000, format: "money", change: "+18,2%", tone: "lime" },
       { id: "paid", label: "Получено", value: 10_820_000, format: "money", change: "+14,6%", tone: "mint" },
@@ -12,7 +15,7 @@ export function getPreviewAnalytics(range: AnalyticsRange): AnalyticsSnapshot {
       { id: "average_order", label: "Средний чек", value: 2_451_000, format: "money", change: "+6,8%", tone: "violet" },
     ],
     financialTrend: {
-      labels: ["1 авг", "5 авг", "9 авг", "13 авг", "17 авг", "21 авг", "25 авг", "30 авг"],
+      labels: financialPeriod.labels,
       series: [
         { label: "Согласовано", color: "#000000", values: [6800, 7450, 7200, 8600, 9400, 10100, 11400, 12500], valueFormat: "money" },
         { label: "Плановый опер. остаток", color: "#a2beff", values: [3520, 3980, 3760, 4720, 5350, 6020, 6760, 7420], valueFormat: "money" },
@@ -43,6 +46,22 @@ export function getPreviewAnalytics(range: AnalyticsRange): AnalyticsSnapshot {
       { id: "c-3", name: "ООО «Вектор»", orders: 5, agreedMinor: 1_200_000 },
     ],
     repeatClientRate: 64,
+    repeatClientCounts: { repeat: 16, firstTime: 9 },
     completedVisitRate: 82,
+    visitActivity: [
+      3, 5, 2, 6, 4, 8, 3,
+      5, 7, 4, 6, 6, 8, 2,
+      4, 3, 5, 7, 6, 8, 6,
+      7, 9, 5, 7, 4, 6, 5,
+      4, 6,
+    ].map((value, index) => ({ key: activityPeriod.dates[index], label: activityPeriod.labels[index], value })),
+    orderStatusBreakdown: [
+      { id: "new", label: "Новые", value: 8 },
+      { id: "in_progress", label: "В работе", value: 6 },
+      { id: "scheduled", label: "План", value: 4 },
+      { id: "approved", label: "Согласование", value: 2 },
+      { id: "completed", label: "Выполнено", value: 25 },
+      { id: "cancelled", label: "Отменено", value: 2 },
+    ],
   };
 }

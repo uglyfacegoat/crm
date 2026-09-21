@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowUpRight,
   ChevronDown,
   MapPin,
   MessageCircle,
@@ -111,13 +110,12 @@ function MasterRosterRow({
   const href = `/masters/${master.id}`;
 
   return (
-    <article role="link" tabIndex={0} aria-label={`Открыть карточку мастера ${master.fullName}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return; router.push(href); }} onKeyDown={(event) => { if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); router.push(href); }} className="relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] md:items-center sm:px-5">
+    <article role="link" tabIndex={0} aria-label={`Открыть карточку мастера ${master.fullName}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return; router.push(href); }} onKeyDown={(event) => { if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); router.push(href); }} className="relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem] md:items-center sm:px-5">
       <span className="hidden font-display text-[10px] tabular-nums text-[var(--muted-subtle)] md:block">
         {String(index + 1).padStart(2, "0")}
       </span>
-      <div className="min-w-0">
-        <div className="flex items-start gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-full border border-[var(--line-strong)] bg-[var(--surface-inset)] font-display text-xs font-medium text-[var(--text)]">
+      <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] gap-x-3">
+          <span className="row-span-2 grid size-11 shrink-0 self-center place-items-center rounded-full border border-[var(--line-strong)] bg-[var(--surface-inset)] font-display text-xs font-medium text-[var(--text)]">
             {getInitials(master.fullName)}
           </span>
           <div className="min-w-0 flex-1">
@@ -143,8 +141,7 @@ function MasterRosterRow({
               ))}
             </div>
           </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 pl-14 text-[10px] text-[var(--text-secondary)]">
+        <div className="col-start-2 mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-[var(--text-secondary)]">
           <a
             href={`tel:${master.phone}`}
             className="focus-ring flex items-center gap-1.5 rounded-sm hover:text-[var(--accent-ink)]"
@@ -222,9 +219,6 @@ function MasterRosterRow({
               : formatMoneyMinor(master.basePaymentMinor)}
         </strong>
       </div>
-      <span className="hidden size-7 place-items-center text-[var(--muted)] md:grid" aria-hidden="true">
-        <ArrowUpRight className="size-4" aria-hidden="true" />
-      </span>
     </article>
   );
 }
@@ -301,7 +295,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
         aria-label="Фильтры мастеров"
         className="surface-panel surface-panel-popover p-2"
       >
-        <div className="flex gap-1 overflow-x-auto rounded-[13px] bg-[var(--surface-inset)] p-1">
+        <div className="flex gap-1 overflow-x-auto">
           {statusFilters.map((entry) => (
             <button
               key={entry.value}
@@ -386,7 +380,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
       {filtered.length ? (
         <section
           aria-label="Реестр мастеров"
-          className="surface-panel mt-4 min-w-0 overflow-hidden"
+          className="surface-panel panel-stack mt-4 min-w-0 overflow-hidden"
         >
           <header className="hidden grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] gap-5 border-b border-[var(--line)] bg-[var(--surface-inset)] px-5 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] md:grid">
             <span>№</span>

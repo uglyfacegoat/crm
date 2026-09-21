@@ -8,7 +8,7 @@ import { filterPickerOptions } from "@/lib/picker-options";
 export const orderInputClass =
   "focus-ring h-12 w-full rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)] disabled:cursor-not-allowed disabled:opacity-45";
 export const orderTextareaClass =
-  "focus-ring min-h-24 w-full resize-y rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
+  "focus-ring min-h-24 w-full rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
 
 export function OrderField({
   label,

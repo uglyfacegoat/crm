@@ -43,6 +43,13 @@ export function parseBackupWorkerConfig(environment) {
       1,
       365,
     ),
+    snapshotCopyTimeoutMs: parseBoundedInteger(
+      environment.BACKUP_SNAPSHOT_COPY_TIMEOUT_MS,
+      "BACKUP_SNAPSHOT_COPY_TIMEOUT_MS",
+      30_000,
+      1000,
+      120_000,
+    ),
   };
 }
 

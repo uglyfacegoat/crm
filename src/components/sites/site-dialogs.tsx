@@ -25,7 +25,7 @@ function CreateWebsiteForm({ requestKey, onComplete }: { requestKey: string; onC
   const router = useRouter();
   useEffect(() => {
     if (state.status !== "success") return;
-    router.refresh();
+    router.replace("/sites?data=current");
     const timeout = window.setTimeout(onComplete, 700);
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status]);

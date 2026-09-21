@@ -6,6 +6,7 @@ import {
   ChevronRight,
   FileSignature,
   History,
+  Link2,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -96,6 +97,11 @@ const statusPresentation = {
     className:
       "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]",
   },
+} as const;
+const relationLabels = {
+  related: "Связанный",
+  supplement: "Доп. соглашение",
+  framework: "Рамочный",
 } as const;
 
 function formatDate(date: string) {
@@ -242,6 +248,7 @@ export function ContractsWorkspace({
         contract.objectName,
         contract.objectAddress,
         contract.schedule?.defaultMasterName,
+        ...contract.relations.map((relation) => relation.contractNumber),
       ]);
     });
     return filtered.toSorted((left, right) => {
@@ -321,7 +328,7 @@ export function ContractsWorkspace({
         ))}
       </section>
 
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <header className="flex flex-col gap-3 border-b border-[var(--line)] p-3 sm:p-4 lg:flex-row lg:items-center">
           <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 lg:max-w-md">
             <Search className="size-4 shrink-0 text-[var(--muted)]" />
@@ -368,7 +375,7 @@ export function ContractsWorkspace({
           ) : null}
         </header>
 
-        <div className="hidden min-w-[68rem] grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_8rem] items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-[9px] uppercase tracking-[0.1em] text-[var(--muted)] lg:grid">
+        <div className="hidden min-w-[70rem] grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_10rem] items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-[9px] uppercase tracking-[0.1em] text-[var(--muted)] lg:grid">
           <span>Договор</span>
           <span>Клиент / объект</span>
           <span>Период</span>
@@ -391,7 +398,7 @@ export function ContractsWorkspace({
                     router.push(`/contracts/${contract.id}`);
                   }
                 }}
-                className="cursor-pointer border-b border-[var(--line)] p-4 transition-colors last:border-0 hover:bg-[var(--surface-soft)] lg:grid lg:min-w-[68rem] lg:grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_8rem] lg:items-center lg:gap-4 lg:px-5 lg:py-4"
+                className="cursor-pointer border-b border-[var(--line)] p-4 transition-colors last:border-0 hover:bg-[var(--surface-soft)] lg:grid lg:min-w-[70rem] lg:grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_10rem] lg:items-center lg:gap-4 lg:px-5 lg:py-4"
               >
                 <div className="flex items-start justify-between gap-3 lg:block">
                   <div>
@@ -433,6 +440,12 @@ export function ContractsWorkspace({
                   {contract.renewedFromContractId ? (
                     <p className="mt-1 text-[9px] text-[var(--support)]">
                       Продление предыдущего периода
+                    </p>
+                  ) : null}
+                  {contract.relations.length ? (
+                    <p className="mt-1 flex items-center gap-1.5 text-[9px] font-medium text-[var(--accent-ink)]">
+                      <Link2 className="size-3" />
+                      {contract.relations.map((relation) => `${relationLabels[relation.relationType]} ${relation.contractNumber}`).join(" · ")}
                     </p>
                   ) : null}
                 </div>
@@ -491,6 +504,15 @@ export function ContractsWorkspace({
                   </button>
                   {canWrite ? (
                     <>
+                      <button
+                        type="button"
+                        onClick={() => open(contract, "link")}
+                        aria-label={`Связать договор ${contract.contractNumber}`}
+                        title="Связать с другим договором"
+                        className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
+                      >
+                        <Link2 className="size-3.5" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => open(contract, "edit")}
@@ -781,6 +803,7 @@ export function ContractsWorkspace({
       <ContractDialogs
         mode={dialogMode}
         contract={selected}
+        contractOptions={snapshot.contracts}
         objectOptions={snapshot.objectOptions}
         masterOptions={snapshot.masterOptions}
         onClose={close}

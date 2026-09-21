@@ -721,7 +721,7 @@ export function MemberAdminPanel({
           учётных записей отключено.
         </p>
       ) : null}
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--line)] p-4 sm:flex-row sm:items-center sm:p-5">
           <label className="focus-within:border-[var(--line-strong)] flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 sm:max-w-md">
             <Search className="size-4 shrink-0 text-[var(--muted)]" />

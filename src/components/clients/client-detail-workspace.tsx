@@ -51,7 +51,7 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
           {client.objects.length ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {client.objects.map((object) => (
-                <article key={object.id} className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-4">
+                <article key={object.id} className="inset-panel p-4">
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--text)]">{object.name}</p><p className="mt-1 text-[10px] text-[var(--muted)]">{object.objectType}</p></div><span className="shrink-0 rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[9px] text-[var(--muted)]">риск {object.riskLevel ?? "—"}/5</span></div>
                   <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--text-secondary)]"><MapPin className="mt-0.5 size-3.5 shrink-0 text-[var(--accent)]" />{object.address}</p>
                   <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-3 text-[10px] text-[var(--muted)]"><span>{object.areaSquareMeters ? `${object.areaSquareMeters.toLocaleString("ru-RU")} м²` : "Площадь не указана"}</span><span>{object.floorCount ? `${object.floorCount} эт.` : "Этажи не указаны"}</span></div>

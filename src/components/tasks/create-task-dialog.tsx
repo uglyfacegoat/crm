@@ -10,7 +10,7 @@ import {
 } from "@/app/(workspace)/tasks/actions";
 import { Dialog } from "@/components/ui/dialog";
 import { clientCrypto as crypto } from "@/lib/client-id";
-import type { TaskAssigneeOption } from "@/server/tasks/types";
+import type { TaskAssigneeOption, TaskOrderOption } from "@/server/tasks/types";
 
 const initialState: CreateTaskState = {
   status: "idle",
@@ -40,11 +40,13 @@ const roleLabels = {
 function CreateTaskForm({
   requestKey,
   assigneeOptions,
+  orderOptions,
   currentMemberId,
   onComplete,
 }: {
   requestKey: string;
   assigneeOptions: TaskAssigneeOption[];
+  orderOptions: TaskOrderOption[];
   currentMemberId: string;
   onComplete: () => void;
 }) {
@@ -61,10 +63,10 @@ function CreateTaskForm({
   }, [onComplete, router, state.status]);
 
   return (
-    <form action={action} className="flex flex-1 flex-col">
+    <form action={action} className="task-create-form flex flex-1 flex-col">
       <input type="hidden" name="idempotencyKey" value={requestKey} />
-      <div className="flex-1 space-y-5 p-5 sm:p-7">
-        <label className={fieldLabelClass}>
+      <div className="task-create-fields">
+        <label className={`${fieldLabelClass} task-create-title`}>
           <span>Название *</span>
           <input
             name="title"
@@ -76,7 +78,7 @@ function CreateTaskForm({
           />
           <FieldError errors={state.fieldErrors.title} />
         </label>
-        <label className={fieldLabelClass}>
+        <label className={`${fieldLabelClass} task-create-description`}>
           <span>Описание</span>
           <textarea
             name="description"
@@ -88,7 +90,7 @@ function CreateTaskForm({
           <FieldError errors={state.fieldErrors.description} />
         </label>
         <label className={fieldLabelClass}>
-          <span>Ответственный</span>
+          <span>Исполнитель</span>
           <select
             name="assignedMemberId"
             defaultValue={currentMemberId}
@@ -103,58 +105,52 @@ function CreateTaskForm({
           </select>
           <FieldError errors={state.fieldErrors.assignedMemberId} />
         </label>
-        <fieldset>
-          <legend className="text-[10px] text-[var(--text-secondary)]">
-            Приоритет
-          </legend>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {(
-              [
-                ["low", "Низкий"],
-                ["normal", "Обычный"],
-                ["high", "Высокий"],
-                ["critical", "Критичный"],
-              ] as const
-            ).map(([value, label]) => (
-              <label
-                key={value}
-                className="focus-within:outline focus-within:outline-2 focus-within:outline-offset-[-2px] focus-within:outline-[var(--focus)]"
-              >
-                <input
-                  type="radio"
-                  name="priority"
-                  value={value}
-                  defaultChecked={value === "normal"}
-                  className="peer sr-only"
-                />
-                <span className="grid min-h-11 cursor-pointer place-items-center rounded-[11px] border border-[var(--line)] text-[10px] text-[var(--text-secondary)] peer-checked:border-[var(--accent)] peer-checked:bg-[var(--accent-soft)] peer-checked:text-[var(--accent-ink)]">
-                  {label}
-                </span>
-              </label>
+        <label className={fieldLabelClass}>
+          <span>Связанный заказ</span>
+          <select name="relatedOrderId" defaultValue="" className={fieldClass}>
+            <option value="">Не связан с заказом</option>
+            {orderOptions.map((order) => (
+              <option key={order.id} value={order.id}>
+                {order.orderNumber} · {order.clientName}
+              </option>
             ))}
-          </div>
-        </fieldset>
-        <fieldset>
+          </select>
+          <FieldError errors={state.fieldErrors.relatedOrderId} />
+        </label>
+        <fieldset className="task-create-deadline">
           <legend className="text-[10px] text-[var(--text-secondary)]">
-            Срок (необязательно)
+            Срок
           </legend>
-          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <div>
             <label className="grid gap-2 text-[10px] text-[var(--muted)]">
-              <span>Дата</span>
+              <span className="sr-only">Дата</span>
               <DateInput name="localDate" className={fieldClass} />
               <FieldError errors={state.fieldErrors.localDate} />
             </label>
             <label className="grid gap-2 text-[10px] text-[var(--muted)]">
-              <span>Время</span>
+              <span className="sr-only">Время</span>
               <TimeInput name="localTime" className={fieldClass} />
               <FieldError errors={state.fieldErrors.localTime} />
             </label>
           </div>
         </fieldset>
+        <label className={fieldLabelClass}>
+          <span>Приоритет</span>
+          <select name="priority" defaultValue="normal" className={fieldClass}>
+            <option value="low">Низкий</option>
+            <option value="normal">Обычный</option>
+            <option value="high">Высокий</option>
+            <option value="critical">Критичный</option>
+          </select>
+          <FieldError errors={state.fieldErrors.priority} />
+        </label>
+        <p className="task-create-note">
+          Автоматические напоминания создаются из выездов.
+        </p>
         {state.message ? (
           <p
             role="status"
-            className={`rounded-[12px] border p-3 text-xs ${state.status === "success" ? "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]" : "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]"}`}
+            className={`task-create-status rounded-[12px] border p-3 text-xs ${state.status === "success" ? "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]" : "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]"}`}
           >
             {state.status === "success" ? (
               <Check className="mr-2 inline size-4" />
@@ -198,9 +194,11 @@ function CreateTaskForm({
 
 export function CreateTaskButton({
   assigneeOptions,
+  orderOptions,
   currentMemberId,
 }: {
   assigneeOptions: TaskAssigneeOption[];
+  orderOptions: TaskOrderOption[];
   currentMemberId: string;
 }) {
   const [requestKey, setRequestKey] = useState<string | null>(null);
@@ -224,6 +222,7 @@ export function CreateTaskButton({
           <CreateTaskForm
             requestKey={requestKey}
             assigneeOptions={assigneeOptions}
+            orderOptions={orderOptions}
             currentMemberId={currentMemberId}
             onComplete={close}
           />

@@ -28,9 +28,15 @@ COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules/zod ./node_modu
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrate.mjs ./scripts/migrate.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/validate-runtime-config.mjs ./scripts/validate-runtime-config.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/src/server/config/environment.ts ./src/server/config/environment.ts
+COPY --from=builder --chown=nextjs:nodejs /app/src/server/storage ./src/server/storage
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/seed-local-example-data.mjs ./scripts/seed-local-example-data.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/reminder-worker.mjs /app/scripts/reminder-worker-config.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-worker.mjs /app/scripts/backup-worker-config.mjs /app/scripts/backup-process.mjs /app/scripts/backup-restore.mjs /app/scripts/backup-restore-check.mjs ./scripts/
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-integrity.mjs ./scripts/
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/storage-audit.mjs /app/scripts/s3-audit-storage.mjs ./scripts/
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-snapshot.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/db/migrations ./db/migrations
 COPY --chown=nextjs:nodejs docker-entrypoint.sh ./docker-entrypoint.sh
 

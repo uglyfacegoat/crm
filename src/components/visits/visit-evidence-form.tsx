@@ -31,10 +31,10 @@ export function VisitEvidenceForm({
   const [filename, setFilename] = useState<string | null>(null);
 
   useEffect(() => {
-    if (state.status !== "success") return;
+    if (state.status !== "success" || state.refreshRequired) return;
     const timeout = window.setTimeout(onClose, 1_100);
     return () => window.clearTimeout(timeout);
-  }, [onClose, state.status]);
+  }, [onClose, state.status, state.refreshRequired]);
 
   return (
     <form action={action} className="flex min-h-0 flex-1 flex-col">

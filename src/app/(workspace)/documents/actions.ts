@@ -44,6 +44,7 @@ export type DocumentUploadState = {
   status: "idle" | "success" | "error";
   message: string | null;
   fieldErrors: Record<string, string[]>;
+  refreshRequired?: true;
 };
 
 export type DocumentArchiveActionState = {
@@ -109,6 +110,9 @@ export async function uploadDocumentAction(
     };
 
   let storageKey: string | null = null;
+  let fileWritten = false;
+  let committed = false;
+  let outcomeUnknown = false;
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({
@@ -128,7 +132,9 @@ export async function uploadDocumentAction(
       file.extension,
     );
     await writeDocumentFile(storageKey, buffer);
+    fileWritten = true;
     await createDocument(member, { ...parsed.data, ...file, storageKey });
+    committed = true;
     revalidatePath("/documents");
     revalidatePath("/orders");
     revalidatePath(`/orders/${parsed.data.orderId}`);
@@ -140,6 +146,15 @@ export async function uploadDocumentAction(
       fieldErrors: {},
     };
   } catch (error) {
+    if (committed) {
+      logUnexpected("documents.upload.revalidate", member.memberId, error);
+      return {
+        status: "success",
+        message: "Документ сохранён, но страницу не удалось обновить. Обновите её вручную.",
+        fieldErrors: {},
+        refreshRequired: true,
+      };
+    }
     if (error instanceof DocumentFileValidationError)
       return {
         status: "error",
@@ -147,7 +162,6 @@ export async function uploadDocumentAction(
         fieldErrors: { file: [error.message] },
       };
     if (error instanceof DocumentReferenceError) {
-      if (storageKey) await removeDocumentFile(storageKey);
       const message =
         error.field === "order"
           ? "Заказ больше не существует или недоступен."
@@ -173,7 +187,16 @@ export async function uploadDocumentAction(
         fieldErrors: {},
       };
     }
-    if (storageKey) {
+    // A lost COMMIT response is not proof of rollback; retaining bytes is safer than deleting evidence.
+    outcomeUnknown = true;
+    logUnexpected("documents.upload", member.memberId, error);
+    return {
+      status: "error",
+      message: "Не удалось подтвердить сохранение документа. Обновите список и проверьте результат перед повторной загрузкой.",
+      fieldErrors: {},
+    };
+  } finally {
+    if (storageKey && fileWritten && !committed && !outcomeUnknown) {
       try {
         await removeDocumentFile(storageKey);
       } catch (cleanupError) {
@@ -184,12 +207,6 @@ export async function uploadDocumentAction(
         );
       }
     }
-    logUnexpected("documents.upload", member.memberId, error);
-    return {
-      status: "error",
-      message: "Не удалось сохранить документ. Файл не добавлен.",
-      fieldErrors: {},
-    };
   }
 }
 
@@ -230,6 +247,7 @@ export async function uploadDocumentVersionAction(
   let storageKey: string | null = null;
   let fileWritten = false;
   let committed = false;
+  let outcomeUnknown = false;
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({
@@ -279,6 +297,15 @@ export async function uploadDocumentVersionAction(
       fieldErrors: {},
     };
   } catch (error) {
+    if (committed) {
+      logUnexpected("documents.version_upload.revalidate", member.memberId, error);
+      return {
+        status: "success",
+        message: "Новая версия сохранена, но страницу не удалось обновить. Обновите её вручную.",
+        fieldErrors: {},
+        refreshRequired: true,
+      };
+    }
     if (error instanceof DocumentFileValidationError)
       return {
         status: "error",
@@ -333,14 +360,15 @@ export async function uploadDocumentVersionAction(
         fieldErrors: {},
       };
     }
+    outcomeUnknown = true;
     logUnexpected("documents.version_upload", member.memberId, error);
     return {
       status: "error",
-      message: "Не удалось сохранить новую версию. Текущий файл не изменён.",
+      message: "Не удалось подтвердить сохранение версии. Обновите историю документа и проверьте результат перед повторной загрузкой.",
       fieldErrors: {},
     };
   } finally {
-    if (storageKey && fileWritten && !committed) {
+    if (storageKey && fileWritten && !committed && !outcomeUnknown) {
       try {
         await removeDocumentFile(storageKey);
       } catch (cleanupError) {

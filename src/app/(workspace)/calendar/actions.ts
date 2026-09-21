@@ -32,9 +32,9 @@ import { completeVisitSchema, createVisitSchema, createVisitSeriesSchema, resche
 export type CreateVisitState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; visitId: string | null };
 export type CreateVisitSeriesState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; seriesId: string | null; visitCount: number | null };
 export type UpdateVisitState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; version: number | null };
-export type CompleteVisitState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; documentId: string | null };
+export type CompleteVisitState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; documentId: string | null; refreshRequired?: true };
 export type StartVisitState = { status: "idle" | "success" | "error"; message: string | null; version: number | null };
-export type VisitEvidenceState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]> };
+export type VisitEvidenceState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; refreshRequired?: true };
 export type RescheduleVisitResult = {
   status: "success" | "error";
   message: string;
@@ -103,6 +103,8 @@ export async function completeVisitAction(_previous: CompleteVisitState, formDat
   }
 
   let storageKey: string | null = null;
+  let fileWritten = false;
+  let completedDocumentId: string | null = null;
   try {
     if (await visitCompletionExists(member, parsed.data.visitId, parsed.data.idempotencyKey)) {
       return { status: "success", message: "Выезд уже завершён, акт сохранён.", fieldErrors: {}, documentId: parsed.data.idempotencyKey };
@@ -114,7 +116,9 @@ export async function completeVisitAction(_previous: CompleteVisitState, formDat
     }
     storageKey = createDocumentStorageKey(member.organizationId, parsed.data.idempotencyKey, file.extension);
     await writeDocumentFile(storageKey, buffer);
+    fileWritten = true;
     const completed = await completeVisitWithClosingDocument(member, { ...parsed.data, ...file, storageKey });
+    completedDocumentId = completed.documentId;
     revalidatePath("/");
     revalidatePath("/calendar");
     revalidatePath("/tasks");
@@ -123,6 +127,10 @@ export async function completeVisitAction(_previous: CompleteVisitState, formDat
     revalidatePath(`/orders/${completed.orderId}`);
     return { status: "success", message: "Выезд завершён, акт добавлен в архив.", fieldErrors: {}, documentId: completed.documentId };
   } catch (error) {
+    if (completedDocumentId) {
+      logUnexpected("service_visits.complete.revalidate", member.memberId, error);
+      return { status: "success", refreshRequired: true, message: "Выезд завершён, акт сохранён, но страницу не удалось обновить. Обновите её вручную.", fieldErrors: {}, documentId: completedDocumentId };
+    }
     if (error instanceof DocumentFileValidationError) return { status: "error", message: error.message, fieldErrors: { file: [error.message] }, documentId: null };
     if (errorCode(error) === "EEXIST") {
       if (await visitCompletionExists(member, parsed.data.visitId, parsed.data.idempotencyKey)) {
@@ -130,7 +138,9 @@ export async function completeVisitAction(_previous: CompleteVisitState, formDat
       }
       return { status: "error", message: "Эта загрузка уже обрабатывается. Закройте окно и повторите с новым файлом.", fieldErrors: {}, documentId: null };
     }
-    if (storageKey) {
+    const rejected = error instanceof VisitVersionConflictError || error instanceof VisitNotFoundError
+      || error instanceof VisitImmutableError || error instanceof AuthorizationError;
+    if (storageKey && fileWritten && rejected) {
       try { await removeDocumentFile(storageKey); } catch (cleanupError) { logUnexpected("service_visits.complete.cleanup", member.memberId, cleanupError); }
     }
     if (error instanceof VisitVersionConflictError) return { status: "error", message: "Выезд уже изменил другой сотрудник. Обновите страницу и повторите.", fieldErrors: {}, documentId: null };
@@ -138,7 +148,7 @@ export async function completeVisitAction(_previous: CompleteVisitState, formDat
     if (error instanceof VisitImmutableError) return { status: "error", message: "Отменённый или уже завершённый выезд закрыть повторно нельзя.", fieldErrors: {}, documentId: null };
     if (error instanceof AuthorizationError) return { status: "error", message: "Этот выезд не назначен вашей учётной записи.", fieldErrors: {}, documentId: null };
     logUnexpected("service_visits.complete", member.memberId, error);
-    return { status: "error", message: "Не удалось завершить выезд. Статус и архив не изменены.", fieldErrors: {}, documentId: null };
+    return { status: "error", message: "Не удалось подтвердить завершение выезда. Обновите карточку и проверьте акт перед повторной отправкой.", fieldErrors: {}, documentId: null };
   }
 }
 
@@ -185,6 +195,8 @@ export async function uploadAssignedVisitEvidenceAction(
   }
 
   let storageKey: string | null = null;
+  let fileWritten = false;
+  let committed = false;
   try {
     if (await visitEvidenceExists(member, parsed.data.idempotencyKey)) {
       return { status: "success", message: "Этот материал уже сохранён.", fieldErrors: {} };
@@ -196,24 +208,34 @@ export async function uploadAssignedVisitEvidenceAction(
     }
     storageKey = createDocumentStorageKey(member.organizationId, parsed.data.idempotencyKey, file.extension);
     await writeDocumentFile(storageKey, buffer);
+    fileWritten = true;
     const created = await createAssignedVisitEvidence(member, {
       ...parsed.data,
       ...file,
       extension: file.extension,
       storageKey,
     });
+    committed = true;
     revalidatePath("/documents");
     revalidatePath("/my-visits");
     revalidatePath(`/orders/${created.orderId}`);
     return { status: "success", message: "Материал сохранён в документах заказа.", fieldErrors: {} };
   } catch (error) {
+    if (committed) {
+      logUnexpected("service_visits.evidence.revalidate", member.memberId, error);
+      return { status: "success", refreshRequired: true, message: "Материал сохранён, но страницу не удалось обновить. Обновите её вручную.", fieldErrors: {} };
+    }
     if (error instanceof DocumentFileValidationError) {
       return { status: "error", message: error.message, fieldErrors: { file: [error.message] } };
     }
-    if (errorCode(error) === "EEXIST" && await visitEvidenceExists(member, parsed.data.idempotencyKey)) {
-      return { status: "success", message: "Этот материал уже сохранён.", fieldErrors: {} };
+    if (errorCode(error) === "EEXIST") {
+      if (await visitEvidenceExists(member, parsed.data.idempotencyKey)) {
+        return { status: "success", message: "Этот материал уже сохранён.", fieldErrors: {} };
+      }
+      return { status: "error", message: "Эта загрузка ещё обрабатывается. Подождите и повторите.", fieldErrors: {} };
     }
-    if (storageKey) {
+    const rejected = error instanceof AuthorizationError || error instanceof VisitNotFoundError || error instanceof VisitImmutableError;
+    if (storageKey && fileWritten && rejected) {
       try { await removeDocumentFile(storageKey); } catch (cleanupError) { logUnexpected("service_visits.evidence.cleanup", member.memberId, cleanupError); }
     }
     if (error instanceof AuthorizationError || error instanceof VisitNotFoundError) {
@@ -223,7 +245,7 @@ export async function uploadAssignedVisitEvidenceAction(
       return { status: "error", message: "К отменённому выезду нельзя добавлять материалы.", fieldErrors: {} };
     }
     logUnexpected("service_visits.evidence.create", member.memberId, error);
-    return { status: "error", message: "Не удалось сохранить материал.", fieldErrors: {} };
+    return { status: "error", message: "Не удалось подтвердить сохранение материала. Обновите документы заказа и проверьте результат перед повторной отправкой.", fieldErrors: {} };
   }
 }
 

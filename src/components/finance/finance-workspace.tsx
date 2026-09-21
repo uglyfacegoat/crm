@@ -311,125 +311,52 @@ function InvoiceCard({
 }
 
 function OrderLedgerCard({
-  order,
-  canWrite,
-  onDialog,
+  order, canWrite, onDialog,
 }: {
   order: FinanceOrder;
   canWrite: boolean;
   onDialog: (dialog: FinanceDialog) => void;
 }) {
-  const remainingToInvoice = Math.max(
-    0,
-    order.agreedMinor - order.invoicedMinor,
-  );
+  const remainingToInvoice = Math.max(0, order.agreedMinor - order.invoicedMinor);
+  const overdue = order.invoices.some((invoice) => invoice.status === "issued" && invoice.overdue && invoice.outstandingMinor > 0);
   const settled = order.receivableMinor === 0 && order.invoicedMinor > 0;
   return (
-    <article className="rounded-[16px] border border-[var(--line)] bg-[var(--surface-raised)] p-4 sm:p-5">
-      <div className="grid gap-5 xl:grid-cols-[minmax(13rem,0.82fr)_minmax(29rem,1.42fr)_auto] xl:items-center">
-        <div className="min-w-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-            Заказ
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Link
-              href={`/orders/${order.id}`}
-              className="focus-ring rounded-full font-display text-sm font-semibold text-[var(--text)] hover:text-[var(--accent)]"
-            >
-              {order.number}
-            </Link>
-            <span className="rounded-full bg-[var(--surface-soft)] px-2.5 py-1 text-[9px] text-[var(--text-secondary)]">
-              {statusLabels[order.status] ?? order.status}
+    <details className="group inset-panel overflow-hidden">
+      <summary className="focus-ring grid cursor-pointer list-none gap-4 rounded-[var(--radius-panel-inner)] p-4 group-open:bg-[var(--accent-soft)] lg:grid-cols-[minmax(10rem,1.2fr)_minmax(0,2fr)_7rem] lg:items-center [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold text-[var(--text)]">{order.client}</span>
+          <span className="mt-1 block truncate text-xs text-[var(--muted)]">{order.number} · {order.object}</span>
+        </span>
+        <span className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: "Согласовано", amount: order.agreedMinor },
+            { label: "Выставлено", amount: order.invoicedMinor },
+            { label: "Получено", amount: order.paidMinor },
+            { label: "Долг", amount: order.receivableMinor },
+          ].map((metric) => (
+            <span key={metric.label} className="min-w-0">
+              <span className="mb-1 block text-[10px] text-[var(--muted)] lg:sr-only">{metric.label}</span>
+              <span className="block text-xs font-medium tabular-nums text-[var(--text)]">{formatMoneyMinor(metric.amount)}</span>
             </span>
-          </div>
-          <p className="mt-2 truncate text-xs font-medium text-[var(--text-secondary)]">
-            {order.client}
-          </p>
-          <p className="mt-1 truncate text-[10px] text-[var(--muted)]">
-            {order.object}
-          </p>
+          ))}
+        </span>
+        <span className="flex items-center justify-between gap-2 text-[10px] text-[var(--text-secondary)]">
+          <span className={`rounded-full px-2 py-1.5 ${overdue ? "bg-[var(--danger-bg)] text-[var(--danger-ink)]" : settled ? "bg-[var(--success-bg)] text-[var(--success)]" : "bg-[var(--surface-inset)]"}`}>{overdue ? "Просрочено" : settled ? "Закрыт" : order.receivableMinor > 0 ? "Есть долг" : "Без долга"}</span>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="border-t border-[var(--line)] bg-[var(--surface-inset)] p-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <Link href={`/orders/${order.id}`} className="back-link">Открыть заказ {order.number}</Link>
+          <span className="text-xs text-[var(--muted)]">{statusLabels[order.status] ?? order.status}</span>
+          {canWrite && remainingToInvoice > 0 ? <button type="button" onClick={() => onDialog({ kind: "invoice", order })} className="focus-ring inline-flex h-10 items-center gap-2 rounded-[11px] bg-[var(--accent)] px-4 text-xs font-semibold text-[var(--on-accent)]"><FilePlus2 className="size-4" />Новый счёт</button> : null}
         </div>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-4 min-[520px]:grid-cols-4">
-          <div>
-            <dt className="text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">
-              Согласовано
-            </dt>
-            <dd className="mt-1.5 font-display text-xs text-[var(--text)]">
-              {formatMoneyMinor(order.agreedMinor)}
-            </dd>
-          </div>
-          <div className="min-[520px]:border-l min-[520px]:border-[var(--line)] min-[520px]:pl-4">
-            <dt className="text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">
-              Выставлено
-            </dt>
-            <dd className="mt-1.5 font-display text-xs text-[var(--accent-ink)]">
-              {formatMoneyMinor(order.invoicedMinor)}
-            </dd>
-          </div>
-          <div className="min-[520px]:border-l min-[520px]:border-[var(--line)] min-[520px]:pl-4">
-            <dt className="text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">
-              Получено
-            </dt>
-            <dd className="mt-1.5 font-display text-xs text-[var(--success)]">
-              {formatMoneyMinor(order.paidMinor)}
-            </dd>
-          </div>
-          <div className="min-[520px]:border-l min-[520px]:border-[var(--line)] min-[520px]:pl-4">
-            <dt className="text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">
-              Долг
-            </dt>
-            <dd
-              className={`mt-1.5 font-display text-xs ${order.receivableMinor > 0 ? "text-[var(--warning)]" : "text-[var(--text-secondary)]"}`}
-            >
-              {formatMoneyMinor(order.receivableMinor)}
-            </dd>
-          </div>
-        </dl>
-        <div className="flex items-center gap-2 xl:justify-end">
-          {settled ? (
-            <span className="rounded-full border border-[var(--success-border)] bg-[var(--success-bg)] px-3 py-2 text-[10px] text-[var(--success)]">
-              Расчёт закрыт
-            </span>
-          ) : null}
-          {canWrite && remainingToInvoice > 0 ? (
-            <button
-              type="button"
-              onClick={() => onDialog({ kind: "invoice", order })}
-              className="focus-ring flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 text-[10px] font-semibold text-[var(--on-accent)] active:translate-y-px hover:bg-[var(--accent-strong)]"
-            >
-              <FilePlus2 className="size-4" />
-              Новый счёт
-            </button>
-          ) : null}
+        <h3 className="mb-2 text-xs font-semibold text-[var(--text)]">Счета и оплаты · {order.invoices.length}</h3>
+        <div className="inset-panel px-4">
+          {order.invoices.length ? order.invoices.map((invoice) => <InvoiceCard key={invoice.id} order={order} invoice={invoice} canWrite={canWrite} onDialog={onDialog} />) : <p className="py-5 text-xs text-[var(--muted)]">По заказу ещё нет счетов.</p>}
         </div>
       </div>
-      <details className="group mt-5 border-t border-[var(--line)] pt-2">
-        <summary className="focus-ring flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-[13px] text-[10px] text-[var(--text-secondary)] [&::-webkit-details-marker]:hidden">
-          <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-          Счета и оплаты{" "}
-          <span className="rounded-full bg-[var(--surface-soft)] px-2 py-0.5 text-[8px]">
-            {order.invoices.length}
-          </span>
-        </summary>
-        <div className="mt-2 border-t border-[var(--line)]">
-          {order.invoices.length ? (
-            order.invoices.map((invoice) => (
-              <InvoiceCard
-                key={invoice.id}
-                order={order}
-                invoice={invoice}
-                canWrite={canWrite}
-                onDialog={onDialog}
-              />
-            ))
-          ) : (
-            <p className="py-3 text-xs text-[var(--muted)]">
-              По заказу ещё нет счетов.
-            </p>
-          )}
-        </div>
-      </details>
-    </article>
+    </details>
   );
 }
 
@@ -443,7 +370,7 @@ function PayoutRow({
   onReverse: () => void;
 }) {
   return (
-    <article className="rounded-[15px] border border-[var(--line)] bg-[var(--surface-raised)] p-4 sm:grid sm:grid-cols-[minmax(10rem,1.3fr)_8rem_minmax(9rem,1fr)_auto_auto] sm:items-center sm:gap-4">
+    <article className="inset-panel p-4 sm:grid sm:grid-cols-[minmax(10rem,1.3fr)_8rem_minmax(9rem,1fr)_auto_auto] sm:items-center sm:gap-4">
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-[var(--text)]">
           {payout.masterName}
@@ -685,13 +612,48 @@ export function FinanceWorkspace({
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
       <section className="space-y-4">
-        <header className="surface-panel grid gap-5 p-5 lg:grid-cols-[minmax(17rem,0.9fr)_minmax(0,1.1fr)] lg:items-end sm:p-6">
+        <section aria-label="Финансовый обзор" className="surface-panel hidden p-5 sm:block sm:p-6">
+          <header className="mb-5 flex items-center justify-between gap-3"><h2 className="eyebrow">Расчёты компании</h2><span className="text-xs text-[var(--muted)]">За всё время</span></header>
+          <dl className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+            {[
+              { label: "Согласовано", amount: snapshot.summary.agreedMinor },
+              { label: "Выставлено", amount: snapshot.summary.invoicedMinor },
+              { label: "Получено", amount: snapshot.summary.receivedMinor },
+              { label: "Дебиторка", amount: snapshot.summary.receivableMinor },
+            ].map((metric) => <div key={metric.label}><dt className="text-xs text-[var(--muted)]">{metric.label}</dt><dd className="mt-2 break-words font-display text-xl font-semibold tabular-nums text-[var(--text)] sm:text-2xl">{formatMoneyMinor(metric.amount)}</dd></div>)}
+          </dl>
+          <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-[var(--line)] pt-5 lg:grid-cols-4">
+            {[
+              { label: "Просрочено", amount: snapshot.summary.overdueMinor },
+              { label: "Начислено мастерам", amount: snapshot.summary.masterAccruedMinor },
+              { label: "Выплачено мастерам", amount: snapshot.summary.masterPaidMinor },
+              { label: "К выплате мастерам", amount: snapshot.summary.masterDueMinor },
+            ].map((metric) => <div key={metric.label}><dt className="text-[10px] text-[var(--muted)]">{metric.label}</dt><dd className="mt-1 text-sm font-medium tabular-nums text-[var(--text-secondary)]">{formatMoneyMinor(metric.amount)}</dd></div>)}
+          </dl>
+        </section>
+        <section aria-label="Финансовый обзор" className="surface-panel p-4 sm:hidden">
+          <dl className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] items-start gap-3">
+            <div><dt className="text-[10px] uppercase text-[var(--muted)]">Дебиторка</dt><dd className="mt-2 text-2xl font-semibold tabular-nums text-[var(--text)]">{formatMoneyMinor(snapshot.summary.receivableMinor)}</dd></div>
+            <div><dt className="text-[10px] text-[var(--muted)]">Просрочено</dt><dd className="mt-2 text-sm font-medium text-[var(--text)]">{formatMoneyMinor(snapshot.summary.overdueMinor)}</dd></div>
+          </dl>
+          <dl className="mt-5 grid grid-cols-3 gap-x-3 gap-y-5 border-t border-[var(--line)] pt-4">
+            {[
+              { label: "Согласовано", amount: snapshot.summary.agreedMinor },
+              { label: "Выставлено", amount: snapshot.summary.invoicedMinor },
+              { label: "Получено", amount: snapshot.summary.receivedMinor },
+              { label: "Мастерам", amount: snapshot.summary.masterAccruedMinor },
+              { label: "Выплачено", amount: snapshot.summary.masterPaidMinor },
+              { label: "Осталось", amount: snapshot.summary.masterDueMinor },
+            ].map((metric) => <div key={metric.label}><dt className="text-[9px] text-[var(--muted)]">{metric.label}</dt><dd className="mt-2 break-words text-xs font-medium text-[var(--text)]">{formatMoneyMinor(metric.amount)}</dd></div>)}
+          </dl>
+          <p className="mt-4 text-[10px] text-[var(--muted)]">За всё время</p>
+        </section>
+        <header className="grid gap-4">
           <div>
-            <p className="eyebrow">Денежный реестр</p>
             <div
               role="tablist"
               aria-label="Разделы финансов"
-              className="mt-4 inline-flex rounded-full border border-[var(--line)] bg-[var(--surface-inset)] p-1"
+              className="inline-flex max-w-full gap-1"
             >
               <button
                 id="finance-receivables-tab"
@@ -701,10 +663,10 @@ export function FinanceWorkspace({
                 aria-controls="finance-receivables-panel"
                 onClick={() => switchTab("receivables")}
                 className={
-                  "focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " +
+                  "focus-ring h-9 rounded-full border px-4 text-xs font-medium transition-colors " +
                   (tab === "receivables"
-                    ? "bg-[var(--accent)] text-[var(--on-accent)]"
-                    : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")
+                    ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]"
+                    : "border-[var(--line)] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")
                 }
               >
                 Дебиторка
@@ -717,10 +679,10 @@ export function FinanceWorkspace({
                 aria-controls="finance-payouts-panel"
                 onClick={() => switchTab("payouts")}
                 className={
-                  "focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " +
+                  "focus-ring h-9 rounded-full border px-4 text-xs font-medium transition-colors " +
                   (tab === "payouts"
-                    ? "bg-[var(--accent)] text-[var(--on-accent)]"
-                    : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")
+                    ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]"
+                    : "border-[var(--line)] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")
                 }
               >
                 Мастера
@@ -733,22 +695,18 @@ export function FinanceWorkspace({
                 aria-controls="finance-closed-panel"
                 onClick={() => switchTab("closed")}
                 className={
-                  "focus-ring h-9 rounded-full px-4 text-xs font-medium transition-colors " +
+                  "focus-ring h-9 rounded-full border px-4 text-xs font-medium transition-colors " +
                   (tab === "closed"
-                    ? "bg-[var(--accent)] text-[var(--on-accent)]"
-                    : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")
+                    ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]"
+                    : "border-[var(--line)] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")
                 }
               >
                 Закрытые
               </button>
             </div>
-            <p className="mt-3 max-w-md text-[10px] leading-5 text-[var(--muted)]">
-              Счета, оплаты и выплаты хранятся в одной последовательности
-              операций.
-            </p>
           </div>
-          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-            <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-inset)] px-4 text-[var(--muted)] focus-within:border-[var(--line-strong)] sm:max-w-md">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex h-11 min-w-0 shrink-0 items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-inset)] px-4 text-[var(--muted)] focus-within:border-[var(--line-strong)] sm:max-w-md sm:flex-1">
               <Search className="size-4 shrink-0" />
               <input
                 value={query}
@@ -805,7 +763,7 @@ export function FinanceWorkspace({
             id="finance-receivables-panel"
             role="tabpanel"
             aria-labelledby="finance-receivables-tab"
-            className="surface-panel p-5 sm:p-6"
+            className="surface-panel p-3 sm:p-4"
           >
             <section>
               <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -836,7 +794,10 @@ export function FinanceWorkspace({
                 </dl>
               </header>
               {visibleOrders.length ? (
-                <div className="mt-5 space-y-3">
+                <div className="mt-5 space-y-2">
+                  <div aria-hidden="true" className="hidden grid-cols-[minmax(10rem,1.2fr)_minmax(0,2fr)_7rem] gap-4 px-4 pb-2 text-[10px] text-[var(--muted)] lg:grid">
+                    <span>Клиент / объект</span><div className="grid grid-cols-4 gap-3"><span>Согласовано</span><span>Выставлено</span><span>Получено</span><span>Долг</span></div><span>Статус</span>
+                  </div>
                   {visibleOrders.map((order) => (
                     <OrderLedgerCard
                       key={order.id}
@@ -900,7 +861,7 @@ export function FinanceWorkspace({
                     {payoutOrders.map((order) => (
                       <article
                         key={order.id}
-                        className="grid gap-4 rounded-[15px] border border-[var(--line)] bg-[var(--surface-raised)] p-4 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,1.25fr)_auto] lg:items-center"
+                        className="grid gap-4 inset-panel p-4 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,1.25fr)_auto] lg:items-center"
                       >
                         <div className="min-w-0">
                           <p className="truncate text-xs font-medium text-[var(--text)]">
@@ -984,7 +945,7 @@ export function FinanceWorkspace({
               </header>
               <div className="mt-3 space-y-2">
                 {closedCustomerPayments.length ? closedCustomerPayments.map(({ order, invoice, payment }) => (
-                  <article key={payment.id} className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-4">
+                  <article key={payment.id} className="inset-panel p-4">
                     <div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="truncate text-xs font-semibold text-[var(--text)]">{order.client}</p><Link href={`/orders/${order.id}`} className="mt-1 block truncate text-[10px] text-[var(--muted)] hover:text-[var(--accent-ink)]">{order.number} · счёт {invoice.number}</Link></div><strong className="shrink-0 font-display text-sm text-[var(--success)]">{formatMoneyMinor(payment.amountMinor)}</strong></div>
                     <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--line)] pt-3 text-[10px] text-[var(--text-secondary)]"><span>{formatDate(payment.receivedOn)}</span><span>{methodLabels[payment.method]}</span>{payment.reference ? <span>{payment.reference}</span> : null}{payment.receiptDocumentId ? <a href={`/api/v1/documents/${payment.receiptDocumentId}/download`} className="focus-ring ml-auto inline-flex items-center gap-1 text-[var(--accent-ink)] hover:text-[var(--accent)]"><ArrowDownToLine className="size-3.5" />Чек</a> : <span className="ml-auto text-[var(--muted)]">Без файла</span>}</div>
                   </article>

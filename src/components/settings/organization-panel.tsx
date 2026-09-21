@@ -244,7 +244,7 @@ export function OrganizationPanel({
       </section>
 
       {current?.kind === "center" ? (
-        <section className="surface-panel overflow-hidden">
+        <section className="surface-panel panel-stack overflow-hidden">
           <div className="border-b border-[var(--line)] px-5 py-4">
             <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--accent-ink)]">
               Сводка группы
@@ -253,7 +253,7 @@ export function OrganizationPanel({
               Все доступные компании
             </h3>
           </div>
-          <div className="grid gap-px bg-[var(--line)] sm:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-px overflow-hidden bg-[var(--line)] sm:grid-cols-3 xl:grid-cols-6">
             {[
               {
                 icon: UsersRound,
@@ -313,7 +313,7 @@ export function OrganizationPanel({
         {organizations.map((organization) => (
           <article
             key={organization.id}
-            className={`surface-panel overflow-hidden ${organization.current ? "border-[var(--accent)]/30 bg-[var(--accent-soft)]" : ""}`}
+            className={`surface-panel panel-stack overflow-hidden ${organization.current ? "border-[var(--accent)]/30 bg-[var(--accent-soft)]" : ""}`}
           >
             <div className="p-5">
               <div className="flex items-start justify-between gap-3">
@@ -337,7 +337,7 @@ export function OrganizationPanel({
                   : "Изолированное рабочее пространство"}
               </p>
             </div>
-            <dl className="grid grid-cols-3 gap-px bg-[var(--line)] text-center">
+            <dl className="grid grid-cols-3 gap-px overflow-hidden bg-[var(--line)] text-center">
               <div className="bg-[var(--surface-raised)] px-2 py-3">
                 <dt className="text-[8px] uppercase text-[var(--muted)]">
                   Клиенты

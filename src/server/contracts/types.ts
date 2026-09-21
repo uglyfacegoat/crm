@@ -12,6 +12,16 @@ export type ContractSchedule = {
   visitCount: number;
 };
 
+export const contractRelationTypes = ["related", "supplement", "framework"] as const;
+export type ContractRelationType = (typeof contractRelationTypes)[number];
+
+export type ContractRelation = {
+  contractId: string;
+  contractNumber: string;
+  relationType: ContractRelationType;
+  note: string | null;
+};
+
 export type ContractListItem = {
   id: string;
   contractNumber: string;
@@ -28,6 +38,7 @@ export type ContractListItem = {
   version: number;
   renewedFromContractId: string | null;
   renewedByContractId: string | null;
+  relations: ContractRelation[];
   daysUntilEnd: number;
   nextVisitAt: string | null;
   schedule: ContractSchedule | null;

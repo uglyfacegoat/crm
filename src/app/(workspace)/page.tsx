@@ -1,9 +1,10 @@
-import { MetricCard } from "@/components/dashboard/metric-card";
+import { ActivityChart } from "@/components/dashboard/activity-chart";
 import {
   DashboardCalendar,
   type DashboardVisit,
 } from "@/components/dashboard/dashboard-calendar";
 import { FinancialSummary } from "@/components/dashboard/financial-summary";
+import { DashboardDateCard } from "@/components/dashboard/dashboard-date-card";
 import { RecentOrders } from "@/components/dashboard/recent-orders";
 import { TaskList } from "@/components/dashboard/task-list";
 import { TodayVisits } from "@/components/dashboard/today-visits";
@@ -29,7 +30,7 @@ export default async function DashboardPage() {
         listOrders(member),
         listVisits(
           member,
-          new Date(now.getTime() - 7 * 86_400_000).toISOString(),
+          new Date(now.getTime() - 30 * 86_400_000).toISOString(),
           new Date(now.getTime() + 21 * 86_400_000).toISOString(),
         ),
         listTasks(member),
@@ -87,6 +88,7 @@ export default async function DashboardPage() {
     calendarVisits.map((visit) => visit.date),
     initialCalendarDate,
   );
+  const activityCounts = countsByDate(calendarVisits.map((visit) => visit.date), initialCalendarDate, 30);
   const dailyOrderBars = countsByDate(
     dashboardOrders.map((order) =>
       localDateKey(new Date(order.createdAt), dashboardTimeZone),
@@ -139,43 +141,54 @@ export default async function DashboardPage() {
     ? `Сегодня · ${formatDashboardDate(now, dashboardTimeZone)}`
     : "Ближайшие даты";
   return (
-    <div className="animate-rise">
-      <section aria-labelledby="dashboard-pulse-heading">
+    <div className="figma-report-page dashboard-figma-page animate-rise">
+      <header className="dashboard-figma-header">
+        <p className="figma-report-kicker">Оперативный контур / Local CRM</p>
+        <h1 className="figma-report-title mt-[9px]">Сегодня в работе</h1>
+        <p className="figma-report-description mt-[6px]">
+          Сегодня: {todayVisits.length} выездов по расписанию и {overdueTaskCount} просроченные задачи.
+        </p>
+        <p className="dashboard-mobile-date">{formatLongDashboardDate(now, dashboardTimeZone)}</p>
+        <DashboardDateCard initialNow={now.toISOString()} />
+      </header>
+
+      <section aria-labelledby="dashboard-pulse-heading" className="dashboard-open-metrics">
         <h2 id="dashboard-pulse-heading" className="sr-only">
           Пульс дня
         </h2>
-        <div className="grid grid-cols-1 gap-3 min-[560px]:grid-cols-2 xl:grid-cols-4">
-          {metrics.map((metric, index) => (
-            <MetricCard
-              key={metric.label}
-              {...metric}
-              delay={`${80 + index * 45}ms`}
-            />
-          ))}
-        </div>
+        {metrics.map((metric, index) => (
+          <article key={metric.label}>
+            <p>{metric.label}</p>
+            <strong>{metric.value}</strong>
+            <div className="dashboard-metric-footer" data-stacked={index === 1 || index === 2}>
+              <span>{metric.change}</span>
+              {index === 0 ? <div className="dashboard-metric-bars" aria-hidden="true">{metric.bars.map((value, barIndex) => <i key={barIndex} style={{ height: `${Math.max(9, value * 7)}px` }} />)}</div> : null}
+              {index === 1 || index === 2 ? <div className="dashboard-metric-units" aria-hidden="true">{Array.from({ length: 10 }, (_, unitIndex) => <i key={unitIndex} data-filled={unitIndex < (index === 1 ? attentionCount : activeOrders.length)} />)}</div> : null}
+            </div>
+          </article>
+        ))}
       </section>
 
-      <div className="mt-3 grid items-start gap-3 lg:grid-cols-2">
-        <TodayVisits
-          visits={routeVisits}
-          dateLabel={routeDescription}
-          title={todayVisits.length ? "Маршрут на сегодня" : "Ближайшие выезды"}
-        />
-        <TaskList
-          tasks={visibleTasks}
-          canWrite={!preview && hasPermission(member, "tasks.write")}
-        />
+      <div className="dashboard-operational-row">
+        <div id="dashboard-route"><TodayVisits visits={routeVisits} dateLabel={routeDescription} title={todayVisits.length ? "Маршрут на сегодня" : "Ближайшие выезды"} /></div>
+        <div id="dashboard-tasks"><TaskList tasks={visibleTasks.slice(0, 2)} canWrite={!preview && hasPermission(member, "tasks.write")} /></div>
       </div>
 
-      <div className="mt-3 grid min-w-0 items-start gap-3 xl:grid-cols-2 min-[1800px]:grid-cols-[1.05fr_0.92fr_1fr]">
-        <div className="min-w-0 xl:col-span-2 min-[1800px]:col-span-1">
-          <RecentOrders orders={dashboardOrders.slice(0, 6)} />
+      <div id="dashboard-activity">
+        <ActivityChart points={activityCounts.map((count, index) => ({ date: new Date(new Date(`${initialCalendarDate}T00:00:00Z`).getTime() - (29 - index) * 86_400_000).toISOString().slice(0, 10), count }))} />
+      </div>
+
+      <div id="dashboard-orders" className="dashboard-orders-block">
+        <RecentOrders orders={dashboardOrders.slice(0, 6)} />
+      </div>
+
+      <div className="dashboard-planning-row">
+        <div id="dashboard-calendar">
+          <DashboardCalendar visits={calendarVisits} initialDate={initialCalendarDate} />
         </div>
-        <DashboardCalendar
-          visits={calendarVisits}
-          initialDate={initialCalendarDate}
-        />
-        <FinancialSummary orders={currentMonthOrders} />
+        <div id="dashboard-finance">
+          <FinancialSummary orders={currentMonthOrders} />
+        </div>
       </div>
     </div>
   );
@@ -203,10 +216,21 @@ function formatDashboardDate(date: Date, timeZone: string) {
   }).format(date);
 }
 
-function countsByDate(dateKeys: string[], endDate: string) {
+function formatLongDashboardDate(date: Date, timeZone: string) {
+  const formatted = new Intl.DateTimeFormat("ru-RU", {
+    timeZone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function countsByDate(dateKeys: string[], endDate: string, days = 7) {
   const end = new Date(`${endDate}T00:00:00Z`);
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(end.getTime() - (6 - index) * 86_400_000)
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(end.getTime() - (days - 1 - index) * 86_400_000)
       .toISOString()
       .slice(0, 10);
     return dateKeys.filter((value) => value === date).length;

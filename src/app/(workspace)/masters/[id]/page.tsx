@@ -184,7 +184,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
         </div> : null}
       </aside>
 
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <header className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
           <div>
             <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Журнал работы</p>

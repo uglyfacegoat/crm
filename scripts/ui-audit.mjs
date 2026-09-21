@@ -17,7 +17,7 @@ if (!identity || !password) throw new Error("UI audit credentials are required."
 
 const routes = [
   "/", "/orders", "/inbox", "/quick-order", "/clients", "/calendar", "/masters", "/documents", "/documents/archive",
-  "/contracts", "/finance", "/tasks", "/notifications", "/chat", "/analytics", "/sites",
+  "/contracts", "/finance", "/tasks", "/workflow", "/notifications", "/chat", "/analytics", "/sites",
   "/companies", "/settings", "/help",
 ];
 const outputDirectory = resolve("artifacts/audit");
@@ -68,19 +68,13 @@ async function auditLaptopLayout(width, height) {
   const sidebar = sidebarNavigation.locator("xpath=ancestor::aside");
   const sidebarGeometry = await sidebar.evaluate((element) => {
     const navigation = element.querySelector('nav[aria-label="Основная навигация"]');
-    const settings = [...element.querySelectorAll("a")].find((link) => link.textContent?.trim() === "Настройки");
-    const logout = [...element.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Выйти");
-    if (!(navigation instanceof HTMLElement) || !(settings instanceof HTMLElement) || !(logout instanceof HTMLElement)) return null;
+    if (!(navigation instanceof HTMLElement)) return null;
     const asideBox = element.getBoundingClientRect();
-    const settingsBox = settings.getBoundingClientRect();
-    const logoutBox = logout.getBoundingClientRect();
     const style = getComputedStyle(navigation);
     return {
       viewportHeight: window.innerHeight,
       asideTop: asideBox.top,
       asideBottom: asideBox.bottom,
-      settingsBottom: settingsBox.bottom,
-      logoutBottom: logoutBox.bottom,
       navigationClientHeight: navigation.clientHeight,
       navigationScrollHeight: navigation.scrollHeight,
       navigationOverflowY: style.overflowY,
@@ -89,13 +83,14 @@ async function auditLaptopLayout(width, height) {
   if (!sidebarGeometry) failures.push(`${viewport} sidebar: geometry is unavailable`);
   else {
     if (sidebarGeometry.asideTop < -1 || sidebarGeometry.asideBottom > height + 1) failures.push(`${viewport} sidebar: shell is outside the viewport`);
-    if (sidebarGeometry.settingsBottom > height + 1 || sidebarGeometry.logoutBottom > height + 1) failures.push(`${viewport} sidebar: settings or logout is clipped`);
     if (sidebarGeometry.navigationOverflowY !== "auto") failures.push(`${viewport} sidebar: navigation overflow is ${sidebarGeometry.navigationOverflowY}`);
     if (sidebarGeometry.navigationScrollHeight > sidebarGeometry.navigationClientHeight + 1) {
       await sidebarNavigation.evaluate((element) => { element.scrollTop = Math.min(120, element.scrollHeight - element.clientHeight); });
       if ((await sidebarNavigation.evaluate((element) => element.scrollTop)) <= 0) failures.push(`${viewport} sidebar: navigation cannot be scrolled`);
     }
   }
+  if (await sidebar.getByRole("link", { name: "Настройки", exact: true }).count()) failures.push(`${viewport} sidebar: settings duplicates the profile menu`);
+  if (await sidebar.getByRole("button", { name: "Выйти", exact: true }).count()) failures.push(`${viewport} sidebar: logout duplicates the profile menu`);
   report.interactions.push({ route: "/", action: `sidebar layout ${viewport}`, result: sidebarGeometry });
 
   const recentOrders = page.getByRole("heading", { name: "Новые и обновлённые", exact: true }).locator("xpath=ancestor::section");
@@ -110,6 +105,20 @@ async function auditLaptopLayout(width, height) {
   if (recentOrdersGeometry.scrollWidth > recentOrdersGeometry.clientWidth + 1) failures.push(`${viewport} dashboard: recent orders is clipped by ${recentOrdersGeometry.scrollWidth - recentOrdersGeometry.clientWidth}px`);
   if (recentOrdersGeometry.left < -1 || recentOrdersGeometry.right > width + 1) failures.push(`${viewport} dashboard: recent orders is outside the viewport`);
   report.interactions.push({ route: "/", action: `recent orders layout ${viewport}`, result: recentOrdersGeometry });
+
+  const operationalGeometry = await page.locator(".dashboard-operational-row").evaluate((element) => {
+    const row = element.getBoundingClientRect();
+    const panels = Array.from(element.children, (child) => child.getBoundingClientRect());
+    return {
+      row: { left: row.left, right: row.right, width: row.width },
+      panels: panels.map((panel) => ({ left: panel.left, right: panel.right, width: panel.width })),
+    };
+  });
+  const lastOperationalPanel = operationalGeometry.panels.at(-1);
+  if (operationalGeometry.panels.length !== 2 || !lastOperationalPanel || Math.abs(lastOperationalPanel.right - operationalGeometry.row.right) > 2) {
+    failures.push(`${viewport} dashboard: operational panels do not fill their row`);
+  }
+  report.interactions.push({ route: "/", action: `operational layout ${viewport}`, result: operationalGeometry });
 
   await openRoute("/calendar?view=week");
   const schedule = page.getByRole("region", { name: "Прокручиваемая сетка расписания", exact: true });
@@ -245,12 +254,12 @@ try {
 
   await page.setViewportSize({ width: 320, height: 568 });
   await openRoute("/chat");
-  await page.getByTestId("chat-message-list").waitFor();
-  await page.getByRole("button", { name: "Вернуться к каналам", exact: true }).click();
+  const mobileMessageList = page.getByTestId("chat-message-list");
+  if (await mobileMessageList.isVisible()) await page.getByRole("button", { name: "Вернуться к каналам", exact: true }).click();
   await page.getByPlaceholder("Найти канал").waitFor();
-  const channelButtons = page.getByTestId("chat-workspace").locator('aside').first().locator('button:visible').filter({ hasText: /.+/ });
+  const channelButtons = page.getByTestId("chat-workspace").locator("aside").first().locator("div.overflow-y-auto button:visible").filter({ hasText: /.+/ });
   if (await channelButtons.count()) await channelButtons.first().click();
-  await page.getByTestId("chat-message-list").waitFor();
+  await mobileMessageList.waitFor();
   const mobileChatGeometry = await page.evaluate(() => ({
     viewportHeight: window.innerHeight,
     documentHeight: document.documentElement.scrollHeight,
@@ -314,25 +323,43 @@ try {
   await page.getByText(/1 активных условий/).waitFor();
   report.interactions.push({ route: "/finance", action: "receivables state filter", result: "1 active condition" });
   await page.getByRole("button", { name: "Сбросить", exact: true }).click();
-  const invoiceButton = page.getByRole("button", { name: "Новый счёт", exact: true }).first();
-  await invoiceButton.waitFor();
-  await invoiceButton.click();
-  await page.getByRole("dialog", { name: "Новый счёт", exact: true }).waitFor();
-  report.interactions.push({ route: "/finance", action: "button:Новый счёт", result: "dialog:Новый счёт" });
-  await page.keyboard.press("Escape");
+  const invoiceButton = page.locator("details button").filter({ hasText: /^Новый счёт$/ }).first();
+  if (await invoiceButton.count()) {
+    await invoiceButton.locator("xpath=ancestor::details").locator("summary").click();
+    await invoiceButton.waitFor();
+    await invoiceButton.click();
+    await page.getByRole("dialog", { name: "Новый счёт", exact: true }).waitFor();
+    report.interactions.push({ route: "/finance", action: "button:Новый счёт", result: "dialog:Новый счёт" });
+    await page.keyboard.press("Escape");
+  } else {
+    report.interactions.push({ route: "/finance", action: "button:Новый счёт", result: "not applicable: no order has an invoiceable balance" });
+  }
 
   await openRoute("/tasks");
+  const showRemainingTasks = page.getByRole("button", { name: /^Показать ещё \d+ задач/ }).first();
+  if (await showRemainingTasks.count()) {
+    const upcomingTasks = page.locator("#tasks-upcoming .tasks-row");
+    const collapsedTaskCount = await upcomingTasks.count();
+    await showRemainingTasks.click();
+    const expandedTaskCount = await upcomingTasks.count();
+    if (expandedTaskCount <= collapsedTaskCount) failures.push(`/tasks: remaining tasks did not expand (${collapsedTaskCount} → ${expandedTaskCount})`);
+    const collapseTasks = page.getByRole("button", { name: "Свернуть список", exact: true });
+    if (!(await collapseTasks.count())) failures.push("/tasks: expanded task list cannot be collapsed");
+    report.interactions.push({ route: "/tasks", action: "expand remaining tasks", result: `${collapsedTaskCount} → ${expandedTaskCount}` });
+  } else {
+    report.interactions.push({ route: "/tasks", action: "expand remaining tasks", result: "not applicable: three or fewer upcoming tasks" });
+  }
   await page.getByRole("button", { name: "Фильтры", exact: true }).click();
-  await page.getByRole("dialog", { name: "Фильтры задач", exact: true }).getByRole("radio", { name: "По выездам", exact: true }).click();
-  await page.getByRole("button", { name: "Показать задачи", exact: true }).click();
-  await page.getByRole("button", { name: /Фильтры\s*1/ }).waitFor();
+  await page.getByRole("dialog", { name: "Фильтры задач", exact: true }).getByRole("radio", { name: "Автоматические", exact: true }).click();
+  await page.getByRole("button", { name: "Применить", exact: true }).click();
+  await page.getByRole("button", { name: /Фильтры.*1/ }).waitFor();
   report.interactions.push({ route: "/tasks", action: "task source filter", result: "1 active condition" });
 
   await openRoute("/sites");
   await page.getByRole("button", { name: "Фильтры", exact: true }).click();
   await page.getByRole("dialog", { name: "Фильтры сайтов", exact: true }).getByRole("radio", { name: "Без интеграций", exact: true }).click();
   await page.getByRole("button", { name: "Показать сайты", exact: true }).click();
-  await page.getByRole("button", { name: /Фильтры\s*1/ }).waitFor();
+  await page.getByRole("button", { name: /Фильтры.*1/ }).waitFor();
   report.interactions.push({ route: "/sites", action: "integration state filter", result: "1 active condition" });
 
   await openRoute("/settings");

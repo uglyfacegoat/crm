@@ -72,7 +72,6 @@ export async function GET(
         operation: "documents.preview",
         category: "unexpected",
         memberId: member.memberId,
-        error: error instanceof Error ? error.message : "Unknown error",
       }),
     );
     return Response.json({ error: "preview_failed" }, { status: 500 });

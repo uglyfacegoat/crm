@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import postgres from "postgres";
 import { z } from "zod";
 
@@ -13,6 +15,7 @@ const environment = z
     DATABASE_URL: z.string().url(),
     LOCAL_EXAMPLE_SEED: z.literal(requiredConfirmation),
     LOCAL_EXAMPLE_CENTER_ID: z.string().uuid(),
+    DOCUMENT_STORAGE_ROOT: z.string().min(1),
   })
   .parse(process.env);
 
@@ -25,6 +28,10 @@ if (databaseUrl.protocol !== "postgres:" && databaseUrl.protocol !== "postgresql
 
 if (!allowedDatabaseHosts.has(databaseUrl.hostname)) {
   throw new Error("Local example data may only be seeded into a local or Compose PostgreSQL host.");
+}
+
+if (!isAbsolute(environment.DOCUMENT_STORAGE_ROOT)) {
+  throw new Error("DOCUMENT_STORAGE_ROOT must be an absolute path.");
 }
 
 const companySeeds = [
@@ -122,6 +129,36 @@ const contractSeeds = [
   },
 ];
 
+function deterministicUuid(value) {
+  const hex = createHash("sha256").update(`local-example:${value}`).digest("hex").slice(0, 32).split("");
+  hex[12] = "4";
+  hex[16] = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  const normalized = hex.join("");
+  return `${normalized.slice(0, 8)}-${normalized.slice(8, 12)}-${normalized.slice(12, 16)}-${normalized.slice(16, 20)}-${normalized.slice(20)}`;
+}
+
+function createPdf(lines) {
+  const escaped = lines.map((line) => line.replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)"));
+  const stream = `BT\n/F1 16 Tf\n72 760 Td\n${escaped.map((line, index) => `${index ? "0 -28 Td\n" : ""}(${line}) Tj`).join("\n")}\nET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(body));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(body);
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\n`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body);
+}
+
 function fingerprint(externalEventId) {
   return createHash("sha256").update(`local-example:${externalEventId}`).digest("hex");
 }
@@ -134,9 +171,17 @@ const inserted = {
   websites: 0,
   leads: 0,
   contracts: 0,
+  contractRelations: 0,
   contractEvents: 0,
   contractEventsRepaired: 0,
+  documents: 0,
+  documentVersions: 0,
+  documentFavorites: 0,
+  serviceVisits: 0,
+  serviceVisitEvents: 0,
 };
+
+const createdStoragePaths = [];
 
 const sql = postgres(environment.DATABASE_URL, {
   max: 1,
@@ -152,7 +197,7 @@ try {
     const [requiredMigration] = await transaction`
       SELECT 1
       FROM schema_migrations
-      WHERE name = '046_example_organization_units.sql'
+      WHERE name = '053_contract_relations.sql'
     `;
     if (!requiredMigration) {
       throw new Error("Run database migrations before seeding local example data.");
@@ -406,6 +451,83 @@ try {
       `;
       if (!contract) throw new Error(`Unable to resolve contract '${contractSeed.contractNumber}'.`);
 
+      const [order] = await transaction`
+        SELECT id, order_number
+        FROM orders
+        WHERE organization_id = ${center.id}
+          AND client_id = ${pair.client_id}
+          AND object_id = ${pair.object_id}
+        ORDER BY created_at, id
+        LIMIT 1
+      `;
+      if (!order) throw new Error(`Contract '${contractSeed.contractNumber}' requires an order for its example document.`);
+
+      const documentId = deterministicUuid(`contract-document:${contractSeed.contractNumber}`);
+      const documentVersionId = deterministicUuid(`contract-document-version:${contractSeed.contractNumber}:1`);
+      const storageKey = `${center.id}/${documentId}/v1.pdf`;
+      const pdf = createPdf([
+        `Contract ${contractSeed.contractNumber}`,
+        `Order ${order.order_number}`,
+        `Period ${contractSeed.startsOn} - ${contractSeed.endsOn}`,
+        "Local CRM interface preview document",
+      ]);
+      const sha256 = createHash("sha256").update(pdf).digest("hex");
+      const storagePath = join(environment.DOCUMENT_STORAGE_ROOT, storageKey);
+      await mkdir(join(environment.DOCUMENT_STORAGE_ROOT, center.id, documentId), { recursive: true });
+      try {
+        await writeFile(storagePath, pdf, { flag: "wx", mode: 0o600 });
+        createdStoragePaths.push(storagePath);
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") throw error;
+        const existing = await readFile(storagePath);
+        if (createHash("sha256").update(existing).digest("hex") !== sha256) {
+          throw new Error(`Existing example document '${storagePath}' has unexpected contents.`);
+        }
+      }
+
+      const createdDocuments = await transaction`
+        INSERT INTO documents (
+          id, organization_id, client_id, object_id, order_id, contract_id,
+          title, category, description, created_by
+        )
+        VALUES (
+          ${documentId}, ${center.id}, ${pair.client_id}, ${pair.object_id}, ${order.id}, ${contract.id},
+          ${`Договор ${contractSeed.contractNumber}`}, 'contract',
+          'Локальный пример документа для проверки быстрого просмотра и версий.', ${principal.id}
+        )
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `;
+      inserted.documents += createdDocuments.length;
+      const createdVersions = await transaction`
+        INSERT INTO document_versions (
+          id, organization_id, document_id, version_number, original_filename, storage_key,
+          mime_type, extension, size_bytes, sha256, uploaded_by
+        )
+        VALUES (
+          ${documentVersionId}, ${center.id}, ${documentId}, 1, ${`${contractSeed.contractNumber}.pdf`}, ${storageKey},
+          'application/pdf', 'pdf', ${pdf.length}, ${sha256}, ${principal.id}
+        )
+        ON CONFLICT (organization_id, document_id, version_number) DO NOTHING
+        RETURNING id
+      `;
+      inserted.documentVersions += createdVersions.length;
+      await transaction`
+        UPDATE documents
+        SET current_version_id = ${documentVersionId}, updated_at = now()
+        WHERE organization_id = ${center.id} AND id = ${documentId}
+          AND current_version_id IS DISTINCT FROM ${documentVersionId}
+      `;
+      if (index === 0) {
+        const favorites = await transaction`
+          INSERT INTO document_favorites (organization_id, document_id, member_id)
+          VALUES (${center.id}, ${documentId}, ${principal.id})
+          ON CONFLICT DO NOTHING
+          RETURNING document_id
+        `;
+        inserted.documentFavorites += favorites.length;
+      }
+
       const afterState = {
         contractNumber: contractSeed.contractNumber,
         status: contractSeed.status,
@@ -458,9 +580,88 @@ try {
         inserted.contractEventsRepaired += repairedEvents.length;
       }
     }
+
+    const relationContracts = await transaction`
+      SELECT id, contract_number
+      FROM contracts
+      WHERE organization_id = ${center.id}
+        AND contract_number IN (${contractSeeds[0].contractNumber}, ${contractSeeds[1].contractNumber})
+      ORDER BY id
+    `;
+    if (relationContracts.length !== 2) throw new Error("Unable to resolve both contracts for the example relation.");
+    const createdRelations = await transaction`
+      INSERT INTO contract_relations (
+        id, organization_id, contract_a_id, contract_b_id, relation_type, note, created_by
+      ) VALUES (
+        ${deterministicUuid("contract-relation:local-demo")}, ${center.id},
+        ${relationContracts[0].id}, ${relationContracts[1].id}, 'supplement',
+        'Дополнительный объём сезонных работ для связанного объекта.', ${principal.id}
+      )
+      ON CONFLICT (organization_id, contract_a_id, contract_b_id) DO NOTHING
+      RETURNING id
+    `;
+    inserted.contractRelations += createdRelations.length;
+
+    const [activityContract] = await transaction`
+      SELECT contracts.id, contracts.object_id, clients.legal_name AS client_name,
+        client_objects.name AS object_name, client_objects.address AS object_address
+      FROM contracts
+      JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
+      JOIN client_objects ON client_objects.organization_id = contracts.organization_id AND client_objects.id = contracts.object_id
+      WHERE contracts.organization_id = ${center.id}
+        AND contracts.contract_number = ${contractSeeds[0].contractNumber}
+    `;
+    if (!activityContract) throw new Error("Unable to resolve the contract used for local activity data.");
+    const activityPattern = [1, 3, 2, 5, 4, 2, 6, 3, 4, 7, 5, 3, 8, 4, 6, 3, 7, 5, 4, 8, 6, 3, 7, 5, 9, 6, 4, 8, 7, 6];
+    const todayUtc = new Date();
+    todayUtc.setUTCHours(0, 0, 0, 0);
+    for (const [dayIndex, visitCount] of activityPattern.entries()) {
+      const visitDate = new Date(todayUtc.getTime() - (activityPattern.length - 1 - dayIndex) * 86_400_000);
+      const dateKey = visitDate.toISOString().slice(0, 10);
+      for (let slot = 0; slot < visitCount; slot += 1) {
+        const visitId = deterministicUuid(`activity-visit:${dateKey}:${slot}`);
+        const scheduledStartAt = new Date(visitDate.getTime() + (7 + slot) * 3_600_000 + 17 * 60_000);
+        const scheduledEndAt = new Date(scheduledStartAt.getTime() + 90 * 60_000);
+        const createdVisits = await transaction`
+          INSERT INTO service_visits (
+            id, organization_id, contract_id, object_id, scheduled_start_at, scheduled_end_at,
+            status, client_name_snapshot, object_name_snapshot, object_address_snapshot,
+            notes, created_by, updated_by
+          )
+          VALUES (
+            ${visitId}, ${center.id}, ${activityContract.id}, ${activityContract.object_id},
+            ${scheduledStartAt}, ${scheduledEndAt}, 'confirmed', ${activityContract.client_name},
+            ${activityContract.object_name}, ${activityContract.object_address},
+            'Локальный пример для проверки графиков и календаря.', ${principal.id}, ${principal.id}
+          )
+          ON CONFLICT (id) DO NOTHING
+          RETURNING id
+        `;
+        inserted.serviceVisits += createdVisits.length;
+        if (createdVisits.length) {
+          const createdEvents = await transaction`
+            INSERT INTO service_visit_events (organization_id, visit_id, actor_id, event_type, after_state, reason)
+            VALUES (
+              ${center.id}, ${visitId}, ${principal.id}, 'created',
+              ${transaction.json({ scheduledStartAt: scheduledStartAt.toISOString(), scheduledEndAt: scheduledEndAt.toISOString(), status: "confirmed", seed: "local-example-activity-v1" })},
+              'Добавлен локальный пример для проверки графиков.'
+            )
+            RETURNING id
+          `;
+          inserted.serviceVisitEvents += createdEvents.length;
+        }
+      }
+    }
   });
 
   console.log(JSON.stringify({ status: "ok", inserted }));
+} catch (error) {
+  await Promise.all(createdStoragePaths.map(async (storagePath) => {
+    try { await unlink(storagePath); } catch (cleanupError) {
+      if (!cleanupError || typeof cleanupError !== "object" || !("code" in cleanupError) || cleanupError.code !== "ENOENT") throw cleanupError;
+    }
+  }));
+  throw error;
 } finally {
   await sql.end();
 }

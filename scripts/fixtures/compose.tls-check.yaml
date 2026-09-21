@@ -1,0 +1,7 @@
+# Bootstrap files are mounted only into the disposable acceptance-test container.
+services:
+  crm:
+    volumes:
+      - ./scripts/create-admin.ts:/app/scripts/create-admin.ts:ro
+      - ./src/server/auth/password.ts:/app/src/server/auth/password.ts:ro
+      - ./src/server/auth/identity.ts:/app/src/server/auth/identity.ts:ro

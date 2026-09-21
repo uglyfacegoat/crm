@@ -1,10 +1,11 @@
 "use client";
 
-import { Check, Plus, UsersRound } from "lucide-react";
+import { Check, MessageCircle, Plus, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useActionState, useCallback, useEffect, useState } from "react";
 import {
   createChatChannelAction,
+  createDirectChatAction,
   type ChatMutationState,
 } from "@/app/(workspace)/chat/actions";
 import {
@@ -194,4 +195,46 @@ export function CreateChatGroupButton({
       </Dialog>
     </>
   );
+}
+
+function CreateDirectChatForm({ requestKey, memberOptions, currentMemberId, onComplete }: { requestKey: string; memberOptions: ChatMemberOption[]; currentMemberId: string; onComplete: () => void }) {
+  const [state, formAction, pending] = useActionState(createDirectChatAction, initialState);
+  const router = useRouter();
+  const availableMembers = memberOptions.filter((member) => member.id !== currentMemberId);
+  useEffect(() => {
+    if (state.status !== "success" || !state.entityId) return;
+    const timeout = window.setTimeout(() => {
+      onComplete();
+      router.push(`/chat?channel=${state.entityId}`);
+      router.refresh();
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [onComplete, router, state.entityId, state.status]);
+
+  return <form action={formAction} className="flex min-h-full flex-1 flex-col">
+    <input type="hidden" name="idempotencyKey" value={requestKey} />
+    <div className="flex-1 space-y-4 p-5 sm:p-7">
+      <p className="text-xs leading-5 text-[var(--muted)]">Диалог будет доступен только вам и выбранному сотруднику. Повторный выбор откроет уже существующую переписку.</p>
+      <fieldset>
+        <legend className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Сотрудник</legend>
+        <div className="mt-3 max-h-80 space-y-1 overflow-y-auto rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-inset)] p-2">
+          {availableMembers.map((member) => <label key={member.id} className="flex cursor-pointer items-center gap-3 rounded-[11px] px-2.5 py-2.5 transition-colors hover:bg-[var(--surface-soft)]"><input type="radio" name="targetMemberId" value={member.id} required className="peer sr-only" /><span className="grid size-5 shrink-0 place-items-center rounded-full border border-[var(--line-strong)] text-transparent peer-checked:border-[var(--accent)] peer-checked:bg-[var(--accent)] peer-checked:text-[var(--on-accent)] peer-checked:ring-4 peer-checked:ring-[var(--accent-soft)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[var(--focus)]"><Check className="size-3" /></span><Avatar name={member.displayName} size="sm" tone="mint" /><span className="min-w-0 flex-1"><span className="block truncate text-xs text-[var(--text)]">{member.displayName}</span><span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">{roleLabels[member.role]} · {member.email}</span></span></label>)}
+          {!availableMembers.length ? <p className="p-5 text-center text-xs text-[var(--muted)]">Нет других активных сотрудников.</p> : null}
+        </div>
+        {state.fieldErrors.targetMemberId?.[0] ? <p className="mt-2 text-[10px] text-[var(--danger-ink)]">{state.fieldErrors.targetMemberId[0]}</p> : null}
+      </fieldset>
+      <OrderFormStatus state={state} />
+    </div>
+    <OrderFormFooter pending={pending} saved={state.status === "success"} onCancel={onComplete} submitLabel="Открыть диалог" />
+  </form>;
+}
+
+export function CreateDirectChatButton({ memberOptions, currentMemberId, compact = false }: { memberOptions: ChatMemberOption[]; currentMemberId: string; compact?: boolean }) {
+  const [requestKey, setRequestKey] = useState<string | null>(null);
+  const close = useCallback(() => setRequestKey(null), []);
+  return <><button type="button" onClick={() => setRequestKey(crypto.randomUUID())} className={compact ? "focus-ring grid size-9 place-items-center rounded-[11px] border border-[var(--line)] text-[var(--accent-ink)] transition-colors hover:bg-[var(--surface-soft)]" : "focus-ring flex h-11 items-center gap-2 rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface-raised)] px-4 text-sm font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"} aria-label="Новое личное сообщение"><MessageCircle className="size-4" />{compact ? null : "Личное сообщение"}</button><Dialog open={requestKey !== null} onClose={close} title="Новое личное сообщение" description="Выберите сотрудника, чтобы открыть приватную переписку.">{requestKey ? <CreateDirectChatForm requestKey={requestKey} memberOptions={memberOptions} currentMemberId={currentMemberId} onComplete={close} /> : null}</Dialog></>;
+}
+
+export function ChatCreationActions({ memberOptions, currentMemberId, canManage, compact = false }: { memberOptions: ChatMemberOption[]; currentMemberId: string; canManage: boolean; compact?: boolean }) {
+  return <div className="flex items-center gap-2"><CreateDirectChatButton memberOptions={memberOptions} currentMemberId={currentMemberId} compact={compact} />{canManage ? <CreateChatGroupButton memberOptions={memberOptions} currentMemberId={currentMemberId} compact={compact} /> : null}</div>;
 }

@@ -58,42 +58,51 @@ export function DashboardCalendar({ visits, initialDate }: { visits: DashboardVi
   const weekStart = startOfWeek(selectedDateValue);
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(weekStart.getTime() + index * millisecondsPerDay);
-    return { date: formatDateOnly(date), label: dayLabelFormatter.format(date).replace(",", "") };
+    const dateKey = formatDateOnly(date);
+    return {
+      date: dateKey,
+      label: dayLabelFormatter.format(date).replace(",", ""),
+      count: visits.filter((visit) => visit.date === dateKey).length,
+    };
   });
 
   return (
-    <section aria-labelledby="dashboard-calendar-heading" className="surface-panel dashboard-panel animate-rise min-w-0" style={{ animationDelay: "420ms" }}>
-      <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3.5">
+    <section aria-labelledby="dashboard-calendar-heading" className="surface-panel dashboard-panel dashboard-calendar-panel animate-rise min-w-0" style={{ animationDelay: "420ms" }}>
+      <div className="dashboard-card-header">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--accent)]">Планирование</p>
-          <h2 id="dashboard-calendar-heading" className="mt-2 text-[clamp(1rem,0.9rem+0.23vw,1.2rem)] font-semibold tracking-[-0.025em] text-[var(--text)]">Календарь выездов</h2>
-          <time dateTime={selectedDate} aria-live="polite" className="mt-1 block truncate text-[10px] capitalize text-[var(--muted)]">{selectedDateFormatter.format(selectedDateValue)}</time>
+          <p className="dashboard-card-kicker">Планирование</p>
+          <h2 id="dashboard-calendar-heading">Календарь выездов</h2>
+          <time dateTime={selectedDate} aria-live="polite">{selectedDateFormatter.format(selectedDateValue)}</time>
         </div>
-        <div className="flex shrink-0 items-center rounded-full border border-[var(--line)] bg-[var(--surface-inset)] p-1">
-          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, -1))} aria-label="Предыдущий день" className="focus-ring grid size-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><ChevronLeft className="size-3.5" /></button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, -1))} aria-label="Предыдущий день" className="focus-ring grid size-8 place-items-center rounded-full border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><ChevronLeft className="size-3.5" /></button>
           <span className="px-2 text-[9px] font-medium text-[var(--text-secondary)]">День</span>
-          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, 1))} aria-label="Следующий день" className="focus-ring grid size-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><ChevronRight className="size-3.5" /></button>
+          <button type="button" onClick={() => setSelectedDate((date) => shiftDate(date, 1))} aria-label="Следующий день" className="focus-ring grid size-8 place-items-center rounded-full border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><ChevronRight className="size-3.5" /></button>
         </div>
       </div>
 
-      <div className="p-4">
-        <div className="grid grid-cols-7 gap-1 border-b border-[var(--line)] pb-3">
+      <div className="dashboard-calendar-body">
+        <div className="dashboard-calendar-days">
           {days.map((day) => (
-            <button key={day.date} type="button" onClick={() => setSelectedDate(day.date)} aria-pressed={day.date === selectedDate} className={`focus-ring min-w-0 rounded-full py-2 text-center text-[9px] capitalize transition-colors ${day.date === selectedDate ? "bg-[var(--accent)] font-semibold text-[var(--on-accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>{day.label}</button>
+            <button key={day.date} type="button" onClick={() => setSelectedDate(day.date)} aria-pressed={day.date === selectedDate} className="focus-ring">
+              <span>{day.label}</span>
+              <strong>{day.count || "—"}</strong>
+              <small>{day.count ? "выездов" : "нет данных"}</small>
+            </button>
           ))}
         </div>
 
-        <div className="mt-3 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-2">
-          {selectedVisits.length ? <div className="divide-y divide-[var(--line)] border-y border-[var(--line)]">{selectedVisits.slice(0, 4).map((visit) => {
+        <h3>{selectedDateFormatter.format(selectedDateValue)}</h3>
+        <div className="dashboard-calendar-visits">
+          {selectedVisits.length ? <div>{selectedVisits.slice(0, 4).map((visit) => {
             const destination = visit.orderId ? `/orders/${visit.orderId}` : `/calendar?date=${visit.date}&view=day`;
-            return <Link key={visit.id} href={destination} title={`${visit.time} · ${visit.client} · ${visit.address}`} className={`focus-ring grid min-h-[3.2rem] grid-cols-[3.4rem_minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-2 transition-[filter] hover:brightness-[0.97] ${eventColors[visit.tone]}`}>
-              <strong className="font-display text-[9px] font-semibold">{visit.time}</strong>
-              <span className="min-w-0"><span className="block truncate text-[9px] font-medium text-[var(--text)]">{visit.client}</span><span className="mt-0.5 block truncate text-[8px] opacity-65">{visit.address} · {visit.master}</span></span>
-              <span className="shrink-0 text-[8px] opacity-65">{visit.orderNumber ?? "Без заказа"}</span>
+            return <Link key={visit.id} href={destination} title={`${visit.time} · ${visit.client} · ${visit.address}`} className={`focus-ring dashboard-calendar-visit ${eventColors[visit.tone]}`}>
+              <strong>{visit.time}</strong>
+              <span><b>{visit.client}</b><small>{visit.address} · {visit.master}</small></span>
+              <em>{visit.orderNumber ?? "Без заказа"}</em>
             </Link>;
-          })}{selectedVisits.length > 4 ? <Link href={`/calendar?date=${selectedDate}&view=day`} className="focus-ring block py-2 text-center text-[9px] text-[var(--accent-ink)]">Ещё {selectedVisits.length - 4} выезд.</Link> : null}</div> : <div className="grid place-items-center py-7 text-center"><div><CalendarDays className="mx-auto size-6 text-[var(--muted-subtle)]" /><p className="mt-2 text-[10px] text-[var(--muted)]">На этот день выездов нет</p></div></div>}
+          })}{selectedVisits.length > 4 ? <Link href={`/calendar?date=${selectedDate}&view=day`} className="dashboard-calendar-more">Ещё {selectedVisits.length - 4} выезд.</Link> : null}</div> : <div className="dashboard-calendar-empty"><CalendarDays /><p>На этот день выездов нет</p></div>}
         </div>
-
       </div>
       <DashboardPanelLink href={`/calendar?date=${selectedDate}&view=day`}>Открыть день в календаре</DashboardPanelLink>
     </section>

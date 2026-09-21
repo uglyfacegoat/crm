@@ -17,11 +17,15 @@ import {
 } from "./backup-worker-config.mjs";
 import { runProcess, sha256File } from "./backup-process.mjs";
 import { verifyBackupRestore } from "./backup-restore.mjs";
+import { withStorageSnapshot } from "./backup-snapshot.mjs";
+import { storageBackend } from "../src/server/storage/s3-config.mjs";
+import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 
 const JOB_NAME = "system.backup";
 const ARCHIVE_PATTERN = /^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$/;
 const databaseUrl = process.env.DATABASE_URL;
 const storageRoot = resolve(process.env.DOCUMENT_STORAGE_ROOT ?? "/app/storage");
+const objectStorage = storageBackend(process.env) === "s3" ? createS3Storage(process.env) : undefined;
 const backupRoot = resolve(process.env.BACKUP_ROOT ?? "/app/backups");
 const backupExportRoot = process.env.BACKUP_EXPORT_ROOT ? resolve(process.env.BACKUP_EXPORT_ROOT) : null;
 const config = parseBackupWorkerConfig(process.env);
@@ -48,7 +52,7 @@ async function prepareDirectories() {
   if (storageRoot === backupRoot || isPathInside(storageRoot, backupRoot) || isPathInside(backupRoot, storageRoot)) {
     throw new Error("Backup and document storage directories must not contain each other.");
   }
-  await stat(storageRoot);
+  if (!objectStorage) await stat(storageRoot);
   await mkdir(backupRoot, { recursive: true, mode: 0o700 });
   if (backupExportRoot) {
     if (backupExportRoot === backupRoot || backupExportRoot === storageRoot || isPathInside(backupRoot, backupExportRoot) || isPathInside(backupExportRoot, backupRoot) || isPathInside(storageRoot, backupExportRoot) || isPathInside(backupExportRoot, storageRoot)) {
@@ -104,15 +108,18 @@ async function createArchive(runId) {
     const databaseDumpPath = join(partialDirectory, "database.dump");
     const documentsArchivePath = join(partialDirectory, "documents.tar.gz");
     const { databaseName, processEnvironment } = databaseProcessEnvironment(databaseUrl);
-    await runProcess("pg_dump", [
-      "--format=custom",
-      "--no-owner",
-      "--no-privileges",
-      "--file",
-      databaseDumpPath,
-      databaseName,
-    ], { environment: processEnvironment });
-    await runProcess("tar", ["-czf", documentsArchivePath, "-C", storageRoot, "."], { environment: processEnvironment });
+    const stagingDirectory = join(partialDirectory, "documents");
+    const snapshot = await withStorageSnapshot({
+      databaseUrl, storageRoot, objectStorage, stagingDirectory, copyTimeoutMs: config.snapshotCopyTimeoutMs,
+    }, async (snapshot) => {
+      await runProcess("pg_dump", [
+        "--format=custom", "--no-owner", "--no-privileges",
+        `--snapshot=${snapshot.snapshotId}`, "--file", databaseDumpPath, databaseName,
+      ], { environment: processEnvironment, timeoutMs: 240_000 });
+      return snapshot;
+    });
+    await runProcess("tar", ["-czf", documentsArchivePath, "-C", stagingDirectory, "."], { environment: processEnvironment });
+    await rm(stagingDirectory, { recursive: true });
 
     const [databaseFile, documentsFile, databaseSha256, documentsSha256] = await Promise.all([
       stat(databaseDumpPath),
@@ -122,10 +129,12 @@ async function createArchive(runId) {
     ]);
     const metadataPath = join(partialDirectory, "metadata.json");
     await writeFile(metadataPath, `${JSON.stringify({
-      formatVersion: 1,
+      formatVersion: 2,
       archiveName,
       createdAt: now.toISOString(),
       databaseName,
+      consistency: "postgres-exported-snapshot",
+      ...snapshot,
     }, null, 2)}\n`, { mode: 0o600 });
     const metadataSha256 = await sha256File(metadataPath);
     await writeFile(join(partialDirectory, "manifest.sha256"), [
@@ -150,6 +159,7 @@ async function createArchive(runId) {
       archiveDirectory,
       databaseBytes: databaseFile.size,
       documentsBytes: documentsFile.size,
+      ...snapshot,
     };
   } catch (error) {
     await rm(partialDirectory, { recursive: true, force: true });
@@ -199,12 +209,21 @@ async function executeBackup() {
       documentsBytes: archive.documentsBytes,
       restoreVerified: true,
       migrationCount: restoreResult.migrationCount,
+      verifiedFileCounts: restoreResult.verifiedFileCounts,
+      verifiedFileBytes: restoreResult.verifiedFileBytes,
+      restoreDurationMs: restoreResult.restoreDurationMs,
+      recoveryPointAt: archive.recoveryPointAt,
+      fileLockDurationMs: archive.fileLockDurationMs,
+      snapshotCopyTimeoutMs: config.snapshotCopyTimeoutMs,
       backupIntervalMs: config.backupIntervalMs,
       retryIntervalMs: config.retryIntervalMs,
       retentionDays: config.retentionDays,
       hostExportEnabled: backupExportRoot !== null,
       hostExportedAt,
     };
+    const completedAt = new Date();
+    await removeExpiredArchives(backupRoot, completedAt);
+    if (backupExportRoot) await removeExpiredArchives(backupExportRoot, completedAt);
     await sql.begin(async (transaction) => {
       await transaction`
         UPDATE backup_runs SET status = 'succeeded', completed_at = now(), restore_verified_at = now()
@@ -221,12 +240,11 @@ async function executeBackup() {
         WHERE job_name = ${JOB_NAME}
       `;
     });
-    const completedAt = new Date();
-    await removeExpiredArchives(backupRoot, completedAt);
-    if (backupExportRoot) await removeExpiredArchives(backupExportRoot, completedAt);
     console.log(JSON.stringify({ operation: "backup_worker.run", status: "succeeded", runId: run.id, ...result }));
+    return true;
   } catch (error) {
     await markJobFailure(run.id, error);
+    return false;
   }
 }
 
@@ -253,7 +271,7 @@ async function runCycle() {
     locked = lockResult?.locked === true;
     if (!locked) return;
     if (await isBackupDue()) {
-      await executeBackup();
+      return await executeBackup();
     } else {
       await connection`
         UPDATE background_job_status SET heartbeat_at = now(), updated_at = now()
@@ -288,7 +306,7 @@ async function main() {
   }
   if (process.argv.includes("--run-once")) {
     try {
-      await runCycle();
+      if (await runCycle() === false) process.exitCode = 1;
     } finally {
       await sql.end();
     }

@@ -12,7 +12,10 @@ const snapshot: AnalyticsSnapshot = {
   teamPerformance: [{ id: "00000000-0000-0000-0000-000000000001", name: "Иван; Петров", visits: 2, completion: 50, orderValueMinor: 125050 }],
   topClients: [{ id: "00000000-0000-0000-0000-000000000002", name: "ООО Клиент", orders: 2, agreedMinor: 125050 }],
   repeatClientRate: 0,
+  repeatClientCounts: { repeat: 0, firstTime: 0 },
   completedVisitRate: 0,
+  visitActivity: [],
+  orderStatusBreakdown: [],
 };
 
 test("analytics CSV uses Excel-friendly delimiters and protects formula cells", () => {

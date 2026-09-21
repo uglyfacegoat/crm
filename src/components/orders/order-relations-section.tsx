@@ -182,7 +182,7 @@ export function OrderRelationsSection({
 
   return (
     <section
-      className="surface-panel animate-rise overflow-hidden"
+      className="surface-panel panel-stack animate-rise overflow-hidden"
       style={{ animationDelay: "175ms" }}
     >
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-4 sm:px-6">

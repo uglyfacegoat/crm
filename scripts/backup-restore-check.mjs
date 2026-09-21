@@ -17,13 +17,15 @@ const archiveName = requestedArchive ?? archiveNames[0];
 if (!archiveName || !archiveNames.includes(archiveName)) throw new Error("Requested backup archive does not exist.");
 
 const result = await verifyBackupRestore({ archiveDirectory: join(backupRoot, archiveName), databaseUrl });
-const sql = postgres(databaseUrl, { max: 1, connect_timeout: 10, onnotice: () => undefined });
-try {
-  await sql`
-    UPDATE backup_runs SET restore_verified_at = now()
-    WHERE archive_name = ${archiveName} AND status = 'succeeded'
-  `;
-} finally {
-  await sql.end();
+if (!process.argv.includes("--verify-only")) {
+  const sql = postgres(databaseUrl, { max: 1, connect_timeout: 10, onnotice: () => undefined });
+  try {
+    await sql`
+      UPDATE backup_runs SET restore_verified_at = now()
+      WHERE archive_name = ${archiveName} AND status = 'succeeded'
+    `;
+  } finally {
+    await sql.end();
+  }
 }
 console.log(JSON.stringify({ operation: "backup.restore_check", status: "succeeded", ...result }));

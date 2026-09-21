@@ -39,6 +39,7 @@ import {
   documentCategories,
   documentCategoryLabels,
   type DocumentCategory,
+  type DocumentFolder,
   type DocumentListItem,
   type DocumentUploadOptions,
 } from "@/server/documents/types";
@@ -402,6 +403,7 @@ function DocumentDetails({
 export function DocumentsWorkspace({
   documents,
   archive,
+  folders,
   selection,
   uploadOptions,
   canWrite,
@@ -409,6 +411,7 @@ export function DocumentsWorkspace({
 }: {
   documents: DocumentListItem[];
   archive: DocumentArchiveTree;
+  folders: DocumentFolder[];
   selection: DocumentArchiveSelection;
   uploadOptions: DocumentUploadOptions;
   canWrite: boolean;
@@ -479,7 +482,9 @@ export function DocumentsWorkspace({
           document.id !== selected.id,
       )
     : [];
-  const selectionTitle = getArchiveSelectionTitle(archive, selection);
+  const selectionTitle = selection.folderId
+    ? (folders.find((folder) => folder.id === selection.folderId)?.name ?? "Папка архива")
+    : getArchiveSelectionTitle(archive, selection);
   const advancedFilterCount = [
     filters.category !== "all",
     filters.favorite !== "all",
@@ -617,9 +622,9 @@ export function DocumentsWorkspace({
             {archive.orderCount} заказов
           </p>
         </div>
-        <DocumentArchiveNavigator archive={archive} selection={selection} />
+        <DocumentArchiveNavigator archive={archive} folders={folders} selection={selection} />
       </aside>
-      <div className="surface-panel min-w-0 overflow-hidden">
+      <div className="surface-panel panel-stack min-w-0 overflow-hidden">
         <div className="border-b border-[var(--line)] p-3 sm:p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">

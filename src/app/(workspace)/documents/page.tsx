@@ -14,6 +14,7 @@ import {
 } from "@/server/documents/archive";
 import {
   getDocumentArchiveTree,
+  listDocumentFolders,
   listDocuments,
   listDocumentUploadOptions,
 } from "@/server/documents/repository";
@@ -43,16 +44,18 @@ export default async function DocumentsPage({
   const preview = getAuthMode() === "preview";
   const canRead = hasPermission(member, "documents.read");
   const canWrite = hasPermission(member, "documents.write");
-  const [documents, archive, uploadOptions] =
+  const [documents, archive, folders, uploadOptions] =
     preview || !canRead
       ? [
           [],
           emptyDocumentArchiveTree,
+          [],
           { orders: [], visits: [], contracts: [] },
         ]
       : await Promise.all([
           listDocuments(member, selection),
           getDocumentArchiveTree(member),
+          listDocumentFolders(member),
           canWrite
             ? listDocumentUploadOptions(member)
             : Promise.resolve({ orders: [], visits: [], contracts: [] }),
@@ -87,10 +90,13 @@ export default async function DocumentsPage({
             selection.objectId,
             selection.orderId,
             selection.category,
+            selection.folderId,
+            selection.favoriteOnly,
             initialDocumentId,
           ].join(":")}
           documents={documents}
           archive={archive}
+          folders={folders}
           selection={selection}
           uploadOptions={uploadOptions}
           canWrite={canWrite && !preview}

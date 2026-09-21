@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
 import { cancelTaskSchema, createTaskSchema, rescheduleTaskSchema, taskMutationSchema, updateTaskSchema } from "@/server/tasks/schemas";
-import { cancelTask, completeTask, createTask, listTaskHistory, rescheduleTask, TaskAssigneeNotFoundError, TaskManagedByVisitError, TaskNotFoundError, TaskVersionConflictError, updateTask } from "@/server/tasks/repository";
+import { cancelTask, completeTask, createTask, listTaskHistory, rescheduleTask, TaskAssigneeNotFoundError, TaskManagedByVisitError, TaskNotFoundError, TaskOrderNotFoundError, TaskVersionConflictError, updateTask } from "@/server/tasks/repository";
 import type { TaskColumn, TaskHistoryFeed } from "@/server/tasks/types";
 
 export type CreateTaskState = {
@@ -31,6 +31,7 @@ export async function createTaskAction(_previous: CreateTaskState, formData: For
   const member = await requireSession();
   const parsed = createTaskSchema.safeParse({
     idempotencyKey: formData.get("idempotencyKey"),
+    relatedOrderId: formData.get("relatedOrderId"),
     title: formData.get("title"),
     description: formData.get("description"),
     priority: formData.get("priority"),
@@ -46,6 +47,7 @@ export async function createTaskAction(_previous: CreateTaskState, formData: For
     return { status: "success", message: "Задача создана.", fieldErrors: {}, taskId };
   } catch (error) {
     if (error instanceof TaskAssigneeNotFoundError) return { status: "error", message: "Выбранный сотрудник отключён или больше не существует.", fieldErrors: { assignedMemberId: ["Выберите активного сотрудника"] }, taskId: null };
+    if (error instanceof TaskOrderNotFoundError) return { status: "error", message: "Выбранный заказ закрыт или больше не существует.", fieldErrors: { relatedOrderId: ["Выберите доступный заказ"] }, taskId: null };
     logUnexpected("task.create", member.memberId, error);
     return { status: "error", message: "Не удалось создать задачу. Данные не сохранены.", fieldErrors: {}, taskId: null };
   }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { contractStatuses } from "./types.ts";
+import { contractRelationTypes, contractStatuses } from "./types.ts";
 
 const optionalUuid = z.union([z.literal(""), z.string().uuid()]).transform((value) => value || null);
 const optionalText = (maximum: number) => z.string().trim().max(maximum).optional().transform((value) => value || null);
@@ -59,7 +59,18 @@ export const renewContractSchema = z.object({
   copySchedule: z.boolean(),
 }).superRefine(validatePeriod);
 
+export const linkContractSchema = z.object({
+  contractId: z.string().uuid(),
+  relatedContractId: z.string().uuid(),
+  relationType: z.enum(contractRelationTypes),
+  note: optionalText(1_000),
+}).refine((value) => value.contractId !== value.relatedContractId, {
+  path: ["relatedContractId"],
+  message: "Выберите другой договор",
+});
+
 export const contractIdSchema = z.string().uuid();
 export type CreateContractInput = z.infer<typeof createContractSchema>;
 export type UpdateContractInput = z.infer<typeof updateContractSchema>;
 export type RenewContractInput = z.infer<typeof renewContractSchema>;
+export type LinkContractInput = z.infer<typeof linkContractSchema>;

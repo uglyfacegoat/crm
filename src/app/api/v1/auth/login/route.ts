@@ -4,6 +4,7 @@ import { getClientAddress, isSameOriginRequest } from "@/server/auth/request";
 import { shouldUseSecureSessionCookie } from "@/server/auth/config";
 import { authenticateMember } from "@/server/auth/service";
 import { SESSION_COOKIE_NAME } from "@/server/auth/session";
+import { InvalidJsonBodyError, readJsonBody, RequestBodyTooLargeError } from "@/server/http/json-body";
 
 const requestSchema = z.object({ identity: z.string(), password: z.string(), remember: z.boolean().optional().default(false) }).strict();
 
@@ -12,7 +13,13 @@ export async function POST(request: Request) {
   if (!request.headers.get("content-type")?.toLocaleLowerCase("en").startsWith("application/json")) return NextResponse.json({ error: { code: "unsupported_media_type", message: "Ожидается JSON." } }, { status: 415 });
 
   let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ error: { code: "invalid_json", message: "Некорректный JSON." } }, { status: 400 }); }
+  try {
+    body = await readJsonBody(request, 32 * 1024);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return NextResponse.json({ error: { code: "payload_too_large", message: "Слишком большой запрос." } }, { status: 413 });
+    if (error instanceof InvalidJsonBodyError) return NextResponse.json({ error: { code: "invalid_json", message: "Некорректный JSON." } }, { status: 400 });
+    throw error;
+  }
   const parsed = requestSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: { code: "validation_error", message: "Проверьте логин и пароль." } }, { status: 422 });
 

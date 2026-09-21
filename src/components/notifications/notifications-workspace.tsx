@@ -73,7 +73,7 @@ export function NotificationsWorkspace({ initialSnapshot }: { initialSnapshot: N
 
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <header className="flex flex-col gap-3 border-b border-[var(--line)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <div className="flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {([

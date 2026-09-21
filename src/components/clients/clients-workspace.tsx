@@ -81,7 +81,7 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
 
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--line)] p-4 lg:flex-row lg:items-center">
           <label className="soft-button flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl px-3 lg:max-w-md">
             <Search className="size-4 text-[var(--muted)]" />
@@ -96,9 +96,9 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
         </div>
 
         <div className="flex flex-col gap-3 border-b border-[var(--line)] bg-[var(--surface-raised)] px-4 py-3 sm:flex-row sm:items-center sm:px-5">
-          <div className="scrollbar-hidden flex min-w-0 gap-1 overflow-x-auto rounded-[13px] bg-[var(--surface-inset)] p-1" aria-label="Фильтр по истории заказов">
+          <div className="scrollbar-hidden flex min-w-0 gap-1 overflow-x-auto" aria-label="Фильтр по истории заказов">
             {historyOptions.map((option) => (
-              <button key={option.value} type="button" onClick={() => setHistory(option.value)} aria-pressed={history === option.value} className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-[10px] font-medium transition-colors ${history === option.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>
+              <button key={option.value} type="button" onClick={() => setHistory(option.value)} aria-pressed={history === option.value} className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-[10px] font-medium transition-colors ${history === option.value ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]" : "border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>
                 {option.label}
                 <span className={history === option.value ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}>{historyCounts.get(option.value)}</span>
               </button>

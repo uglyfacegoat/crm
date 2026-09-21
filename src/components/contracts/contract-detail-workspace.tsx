@@ -8,6 +8,7 @@ import {
   Download,
   FileText,
   History,
+  Link2,
   MapPin,
   Pencil,
   RefreshCw,
@@ -18,6 +19,7 @@ import {
   ContractDialogs,
   type ContractDialogMode,
 } from "@/components/contracts/contract-dialogs";
+import { UploadDocumentVersionButton } from "@/components/documents/upload-document-version-dialog";
 import { BackLink } from "@/components/ui/back-link";
 import type {
   ContractHistoryEvent,
@@ -57,6 +59,11 @@ const eventLabels = {
   updated: "Данные изменены",
   status_changed: "Статус изменён",
   renewed: "Создано продление",
+} as const;
+const relationLabels = {
+  related: "Связанный договор",
+  supplement: "Дополнительное соглашение",
+  framework: "Рамочный договор",
 } as const;
 const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
   day: "2-digit",
@@ -133,12 +140,14 @@ export function ContractDetailWorkspace({
   documents,
   history,
   canWrite,
+  canReplaceDocuments,
   currentDate,
 }: {
   contract: ContractListItem;
   documents: DocumentListItem[];
   history: ContractHistoryEvent[];
   canWrite: boolean;
+  canReplaceDocuments: boolean;
   currentDate: string;
 }) {
   const [documentIndex, setDocumentIndex] = useState(0);
@@ -155,6 +164,11 @@ export function ContractDetailWorkspace({
       Math.round(((today - start) / Math.max(1, end - start)) * 100),
     ),
   );
+  const periodTone = periodPercent >= 85
+    ? "bg-[var(--danger)]"
+    : periodPercent >= 60
+      ? "bg-[var(--warning)]"
+      : "bg-[var(--success)]";
 
   return (
     <div className="space-y-5">
@@ -226,10 +240,11 @@ export function ContractDetailWorkspace({
             </p>
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--surface-inset)]">
               <div
-                className="h-full rounded-full bg-[var(--text)]"
+                className={`h-full rounded-full transition-[width,background-color] ${periodTone}`}
                 style={{ width: `${periodPercent}%` }}
               />
             </div>
+            <p className="mt-2 text-[9px] text-[var(--muted)]">Прошло {periodPercent}% срока</p>
           </div>
           <div>
             <p className="text-[9px] uppercase tracking-[0.13em] text-[var(--muted)]">
@@ -309,6 +324,7 @@ export function ContractDetailWorkspace({
                 >
                   <Download className="size-4" />
                 </a>
+                {canReplaceDocuments ? <div className="min-w-36"><UploadDocumentVersionButton document={currentDocument} /></div> : null}
               </>
             ) : null}
           </header>
@@ -342,6 +358,25 @@ export function ContractDetailWorkspace({
         </section>
 
         <aside className="space-y-5">
+          {contract.relations.length ? (
+            <section className="surface-panel p-5">
+              <div className="flex items-center gap-2"><Link2 className="size-4 text-[var(--accent-ink)]" /><h2 className="text-sm font-semibold text-[var(--text)]">Связанные договоры</h2></div>
+              <div className="mt-4 grid gap-2">
+                {contract.relations.map((relation) => <Link key={relation.contractId} href={`/contracts/${relation.contractId}`} className="focus-ring rounded-[11px] border border-[var(--line)] px-3 py-3 hover:border-[var(--line-strong)]"><span className="block text-xs font-medium text-[var(--text)]">{relation.contractNumber}</span><span className="mt-1 block text-[9px] text-[var(--muted)]">{relationLabels[relation.relationType]}{relation.note ? ` · ${relation.note}` : ""}</span></Link>)}
+              </div>
+            </section>
+          ) : null}
+          {contract.renewedFromContractId || contract.renewedByContractId ? (
+            <section className="surface-panel p-5">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Ветка договора</h2>
+              <p className="mt-1 text-[10px] leading-5 text-[var(--muted)]">Продления связаны в одну цепочку, при этом файлы и выезды каждого периода остаются самостоятельными.</p>
+              <div className="mt-4 grid gap-2">
+                {contract.renewedFromContractId ? <Link href={`/contracts/${contract.renewedFromContractId}`} className="focus-ring flex min-h-11 items-center gap-3 rounded-[11px] border border-[var(--line)] px-3 text-xs text-[var(--text-secondary)] hover:border-[var(--line-strong)]"><ChevronLeft className="size-4" /><span className="flex-1">Предыдущий период</span></Link> : null}
+                <div className="rounded-[11px] border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-3 text-xs font-medium text-[var(--accent-ink)]">Текущий период · {contract.contractNumber}</div>
+                {contract.renewedByContractId ? <Link href={`/contracts/${contract.renewedByContractId}`} className="focus-ring flex min-h-11 items-center gap-3 rounded-[11px] border border-[var(--line)] px-3 text-xs text-[var(--text-secondary)] hover:border-[var(--line-strong)]"><span className="flex-1">Следующий период</span><ChevronRight className="size-4" /></Link> : null}
+              </div>
+            </section>
+          ) : null}
           <section className="surface-panel p-5">
             <div className="flex items-center gap-2">
               <Copy className="size-4 text-[var(--muted)]" />
@@ -398,6 +433,7 @@ export function ContractDetailWorkspace({
       <ContractDialogs
         mode={dialogMode}
         contract={contract}
+        contractOptions={[contract]}
         objectOptions={[]}
         masterOptions={[]}
         onClose={() => setDialogMode(null)}

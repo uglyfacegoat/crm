@@ -4,7 +4,7 @@ import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import type { CancelTaskInput, CreateTaskInput, RescheduleTaskInput, TaskMutationInput, UpdateTaskInput } from "./schemas";
-import type { CompletedTaskCard, TaskAssigneeOption, TaskCard, TaskColumn, TaskHistoryFeed, TaskSnapshot } from "./types";
+import type { CompletedTaskCard, TaskAssigneeOption, TaskCard, TaskColumn, TaskHistoryFeed, TaskOrderOption, TaskSnapshot } from "./types";
 
 const uuidSchema = z.string().uuid();
 const taskRowSchema = z.object({
@@ -29,6 +29,12 @@ const assigneeRowSchema = z.object({
   id: uuidSchema,
   display_name: z.string(),
   role: z.enum(["admin", "dispatcher", "manager", "accountant", "master"]),
+});
+
+const orderOptionRowSchema = z.object({
+  id: uuidSchema,
+  order_number: z.string(),
+  client_name_snapshot: z.string(),
 });
 
 const taskHistoryRowSchema = z.object({
@@ -75,6 +81,10 @@ export class TaskVersionConflictError extends Error {
 
 export class TaskAssigneeNotFoundError extends Error {
   constructor() { super("The selected active assignee was not found."); this.name = "TaskAssigneeNotFoundError"; }
+}
+
+export class TaskOrderNotFoundError extends Error {
+  constructor() { super("The selected active order was not found."); this.name = "TaskOrderNotFoundError"; }
 }
 
 export class TaskManagedByVisitError extends Error {
@@ -149,7 +159,7 @@ export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapsh
   requirePermission(member, "tasks.read");
   const sql = getDatabase();
   const now = new Date();
-  const [rows, completedRows, [summary], assigneeRows, [organization]] = await Promise.all([
+  const [rows, completedRows, [summary], assigneeRows, orderOptionRows, [organization]] = await Promise.all([
     sql`SELECT tasks.id, tasks.title, tasks.description, tasks.priority, tasks.due_at, tasks.assigned_member_id,
       members.display_name AS assignee_name, tasks.source, tasks.related_order_id, orders.order_number,
       orders.client_name_snapshot AS client_name, tasks.version, organizations.timezone
@@ -187,6 +197,11 @@ export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapsh
       WHERE organization_id = ${member.organizationId} AND active
       ORDER BY display_name
       LIMIT 500`,
+    sql`SELECT id, order_number, client_name_snapshot
+      FROM orders
+      WHERE organization_id = ${member.organizationId} AND status <> 'cancelled'
+      ORDER BY created_at DESC
+      LIMIT 200`,
     sql`SELECT timezone FROM organizations WHERE id = ${member.organizationId}`,
   ]);
   if (!organization) throw new Error("The task organization was not found.");
@@ -199,6 +214,10 @@ export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapsh
     assigneeOptions: assigneeRows.map((row): TaskAssigneeOption => {
       const assignee = assigneeRowSchema.parse(row);
       return { id: assignee.id, displayName: assignee.display_name, role: assignee.role };
+    }),
+    orderOptions: orderOptionRows.map((row): TaskOrderOption => {
+      const order = orderOptionRowSchema.parse(row);
+      return { id: order.id, orderNumber: order.order_number, clientName: order.client_name_snapshot };
     }),
     timeZone: z.string().min(1).parse(organization.timezone),
     currentMemberId: member.memberId,
@@ -216,16 +235,22 @@ export async function createTask(member: AuthenticatedMember, input: CreateTaskI
         FOR KEY SHARE`;
       if (!assignee.length) throw new TaskAssigneeNotFoundError();
     }
+    if (input.relatedOrderId) {
+      const orders = await transaction`SELECT id FROM orders
+        WHERE organization_id = ${member.organizationId} AND id = ${input.relatedOrderId} AND status <> 'cancelled'
+        FOR KEY SHARE`;
+      if (!orders.length) throw new TaskOrderNotFoundError();
+    }
     const [due] = input.localDate && input.localTime
       ? await transaction`SELECT ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) AS due_at
           FROM organizations WHERE id = ${member.organizationId}`
       : [{ due_at: null }];
     const insertedTasks = await transaction`INSERT INTO tasks (
-      organization_id, title, description, priority, due_at, assigned_member_id, source,
+      organization_id, title, description, priority, due_at, assigned_member_id, related_order_id, source,
       idempotency_key, created_by, updated_by
     ) VALUES (
       ${member.organizationId}, ${input.title}, ${input.description}, ${input.priority}, ${due?.due_at ?? null},
-      ${input.assignedMemberId}, 'manual', ${input.idempotencyKey}, ${member.memberId}, ${member.memberId}
+      ${input.assignedMemberId}, ${input.relatedOrderId}, 'manual', ${input.idempotencyKey}, ${member.memberId}, ${member.memberId}
     ) ON CONFLICT (organization_id, idempotency_key) DO NOTHING
       RETURNING id`;
     if (!insertedTasks.length) {
@@ -242,6 +267,7 @@ export async function createTask(member: AuthenticatedMember, input: CreateTaskI
       priority: input.priority,
       dueAt: due?.due_at ?? null,
       assignedMemberId: input.assignedMemberId,
+      relatedOrderId: input.relatedOrderId,
       status: "open",
       source: "manual",
       version: 1,

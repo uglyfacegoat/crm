@@ -2,6 +2,7 @@ import { globalSearchQuerySchema } from "@/lib/global-search";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import { searchPreview } from "@/server/search/preview";
 import { searchGlobal } from "@/server/search/repository";
 
@@ -18,7 +19,17 @@ export async function GET(request: Request) {
       return Response.json({ error: { code: "validation_error", message: parsedQuery.error.issues[0]?.message ?? "Некорректный запрос." } }, { status: 400, headers: privateHeaders });
     }
 
-    const results = getAuthMode() === "preview"
+    const preview = getAuthMode() === "preview";
+    if (!preview) {
+      const budget = await consumeRequestLimit(member, "global_search");
+      if (!budget.allowed) {
+        return Response.json({ error: {
+          code: "rate_limited",
+          message: `Слишком много поисковых запросов. Повторите через ${budget.retryAfterSeconds} сек.`,
+        } }, { status: 429, headers: { ...privateHeaders, "Retry-After": String(budget.retryAfterSeconds) } });
+      }
+    }
+    const results = preview
       ? searchPreview(parsedQuery.data)
       : await searchGlobal(member, parsedQuery.data);
     return Response.json({ data: { query: parsedQuery.data, results } }, { headers: privateHeaders });

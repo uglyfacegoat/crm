@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
+import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
 import {
   createDocumentTemplate,
@@ -18,6 +19,7 @@ export type DocumentTemplateMutationState = {
   status: "idle" | "success" | "error";
   message: string | null;
   fieldErrors: Record<string, string[]>;
+  refreshRequired?: true;
 };
 
 function errorCode(error: unknown) {
@@ -45,6 +47,8 @@ export async function uploadDocumentTemplateAction(
   if (!(uploadedFile instanceof File) || uploadedFile.size === 0) return { status: "error", message: "Выберите PDF или DOCX.", fieldErrors: { file: ["Файл обязателен"] } };
 
   let storageKey: string | null = null;
+  let fileWritten = false;
+  let committed = false;
   try {
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
@@ -55,21 +59,28 @@ export async function uploadDocumentTemplateAction(
     if (await documentTemplateExists(member, parsed.data.idempotencyKey)) return { status: "success", message: "Шаблон уже загружен.", fieldErrors: {} };
     storageKey = createDocumentTemplateStorageKey(member.organizationId, parsed.data.idempotencyKey, extension);
     await writeDocumentFile(storageKey, buffer);
+    fileWritten = true;
     await createDocumentTemplate(member, { ...parsed.data, ...file, extension, storageKey });
+    committed = true;
     revalidatePath("/settings");
     revalidatePath("/my-visits");
     return { status: "success", message: "Шаблон акта опубликован.", fieldErrors: {} };
   } catch (error) {
+    if (committed) {
+      unexpected("document_templates.upload.revalidate", member.memberId, error);
+      return { status: "success", refreshRequired: true, message: "Шаблон опубликован, но страницу не удалось обновить. Обновите её вручную.", fieldErrors: {} };
+    }
     if (error instanceof DocumentFileValidationError) return { status: "error", message: error.message, fieldErrors: { file: [error.message] } };
     if (errorCode(error) === "EEXIST") {
       if (await documentTemplateExists(member, parsed.data.idempotencyKey)) return { status: "success", message: "Шаблон уже загружен.", fieldErrors: {} };
       return { status: "error", message: "Эта загрузка ещё обрабатывается. Подождите и повторите.", fieldErrors: {} };
     }
-    if (storageKey) {
+    if (storageKey && fileWritten && error instanceof AuthorizationError) {
       try { await removeDocumentFile(storageKey); } catch (cleanupError) { unexpected("document_templates.upload.cleanup", member.memberId, cleanupError); }
     }
+    if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для публикации шаблона.", fieldErrors: {} };
     unexpected("document_templates.upload", member.memberId, error);
-    return { status: "error", message: "Не удалось опубликовать шаблон. Файл не сохранён.", fieldErrors: {} };
+    return { status: "error", message: "Не удалось подтвердить публикацию шаблона. Обновите список и проверьте результат перед повторной загрузкой.", fieldErrors: {} };
   }
 }
 

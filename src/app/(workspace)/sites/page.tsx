@@ -10,8 +10,8 @@ export const metadata: Metadata = { title: "Сайты" };
 
 export default async function SitesPage() {
   const member = await requireOfficeSession();
-  const preview = getAuthMode() === "preview";
-  const snapshot = preview ? getPreviewWebsiteSnapshot() : await getWebsiteSnapshot(member);
+  const authPreview = getAuthMode() === "preview";
+  const snapshot = authPreview ? getPreviewWebsiteSnapshot() : await getWebsiteSnapshot(member);
 
-  return <SitesWorkspace snapshot={snapshot} canWrite={hasPermission(member, "sites.write")} preview={preview} />;
+  return <SitesWorkspace snapshot={snapshot} canWrite={hasPermission(member, "sites.write")} preview={authPreview} />;
 }

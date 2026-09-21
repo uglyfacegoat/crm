@@ -3,19 +3,15 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuthMode } from "@/server/auth/config";
+import { safeLoginRedirect } from "@/server/auth/login-redirect";
 import { getClientAddress } from "@/server/auth/request";
 import { authenticateMember } from "@/server/auth/service";
 import { setSessionCookie } from "@/server/auth/session";
 
 export type LoginState = { error: string | null };
 
-function safeNextPath(value: FormDataEntryValue | null) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/";
-  return value;
-}
-
 export async function loginAction(_previousState: LoginState, formData: FormData): Promise<LoginState> {
-  const nextPath = safeNextPath(formData.get("next"));
+  const nextPath = safeLoginRedirect(formData.get("next"));
   if (getAuthMode() === "preview") redirect(nextPath);
 
   const requestHeaders = await headers();
