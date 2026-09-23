@@ -7,6 +7,15 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 20:44 MSK, quarantine recovery export:** a local-only command
+  reads a completed quarantine manifest and matching case ID, checks the
+  original copy, then creates a private checksum-verified export outside both
+  storage and quarantine without replacing an existing file. Source tests
+  reject wrong cases, nested destinations, corrupt copies and repeat writes.
+  A disposable packaged image with 58 migrations exported onto a second
+  private Docker volume; the bytes survived container removal. This is an
+  extraction tool for operator review, not an automatic return to live storage.
+  Full restore drill and S3 quarantine remain open.
 - **2026-09-23 20:37 MSK, local quarantine candidate:** migration 058 records
   prepared/completed moves with source size, SHA-256, case and operator. The
   local command requires pause, verifies four reference families, copies into

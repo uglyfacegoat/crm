@@ -8,6 +8,7 @@ import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
 import { quarantineFileWrite } from "./file-write-quarantine.mjs";
+import { exportQuarantineCopy } from "./file-write-quarantine-export.mjs";
 import { reviewOrResolveFileWrite } from "./file-write-recovery.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
@@ -18,6 +19,7 @@ test("local quarantine preserves unreferenced bytes across copy/unlink interrupt
   const name = `crm_file_quarantine_test_${randomUUID().replaceAll("-", "")}`;
   const storageRoot = await mkdtemp(join(tmpdir(), "crm-quarantine-storage-"));
   const quarantineRoot = await mkdtemp(join(tmpdir(), "crm-quarantine-private-"));
+  const exportRoot = await mkdtemp(join(tmpdir(), "crm-quarantine-export-"));
   await admin`CREATE DATABASE ${admin(name)}`;
   const url = new URL(adminUrl);
   url.pathname = `/${name}`;
@@ -26,7 +28,8 @@ test("local quarantine preserves unreferenced bytes across copy/unlink interrupt
   t.after(async () => {
     await sql.end();
     try { await admin`DROP DATABASE ${admin(name)}`; }
-    finally { await admin.end(); await rm(storageRoot, { recursive: true, force: true }); await rm(quarantineRoot, { recursive: true, force: true }); }
+    finally { await admin.end(); await rm(storageRoot, { recursive: true, force: true });
+      await rm(quarantineRoot, { recursive: true, force: true }); await rm(exportRoot, { recursive: true, force: true }); }
   });
   await runMigrations({ databaseUrl, onApplied: () => {} });
   const organizationId = randomUUID();
@@ -115,6 +118,8 @@ test("local quarantine preserves unreferenced bytes across copy/unlink interrupt
   const damagedReview = await reviewOrResolveFileWrite(recoveryOptions);
   assert.equal(damagedReview.entries[0].state, "quarantine_invalid");
   assert.equal(damagedReview.eligibleForManualResolution, false);
+  await assert.rejects(exportQuarantineCopy({ databaseUrl, storageRoot, quarantineRoot, exportRoot,
+    operationId, storageKey: key, caseId: "RECOVERY-QUARANTINE" }), /checksum/);
   await writeFile(quarantinePath, bytes);
   const verifiedReview = await reviewOrResolveFileWrite(recoveryOptions);
   assert.equal(verifiedReview.entries[0].state, "quarantined_verified");
@@ -124,6 +129,14 @@ test("local quarantine preserves unreferenced bytes across copy/unlink interrupt
   await reviewOrResolveFileWrite({ ...recoveryOptions, reviewSha256: verifiedReview.reviewSha256,
     evidenceSha256: createHash("sha256").update("private case evidence").digest("hex"),
     caseId: "RECOVERY-QUARANTINE", actor: "Test operator" });
+  const exportOptions = { databaseUrl, storageRoot, quarantineRoot, exportRoot,
+    operationId, storageKey: key, caseId: "RECOVERY-QUARANTINE" };
+  await assert.rejects(exportQuarantineCopy({ ...exportOptions, caseId: "WRONG-CASE" }), /matching case ID/);
+  await assert.rejects(exportQuarantineCopy({ ...exportOptions, exportRoot: storageRoot }), /must be separate/);
+  const exported = await exportQuarantineCopy(exportOptions);
+  assert.deepEqual(await readFile(exported.exportPath), bytes);
+  assert.equal(exported.sha256, createHash("sha256").update(bytes).digest("hex"));
+  await assert.rejects(exportQuarantineCopy(exportOptions), { code: "EEXIST" });
   assert.deepEqual(await readFile(quarantinePath), bytes);
   assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
 });

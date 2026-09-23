@@ -19,7 +19,7 @@ async function realDirectory(path, privateDirectory = false) {
   return stat;
 }
 
-async function fileDigest(path) {
+export async function fileDigest(path) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const before = await file.stat();

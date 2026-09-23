@@ -163,9 +163,23 @@ then retries, and verifies referenced files are refused. The final packaged
 image applied 58 migrations in a disposable database and passed HTTP health,
 pause/quarantine/review/resolve/resume with a private Docker volume. The copy
 remained readable after the container was removed. The candidate has not been
-installed in the working CRM. It does not provide
-an automated restore from quarantine or S3 quarantine; those recovery drills
-and retention decisions remain open.
+installed in the working CRM.
+
+To retrieve bytes for a restore investigation, create a **different** private
+directory outside both storage and quarantine, then run:
+
+```sh
+node scripts/file-write-quarantine-export.mjs <operation-id> <storage-key> <case-id> <absolute-export-root>
+```
+
+The command checks the completed manifest, case ID and current quarantine
+checksum, creates a new private file without replacement, then rechecks its
+checksum and syncs it. It never writes directly into live document storage or
+changes a database reference. Review the exported bytes and business outcome
+before deciding whether any manual restoration is appropriate. A full restore
+drill and S3 quarantine remain open, as do retention decisions. A disposable
+packaged runtime exported the verified bytes onto a second private Docker
+volume; they remained readable after the container was removed.
 
 Before deployment and FS-02 acceptance, complete quarantine restore drills
 and S3 quarantine. Confirm no other non-interactive business-file
