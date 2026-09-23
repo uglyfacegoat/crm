@@ -7,6 +7,16 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 19:52 MSK:** FS-02/03 inspection now pages through every
+  unresolved row with an ID cursor; the PostgreSQL test covers 101 rows and
+  a fresh writer process rejected while paused. Disposable-browser acceptance
+  passed with both local and S3 backends: 18 real upload submissions, nine
+  warning states and an additional paused document submission in each run.
+  The paused request displayed its message and created neither a file nor a
+  reference. The first local attempt exposed an incomplete test-only
+  standalone layout (missing static assets); after matching Docker packaging,
+  both full runs passed. Working containers remain unchanged; audited
+  resolution of uncertain writes and installed acceptance are still open.
 - **2026-09-23 19:42 MSK:** packaged FS-02/03 candidate started against a disposable
   database, applied 56 migrations, passed health and pause/status/resume smoke;
   the database was removed. Added a paused-only, read-only `inspect` command

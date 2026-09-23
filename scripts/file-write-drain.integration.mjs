@@ -64,6 +64,13 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
   assert.deepEqual({ accepting: (await drain).accepting, pending: (await setFileWriteMode({ databaseUrl, mode: "status" })).pending }, { accepting: false, pending: 0 });
   assert.equal((await setFileWriteMode({ databaseUrl, mode: "status" })).accepting, false);
   await assert.rejects(withFileWriteLease(async () => assert.fail("Paused writer reached storage")), FileWritesPausedError);
+  const restartedWriter = spawnSync(process.execPath, ["--input-type=module", "-e",
+    'import { withFileWriteLease, closeFileWriteGate } from "./src/server/file-writes/gate.mjs"; try { await withFileWriteLease(async () => { throw new Error("Paused restart reached storage"); }); } finally { await closeFileWriteGate(); }'],
+  { env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: "utf8", timeout: 5_000 });
+  assert.equal(restartedWriter.error, undefined);
+  assert.equal(restartedWriter.status, 1);
+  assert.match(restartedWriter.stderr, /FileWritesPausedError/);
+  assert.doesNotMatch(restartedWriter.stderr, /Paused restart reached storage/);
   const seedEnvironment = {
     ...process.env, DATABASE_URL: databaseUrl, LOCAL_EXAMPLE_SEED: "CONFIRM_LOCAL_CRM_EXAMPLE_DATA",
     LOCAL_EXAMPLE_CENTER_ID: randomUUID(), DOCUMENT_STORAGE_ROOT: "/tmp/crm-file-drain-seed",
@@ -104,7 +111,7 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
     assert.equal(inspection.accepting, false);
     assert.equal(inspection.pending, 1);
     assert.equal(inspection.drained, false);
-    assert.equal(inspection.truncated, false);
+    assert.equal(inspection.nextCursor, null);
     assert.match(inspection.operations[0].id, /^[0-9a-f-]{36}$/);
     assert.ok(inspection.operations[0].startedAt instanceof Date);
     assert.deepEqual(inspection.operations[0].storageKeys, ["tenant/interrupted/v1.pdf"]);
@@ -144,4 +151,20 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
   } finally {
     disconnectedHolder.kill("SIGKILL");
   }
+
+  await setFileWriteMode({ databaseUrl, mode: "pause" });
+  await sql`INSERT INTO file_write_operations (id)
+    SELECT gen_random_uuid() FROM generate_series(1, 101)`;
+  const firstPage = await setFileWriteMode({ databaseUrl, mode: "inspect" });
+  assert.equal(firstPage.pending, 101);
+  assert.equal(firstPage.operations.length, 100);
+  assert.ok(firstPage.nextCursor);
+  const lastPage = await setFileWriteMode({ databaseUrl, mode: "inspect", afterId: firstPage.nextCursor });
+  assert.equal(lastPage.operations.length, 1);
+  assert.equal(lastPage.nextCursor, null);
+  assert.equal(new Set([...firstPage.operations, ...lastPage.operations].map(({ id }) => id)).size, 101);
+  await assert.rejects(setFileWriteMode({ databaseUrl, mode: "inspect", afterId: "invalid" }), /operation ID cursor/);
+  await assert.rejects(setFileWriteMode({ databaseUrl, mode: "status", afterId: firstPage.nextCursor }), /operation ID cursor/);
+  await sql`DELETE FROM file_write_operations`;
+  await setFileWriteMode({ databaseUrl, mode: "resume" });
 });

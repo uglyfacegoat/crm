@@ -9,6 +9,7 @@ import { chromium, request } from "playwright-core";
 import postgres from "postgres";
 import { unzipSync } from "fflate";
 import { runMigrations } from "./migrate.mjs";
+import { setFileWriteMode } from "./file-write-drain.mjs";
 import { startS3Fixture } from "./fixtures/s3-server.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
@@ -279,6 +280,28 @@ try {
     assert.equal(avatarDownload.status(), 200);
     assert.deepEqual(await avatarDownload.body(), imageBytes);
     console.log(`${suffix}: template, chat attachment and avatar persisted; template/avatar downloads and warning states verified.`);
+  }
+  const [{ count: versionsBeforePause }] = await sql`SELECT count(*)::integer AS count FROM document_versions`;
+  const localEntriesBeforePause = objectStorage ? null : (await readdir(directory, { recursive: true })).sort();
+  assert.equal((await setFileWriteMode({ databaseUrl: environment.DATABASE_URL, mode: "pause" })).drained, true);
+  try {
+    await page.goto(`${baseUrl}/documents`);
+    await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+    const pausedDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+    await pausedDialog.locator('summary[aria-label="Заказ"]').click();
+    await pausedDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+    await pausedDialog.locator('input[name="title"]').fill("Paused upload must not persist");
+    await pausedDialog.locator('input[name="file"]').setInputFiles({
+      name: "paused.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nPaused upload\n"),
+    });
+    await pausedDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await pausedDialog.getByRole("status").filter({ hasText: "Загрузка файлов временно остановлена" }).waitFor();
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions`)[0].count, versionsBeforePause);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations`)[0].count, 0);
+    if (localEntriesBeforePause) assert.deepEqual((await readdir(directory, { recursive: true })).sort(), localEntriesBeforePause);
+    console.log("Paused browser upload showed a clear message without a file or database reference.");
+  } finally {
+    await setFileWriteMode({ databaseUrl: environment.DATABASE_URL, mode: "resume" });
   }
   const masterPassword = randomBytes(32).toString("hex");
   const createMaster = spawnSync(process.execPath, ["scripts/create-member.ts"], { env: {

@@ -22,9 +22,10 @@ The operator command `node scripts/file-write-drain.mjs pause` persists
 is empty. A process crash or DB connection loss may release an advisory lock
 while work has no confirmed outcome; its operation row remains. `resume`
 refuses while any such row exists. `status` reports the current flag and count.
-After `pause`, `inspect` takes the exclusive lock and lists the first 100
-unresolved operation IDs, start times and intended storage keys, with an
-explicit `truncated` flag. It refuses inspection while writes are accepted.
+After `pause`, `inspect` takes the exclusive lock and lists up to 100
+unresolved operation IDs, start times and intended storage keys. If
+`nextCursor` is non-null, pass it as the next argument to `inspect` and repeat
+until `nextCursor` is null. It refuses inspection while writes are accepted.
 An empty key list can mean interruption before the first file attempt; a key
 does not prove a file exists or is safe to remove.
 The command must use the target environment's `DATABASE_URL`; its pause mode
@@ -34,8 +35,10 @@ deletes those rows.
 On an isolated PostgreSQL 17 database, `npm run test:file-drain` verifies that
 pause waits for two concurrent operations, rejects a new write and the local
 example seed, persists across new
-connections, and remains undrained after a process crash or termination of
-the lease's database connection. The existing action tests cover a user-facing
+connections, rejects a writer started in a fresh process while paused, and
+remains undrained after a process crash or termination of
+the lease's database connection. It also pages through 101 unresolved rows
+without silently omitting the final record. The existing action tests cover a user-facing
 pause response before storage I/O, and the receipt integration suite still
 covers actual database commits and lost COMMIT acknowledgements. The new test
 is included in CI configuration; remote CI execution has not been observed.
@@ -43,6 +46,12 @@ The keyed production image was started with all 56 migrations on a disposable
 PostgreSQL database. Its HTTP health endpoint and packaged
 `status`/`pause`/`inspect`/`resume` commands passed. The disposable database was
 removed; the working CRM database still has 55 migrations.
+The standalone browser suite passed against disposable local and S3 storage:
+18 real submissions and nine injected warning states in each mode. It also
+paused writes and confirmed the document dialog showed the pause message
+without creating a file or database reference. The local standalone harness
+requires `.next/static` and `public` copied beside `server.js`, as in the
+production Dockerfile. This is not an installed working-CRM browser check.
 
 ## Unresolved-operation investigation
 
@@ -50,8 +59,10 @@ removed; the working CRM database still has 55 migrations.
    write business files, including web instances, seed jobs and any one-off
    scripts. A lost database lease alone does not prove its process stopped.
 2. Run `node scripts/file-write-drain.mjs inspect` against the paused database.
-   Record all IDs, timestamps and keys; if `truncated` is true, the first 100 rows are
-   insufficient for reconciliation. Do not resume or delete rows.
+   Record all IDs, timestamps and keys. If the response has `nextCursor`, run
+   `node scripts/file-write-drain.mjs inspect <nextCursor>` for the next page;
+   continue until it is null. Keep all writers stopped and do not clear rows
+   during pagination; rerun from the start if the pending count changes.
 3. With storage frozen, run the read-only `storage-audit.mjs --check` and retain
    its complete private report. Check all four reference families, the actual
    file bytes/checksums, and any unreferenced or unexpected entries. Match
