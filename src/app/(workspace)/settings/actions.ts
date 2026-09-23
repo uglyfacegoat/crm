@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
@@ -49,7 +50,7 @@ function unexpected(operation: string, actorId: string, error: unknown) {
     operation,
     category: "unexpected",
     actorId,
-    error: error instanceof Error ? error.message : "Unknown error",
+    errorCode: safeErrorCode(error),
   }));
 }
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -48,7 +49,7 @@ export async function updateSupportRequestStatusAction(
       operation: "support.request.status_update",
       category: "unexpected",
       memberId: member.memberId,
-      error: error instanceof Error ? error.message : "Unknown error",
+      errorCode: safeErrorCode(error),
     }));
     return { status: "error", message: "Не удалось сохранить статус." };
   }

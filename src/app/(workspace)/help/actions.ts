@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/permissions";
@@ -19,7 +20,7 @@ export async function createSupportRequestAction(_previous: SupportMutationState
   } catch (error) {
     if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для отправки обращения.", fieldErrors: {} };
     if (error instanceof SupportRequestLimitError) return { status: "error", message: "У вас уже 10 открытых обращений. Дождитесь ответа разработчика.", fieldErrors: {} };
-    console.error(JSON.stringify({ operation: "support.request.create", category: "unexpected", memberId: member.memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "support.request.create", category: "unexpected", memberId: member.memberId, errorCode: safeErrorCode(error) }));
     return { status: "error", message: "Не удалось зарегистрировать обращение. Данные не сохранены.", fieldErrors: {} };
   }
 }

@@ -1,3 +1,4 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import { getAuthMode } from "@/server/auth/config";
 import { getCurrentSession } from "@/server/auth/session";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для экспорта аналитики." } }, { status: 403 });
-    console.error(JSON.stringify({ operation: "analytics.export", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "analytics.export", category: "unexpected", errorCode: safeErrorCode(error) }));
     return Response.json({ error: { code: "service_unavailable", message: "Не удалось сформировать отчёт." } }, { status: 503 });
   }
 }

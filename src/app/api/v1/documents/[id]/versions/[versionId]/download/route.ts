@@ -1,3 +1,4 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
 import { createDocumentDownloadResponse } from "@/server/documents/download-response";
@@ -15,7 +16,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: "forbidden" }, { status: 403 });
     if (error instanceof DocumentNotFoundError) return Response.json({ error: "not_found" }, { status: 404 });
-    console.error(JSON.stringify({ operation: "documents.version_download", category: "unexpected", memberId: member.memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "documents.version_download", category: "unexpected", memberId: member.memberId, errorCode: safeErrorCode(error) }));
     return Response.json({ error: "download_failed" }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getClientAddress, isSameOriginRequest } from "@/server/auth/request";
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
   try {
     result = await authenticateMember({ ...parsed.data, clientAddress: getClientAddress(request.headers) });
   } catch (error) {
-    console.error(JSON.stringify({ operation: "api.auth.login", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "api.auth.login", category: "unexpected", errorCode: safeErrorCode(error) }));
     return NextResponse.json({ error: { code: "service_unavailable", message: "Сервис входа временно недоступен." } }, { status: 503 });
   }
   if (!result.ok) {

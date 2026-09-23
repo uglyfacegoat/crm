@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
@@ -72,7 +73,7 @@ function knownFailure(error: unknown) {
 }
 
 function logUnexpected(operation: string, memberId: string, error: unknown) {
-  console.error(JSON.stringify({ operation, category: "unexpected", memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+  console.error(JSON.stringify({ operation, category: "unexpected", memberId, errorCode: safeErrorCode(error) }));
 }
 
 function refreshFinance(orderId?: string) {
@@ -117,7 +118,7 @@ async function removeUncommittedReceipt(receipt: FinanceReceiptFile | null) {
     await removeDocumentFile(receipt.storageKey);
   } catch (error) {
     markFileWriteUncertain();
-    console.error(JSON.stringify({ operation: "finance.receipt.cleanup", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "finance.receipt.cleanup", category: "unexpected", errorCode: safeErrorCode(error) }));
   }
 }
 

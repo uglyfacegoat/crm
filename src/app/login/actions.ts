@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuthMode } from "@/server/auth/config";
@@ -24,7 +25,7 @@ export async function loginAction(_previousState: LoginState, formData: FormData
       clientAddress: getClientAddress(requestHeaders),
     });
   } catch (error) {
-    console.error(JSON.stringify({ operation: "auth.login", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "auth.login", category: "unexpected", errorCode: safeErrorCode(error) }));
     return { error: "Сервис входа временно недоступен. Попробуйте ещё раз позднее." };
   }
 

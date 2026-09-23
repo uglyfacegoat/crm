@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
@@ -65,7 +66,7 @@ function logUnexpected(operation: string, memberId: string, error: unknown) {
     operation,
     category: "unexpected",
     memberId,
-    error: error instanceof Error ? error.message : "Unknown error",
+    errorCode: safeErrorCode(error),
   }));
 }
 

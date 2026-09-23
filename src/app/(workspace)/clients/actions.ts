@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
@@ -15,7 +16,7 @@ export type ClientMutationState = { status: "idle" | "success" | "error"; messag
 const previewState: ClientMutationState = { status: "error", message: "Предпросмотр не записывает данные. Для сохранения включите рабочий режим и PostgreSQL.", fieldErrors: {} };
 
 function logUnexpected(operation: string, memberId: string, error: unknown) {
-  console.error(JSON.stringify({ operation, category: "unexpected", memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+  console.error(JSON.stringify({ operation, category: "unexpected", memberId, errorCode: safeErrorCode(error) }));
 }
 
 export async function createClientAction(_previous: CreateClientState, formData: FormData): Promise<CreateClientState> {
@@ -29,7 +30,7 @@ export async function createClientAction(_previous: CreateClientState, formData:
     return { status: "success", message: "Клиент создан.", fieldErrors: {}, clientId };
   } catch (error) {
     if (error instanceof ClientConflictError) return { status: "error", message: "Клиент с таким ИНН уже существует.", fieldErrors: { taxId: ["ИНН уже используется"] }, clientId: null };
-    console.error(JSON.stringify({ operation: "clients.create", category: "unexpected", memberId: member.memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "clients.create", category: "unexpected", memberId: member.memberId, errorCode: safeErrorCode(error) }));
     return { status: "error", message: "Не удалось создать клиента. Изменения не сохранены.", fieldErrors: {}, clientId: null };
   }
 }

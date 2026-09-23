@@ -7,12 +7,20 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, OBS-02 HTTP log redaction candidate:** 32 action/route files
+  now record an allowlisted error code instead of serializing arbitrary
+  exception messages, which may contain database details or user data. A unit
+  check rejects a secret-bearing message and arbitrary code. 202 unit tests,
+  affected action/download checks, lint, typecheck and local production build
+  pass. Worker/CLI logging and all other event sources remain to be audited.
 - **2026-09-23, OBS-07 health split candidate:** new live/ready endpoints
   separate process response from PostgreSQL readiness; `/health` remains the
   compatibility readiness address. A real standalone server with an unreachable
   database returned 200 for liveness and 503 for both readiness addresses,
   without returning or logging the test database password. Local build,
-  six startup tests, typecheck and lint pass. Storage/S3 dependency checks,
+  six startup tests, typecheck and lint pass. All five jobs passed in
+  [GitHub run 35912451543](https://github.com/uglyfacegoat/crm/actions/runs/35912451543).
+  Storage/S3 dependency checks,
   worker freshness alerts and installed-runtime acceptance remain open.
 - **2026-09-23, REL-02 remote CI passed:** [GitHub run 35909351720](https://github.com/uglyfacegoat/crm/actions/runs/35909351720)
   completed successfully at commit `20f104b`; all five jobs passed: quality,

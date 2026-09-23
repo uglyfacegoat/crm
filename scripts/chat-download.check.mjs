@@ -77,6 +77,7 @@ test("chat download preserves authorization, range semantics and bounded integri
     const unavailable = await send();
     assert.equal(unavailable.status, 503);
     assert.equal((await unavailable.text()).includes("private database"), false);
+    assert.doesNotMatch(JSON.stringify(log.mock.calls), /private database details/);
     assert.equal(readFile.mock.callCount(), 0);
     assert.equal(recordChatAttachmentDownload.mock.callCount(), 0);
   });

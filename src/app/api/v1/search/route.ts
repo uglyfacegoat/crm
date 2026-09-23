@@ -1,3 +1,4 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { globalSearchQuerySchema } from "@/lib/global-search";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
     return Response.json({ data: { query: parsedQuery.data, results } }, { headers: privateHeaders });
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для поиска." } }, { status: 403, headers: privateHeaders });
-    console.error(JSON.stringify({ operation: "global_search.read", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "global_search.read", category: "unexpected", errorCode: safeErrorCode(error) }));
     return Response.json({ error: { code: "service_unavailable", message: "Поиск временно недоступен." } }, { status: 503, headers: privateHeaders });
   }
 }

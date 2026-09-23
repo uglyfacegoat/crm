@@ -1,3 +1,4 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { timingSafeEqual } from "node:crypto";
 import { IncomingLeadNotFoundError, IncomingLeadRateLimitError, ingestWebsiteLead } from "@/server/incoming-leads/repository";
 import { websiteLeadWebhookSchema } from "@/server/incoming-leads/schemas";
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
       operation: "website_lead.receive",
       category: "unexpected",
       websiteId: parsed.data.websiteId,
-      error: error instanceof Error ? error.message : "Unknown error",
+      errorCode: safeErrorCode(error),
     }));
     return Response.json({ error: "Lead could not be stored." }, { status: 500 });
   }
