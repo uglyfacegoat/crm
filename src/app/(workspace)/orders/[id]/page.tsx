@@ -167,6 +167,10 @@ export default async function OrderDetailPage({
     }
   }
 
+  if (order.assignedMasterId && order.master && !options.masters.some((master) => master.id === order.assignedMasterId)) {
+    options.masters.push({ id: order.assignedMasterId, name: order.master, phone: order.masterPhone ?? "" });
+  }
+
   const dispatchVisit =
     orderVisits.find(
       (visit) =>

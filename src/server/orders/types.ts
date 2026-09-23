@@ -69,6 +69,7 @@ export type OrderDetail = OrderListItem & {
 };
 
 export type OrderCreationOptions = {
+  remote?: boolean;
   clients: Array<{ id: string; name: string }>;
   objects: Array<{ id: string; clientId: string; name: string; address: string }>;
   contacts: Array<{ id: string; clientId: string; name: string; phone: string; isPrimary: boolean }>;

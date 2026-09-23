@@ -41,6 +41,7 @@
     "test:chat-access": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/chat-access.integration.mjs",
     "test:notifications-pagination": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/notifications-pagination.integration.mjs",
     "test:client-list-pagination": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/client-list-pagination.integration.mjs",
+    "test:order-picker": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/order-picker.integration.mjs",
     "test:chat-download": "node --experimental-test-module-mocks --test scripts/chat-download.check.mjs",
     "test:document-download": "node --experimental-test-module-mocks --test scripts/document-download.check.mjs",
     "test:s3-storage": "node --test scripts/s3-storage.integration.mjs",

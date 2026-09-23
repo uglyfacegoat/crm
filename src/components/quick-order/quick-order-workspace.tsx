@@ -27,6 +27,7 @@ import {
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
 import { formatMoney } from "@/lib/format";
+import type { OrderPickerResult } from "@/lib/order-picker";
 import { formatPhoneInput } from "@/lib/phone-input";
 import type { IncomingLeadPrefill } from "@/server/incoming-leads/types";
 import type { OrderCreationOptions } from "@/server/orders/types";
@@ -296,6 +297,25 @@ export function QuickOrderWorkspace({
   );
   const [clientQuery, setClientQuery] = useState("");
   const [clientId, setClientId] = useState(initialClientId);
+  const [clientMatches, setClientMatches] = useState(options.clients);
+  const [clientMatchesQuery, setClientMatchesQuery] = useState("");
+  const [clientHasMore, setClientHasMore] = useState(false);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [clientSearchError, setClientSearchError] = useState(false);
+  const [clientSearchRetry, setClientSearchRetry] = useState(0);
+  const [selectedClientRecord, setSelectedClientRecord] = useState(options.clients.find((client) => client.id === initialClientId));
+  const [relatedOptions, setRelatedOptions] = useState({ objects: options.objects, contacts: options.contacts });
+  const [relationsError, setRelationsError] = useState(false);
+  const [relationsRetry, setRelationsRetry] = useState(0);
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactMatches, setContactMatches] = useState(options.contacts);
+  const [contactMatchesQuery, setContactMatchesQuery] = useState("");
+  const [contactHasMore, setContactHasMore] = useState(false);
+  const [contactSearchError, setContactSearchError] = useState(false);
+  const [contactSearchLoading, setContactSearchLoading] = useState(false);
+  const [contactSearchRetry, setContactSearchRetry] = useState(0);
+  const [selectedContactRecord, setSelectedContactRecord] = useState<OrderCreationOptions["contacts"][number] | null>(null);
+  const [selectedObjectRecord, setSelectedObjectRecord] = useState<OrderCreationOptions["objects"][number] | null>(null);
   const [clientKind, setClientKind] = useState<"legal_entity" | "individual">(
     prefill ? "individual" : "legal_entity",
   );
@@ -324,6 +344,7 @@ export function QuickOrderWorkspace({
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
   const [masterId, setMasterId] = useState("");
+  const [selectedMasterRecord, setSelectedMasterRecord] = useState<OrderCreationOptions["masters"][number] | null>(null);
   const [masterPayment, setMasterPayment] = useState("");
   const [orderNotes, setOrderNotes] = useState(prefill?.orderNotes ?? "");
   const [visitDate, setVisitDate] = useState(defaultVisitDate);
@@ -331,29 +352,114 @@ export function QuickOrderWorkspace({
   const [durationMinutes, setDurationMinutes] = useState("120");
   const [visitNotes, setVisitNotes] = useState("");
 
+  useEffect(() => {
+    if (!options.remote || clientMode !== "existing") return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setClientSearchLoading(true);
+      setClientSearchError(false);
+      try {
+        const params = new URLSearchParams({ type: "clients", q: clientQuery });
+        const response = await fetch(`/api/v1/orders/options?${params}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Client picker request failed");
+        const payload = await response.json() as { data: OrderPickerResult };
+        if (!controller.signal.aborted) {
+          setClientMatches(payload.data.items.map((item) => ({ id: item.id, name: item.name })));
+          setClientMatchesQuery(clientQuery);
+          setClientHasMore(payload.data.hasMore);
+        }
+      } catch {
+        if (!controller.signal.aborted) setClientSearchError(true);
+      } finally {
+        if (!controller.signal.aborted) setClientSearchLoading(false);
+      }
+    }, clientQuery ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [clientMode, clientQuery, clientSearchRetry, options.remote]);
+  useEffect(() => {
+    if (!options.remote || !clientId || clientMode !== "existing") return;
+    const controller = new AbortController();
+    const load = async () => {
+      setRelationsError(false);
+      try {
+        const params = new URLSearchParams({ clientId });
+        const [objectsResponse, contactsResponse] = await Promise.all([
+          fetch(`/api/v1/orders/options?${params}&type=objects`, { signal: controller.signal, cache: "no-store" }),
+          fetch(`/api/v1/orders/options?${params}&type=contacts`, { signal: controller.signal, cache: "no-store" }),
+        ]);
+        if (!objectsResponse.ok || !contactsResponse.ok) throw new Error("Client relations request failed");
+        const objectsPayload = await objectsResponse.json() as { data: OrderPickerResult };
+        const contactsPayload = await contactsResponse.json() as { data: OrderPickerResult };
+        if (controller.signal.aborted) return;
+        const objects = objectsPayload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, address: item.detail ?? "" }));
+        const contacts = contactsPayload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, phone: item.detail ?? "", isPrimary: item.isPrimary ?? false }));
+        setRelatedOptions({ objects, contacts });
+        setContactMatches(contacts);
+        setContactMatchesQuery("");
+        setContactId(contacts.find((contact) => contact.isPrimary)?.id ?? contacts[0]?.id ?? "");
+        setObjectId(objects[0]?.id ?? "");
+        setContactMode(contacts.length ? "existing" : "new");
+        setObjectMode(objects.length ? "existing" : "new");
+      } catch {
+        if (!controller.signal.aborted) setRelationsError(true);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [clientId, clientMode, options.remote, relationsRetry]);
+  useEffect(() => {
+    if (!options.remote || !clientId || clientMode !== "existing" || contactMode !== "existing") return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setContactSearchLoading(true);
+      setContactSearchError(false);
+      try {
+        const params = new URLSearchParams({ type: "contacts", clientId, q: contactQuery });
+        const response = await fetch(`/api/v1/orders/options?${params}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Contact picker request failed");
+        const payload = await response.json() as { data: OrderPickerResult };
+        if (!controller.signal.aborted) {
+          setContactMatches(payload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, phone: item.detail ?? "", isPrimary: item.isPrimary ?? false })));
+          setContactMatchesQuery(contactQuery);
+          setContactHasMore(payload.data.hasMore);
+        }
+      } catch {
+        if (!controller.signal.aborted) setContactSearchError(true);
+      } finally {
+        if (!controller.signal.aborted) setContactSearchLoading(false);
+      }
+    }, contactQuery ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [clientId, clientMode, contactMode, contactQuery, contactSearchRetry, options.remote]);
   const availableContacts = useMemo(
-    () => options.contacts.filter((contact) => contact.clientId === clientId),
-    [clientId, options.contacts],
+    () => relatedOptions.contacts.filter((contact) => contact.clientId === clientId),
+    [clientId, relatedOptions.contacts],
   );
   const availableObjects = useMemo(
-    () => options.objects.filter((object) => object.clientId === clientId),
-    [clientId, options.objects],
+    () => relatedOptions.objects.filter((object) => object.clientId === clientId),
+    [clientId, relatedOptions.objects],
   );
-  const selectedClient = options.clients.find(
-    (client) => client.id === clientId,
-  );
-  const selectedContact = availableContacts.find(
-    (contact) => contact.id === contactId,
-  );
-  const selectedObject = availableObjects.find(
-    (object) => object.id === objectId,
-  );
-  const selectedMaster = options.masters.find(
-    (master) => master.id === masterId,
-  );
+  const selectedClient = selectedClientRecord?.id === clientId ? selectedClientRecord : options.clients.find((client) => client.id === clientId);
+  const selectedContact = availableContacts.find((contact) => contact.id === contactId) ?? (selectedContactRecord?.id === contactId ? selectedContactRecord : undefined);
+  const selectedObject = availableObjects.find((object) => object.id === objectId) ?? (selectedObjectRecord?.id === objectId ? selectedObjectRecord : undefined);
+  const selectedMaster = options.masters.find((master) => master.id === masterId) ?? (selectedMasterRecord?.id === masterId ? selectedMasterRecord : undefined);
+  const visibleClients = options.remote ? (clientMatchesQuery === clientQuery ? clientMatches : []) : options.clients.filter((client) => client.name.toLocaleLowerCase("ru").includes(clientQuery.trim().toLocaleLowerCase("ru")));
+  const visibleContacts = options.remote ? (contactMatchesQuery === contactQuery ? contactMatches.filter((contact) => contact.clientId === clientId) : []) : availableContacts;
   const contactEmailValid = isValidOptionalEmail(contactEmail);
 
   function selectClient(nextClientId: string) {
+    if (options.remote) {
+      setSelectedClientRecord(clientMatches.find((client) => client.id === nextClientId) ?? options.clients.find((client) => client.id === nextClientId));
+      setClientId(nextClientId);
+      setContactId("");
+      setObjectId("");
+      setRelatedOptions({ objects: [], contacts: [] });
+      setContactMatches([]);
+      setSelectedContactRecord(null);
+      setSelectedObjectRecord(null);
+      setContactQuery("");
+      return;
+    }
     const contacts = options.contacts.filter(
       (contact) => contact.clientId === nextClientId,
     );
@@ -703,6 +809,7 @@ export function QuickOrderWorkspace({
                         aria-label="Поиск клиента"
                         value={clientQuery}
                         onChange={(event) => setClientQuery(event.target.value)}
+                        maxLength={100}
                         placeholder="Имя или название"
                         className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none"
                       />
@@ -712,15 +819,7 @@ export function QuickOrderWorkspace({
                       aria-label="Клиенты в CRM"
                       className="max-h-64 space-y-2 overflow-y-auto overscroll-contain md:max-h-96"
                     >
-                      {options.clients
-                        .filter((client) =>
-                          client.name
-                            .toLocaleLowerCase("ru")
-                            .includes(
-                              clientQuery.trim().toLocaleLowerCase("ru"),
-                            ),
-                        )
-                        .map((client) => (
+                      {visibleClients.map((client) => (
                           <button
                             key={client.id}
                             type="button"
@@ -736,16 +835,14 @@ export function QuickOrderWorkspace({
                             ) : null}
                           </button>
                         ))}
-                      {!options.clients.some((client) =>
-                        client.name
-                          .toLocaleLowerCase("ru")
-                          .includes(clientQuery.trim().toLocaleLowerCase("ru")),
-                      ) ? (
+                      {!visibleClients.length && !clientSearchLoading && (!options.remote || clientMatchesQuery === clientQuery) ? (
                         <p className="p-3 text-xs leading-5 text-[var(--muted)]">
-                          Клиенты не найдены. Измените запрос или выберите
-                          «Новый клиент».
+                          {clientSearchError ? "Не удалось загрузить клиентов." : "Клиенты не найдены. Измените запрос или выберите «Новый клиент»."}
                         </p>
                       ) : null}
+                      {clientSearchLoading || options.remote && clientMatchesQuery !== clientQuery ? <p className="p-3 text-xs text-[var(--muted)]">Загрузка…</p> : null}
+                      {options.remote && clientHasMore && !clientSearchLoading ? <p className="p-3 text-xs text-[var(--muted)]">Показаны первые 20. Уточните поиск.</p> : null}
+                      {options.remote && clientSearchError ? <button type="button" onClick={() => setClientSearchRetry((value) => value + 1)} className="focus-ring p-3 text-xs text-[var(--accent)]">Повторить</button> : null}
                     </div>
                   </>
                 ) : (
@@ -767,6 +864,7 @@ export function QuickOrderWorkspace({
                 />
                 {clientMode === "existing" ? (
                   <div className="mt-6 grid gap-4">
+                    {relationsError ? <p role="alert" className="text-xs text-[var(--danger-ink)]">Не удалось загрузить контакты и объекты. <button type="button" onClick={() => setRelationsRetry((value) => value + 1)} className="underline">Повторить</button></p> : null}
                     {availableContacts.length &&
                     effectiveContactMode === "new" ? (
                       <ModeSwitch
@@ -778,12 +876,13 @@ export function QuickOrderWorkspace({
                     ) : null}
                     {effectiveContactMode === "existing" ? (
                       <div className="grid gap-3">
-                        {availableContacts.map((contact) => (
+                        {options.remote ? <input aria-label="Поиск контакта" value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} maxLength={100} placeholder="Имя или телефон" className={orderInputClass} /> : null}
+                        {visibleContacts.map((contact) => (
                           <button
                             key={contact.id}
                             type="button"
                             aria-pressed={contactId === contact.id}
-                            onClick={() => setContactId(contact.id)}
+                            onClick={() => { setContactId(contact.id); setSelectedContactRecord(contact); }}
                             className={`focus-ring rounded-[14px] border p-4 text-left ${contactId === contact.id ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--line)] bg-[var(--surface-inset)] hover:bg-[var(--surface-soft)]"}`}
                           >
                             <span className="flex items-center justify-between gap-2 text-sm font-medium text-[var(--text)]">
@@ -802,6 +901,9 @@ export function QuickOrderWorkspace({
                             ) : null}
                           </button>
                         ))}
+                        {options.remote && contactSearchLoading ? <p className="text-xs text-[var(--muted)]">Загрузка…</p> : null}
+                        {options.remote && contactHasMore && !contactSearchLoading ? <p className="text-xs text-[var(--muted)]">Показаны первые 20. Уточните поиск.</p> : null}
+                        {options.remote && contactSearchError ? <p role="alert" className="text-xs text-[var(--danger-ink)]">Не удалось загрузить контакты. <button type="button" onClick={() => setContactSearchRetry((value) => value + 1)} className="underline">Повторить</button></p> : null}
                         <button
                           type="button"
                           onClick={() => setContactMode("new")}
@@ -989,10 +1091,12 @@ export function QuickOrderWorkspace({
               {effectiveObjectMode === "existing" ? (
                 <div className="space-y-4">
                   <OrderPicker
+                    key={`object-${clientId}`}
                     label="Объект"
                     required
                     value={objectId}
                     onChange={setObjectId}
+                    onSelected={(option) => setSelectedObjectRecord({ id: option.value, clientId, name: option.label, address: option.detail ?? "" })}
                     placeholder="Выберите объект"
                     options={availableObjects.map((object) => ({
                       value: object.id,
@@ -1000,6 +1104,7 @@ export function QuickOrderWorkspace({
                       detail: object.address,
                     }))}
                     searchable
+                    remote={options.remote ? { type: "objects", clientId } : undefined}
                     searchPlaceholder="Название или адрес"
                   />
                   {selectedObject ? (
@@ -1078,8 +1183,10 @@ export function QuickOrderWorkspace({
                   setMasterId(value);
                   if (!value) setMasterPayment("");
                 }}
+                onSelected={(option) => setSelectedMasterRecord({ id: option.value, name: option.label, phone: option.detail ?? "" })}
                 placeholder="Назначить позже"
                 searchable
+                remote={options.remote ? { type: "masters" } : undefined}
                 searchPlaceholder="ФИО или телефон"
                 options={[
                   { value: "", label: "Назначить позже" },

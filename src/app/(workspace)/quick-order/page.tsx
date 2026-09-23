@@ -32,12 +32,11 @@ export default async function QuickOrderPage({ searchParams }: PageProps<"/quick
     && hasPermission(member, "orders.write")
     && hasPermission(member, "visits.write");
   const preview = getAuthMode() === "preview";
-  const optionsPromise = preview ? Promise.resolve(getPreviewOrderCreationOptions()) : canCreate ? listOrderCreationOptions(member) : Promise.resolve(null);
-  const prefillPromise = sourceLeadId && !preview && canCreate ? getIncomingLeadPrefill(member, sourceLeadId) : Promise.resolve(undefined);
-  const [options, prefill] = await Promise.all([optionsPromise, prefillPromise]).catch((error: unknown) => {
+  const prefill = await (sourceLeadId && !preview && canCreate ? getIncomingLeadPrefill(member, sourceLeadId) : Promise.resolve(undefined)).catch((error: unknown) => {
     if (error instanceof IncomingLeadNotFoundError) notFound();
     throw error;
   });
+  const options = preview ? getPreviewOrderCreationOptions() : canCreate ? await listOrderCreationOptions(member, prefill?.possibleClientId ?? undefined) : null;
 
   if (canCreate && options) {
     return <QuickOrderWorkspace options={options} idempotencyKey={randomUUID()} defaultVisitDate={dateInMoscow()} prefill={prefill} />;

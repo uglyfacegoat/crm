@@ -168,17 +168,23 @@ export async function listOrdersWithoutActiveVisit(member: AuthenticatedMember):
   return rows.map(mapListRow);
 }
 
-export async function listOrderCreationOptions(member: AuthenticatedMember): Promise<OrderCreationOptions> {
+export async function listOrderCreationOptions(member: AuthenticatedMember, focusClientId?: string): Promise<OrderCreationOptions> {
   requirePermission(member, "orders.write");
   const sql = getDatabase();
-  const [clientRows, objectRows, contactRows, masterRows] = await Promise.all([
-    sql`SELECT id, legal_name AS name FROM clients WHERE organization_id = ${member.organizationId} ORDER BY legal_name`,
-    sql`SELECT id, client_id, name, address FROM client_objects WHERE organization_id = ${member.organizationId} ORDER BY name`,
-    sql`SELECT id, client_id, full_name AS name, phone, is_primary FROM client_contacts WHERE organization_id = ${member.organizationId} ORDER BY is_primary DESC, full_name`,
-    sql`SELECT id, full_name AS name, phone FROM masters WHERE organization_id = ${member.organizationId} AND active AND operational_status = 'working' ORDER BY full_name`,
+  const [clientRows, focusedRows, masterRows] = await Promise.all([
+    sql`SELECT id, legal_name AS name FROM clients WHERE organization_id = ${member.organizationId} ORDER BY legal_name, id LIMIT 20`,
+    focusClientId ? sql`SELECT id, legal_name AS name FROM clients WHERE organization_id = ${member.organizationId} AND id = ${focusClientId}` : Promise.resolve([]),
+    sql`SELECT id, full_name AS name, phone FROM masters WHERE organization_id = ${member.organizationId} AND active AND operational_status = 'working' ORDER BY full_name, id LIMIT 20`,
   ]);
+  const focused = focusedRows[0];
+  const relatedClientId = focused?.id ?? clientRows[0]?.id ?? null;
+  const [objectRows, contactRows] = relatedClientId ? await Promise.all([
+    sql`SELECT id, client_id, name, address FROM client_objects WHERE organization_id = ${member.organizationId} AND client_id = ${relatedClientId} ORDER BY name, id LIMIT 20`,
+    sql`SELECT id, client_id, full_name AS name, phone, is_primary FROM client_contacts WHERE organization_id = ${member.organizationId} AND client_id = ${relatedClientId} ORDER BY is_primary DESC, full_name, id LIMIT 20`,
+  ]) : [[], []];
   return {
-    clients: clientRows.map((row) => optionRowSchema.parse(row)),
+    remote: true,
+    clients: [...clientRows, ...(focused && !clientRows.some((row) => row.id === focused.id) ? [focused] : [])].map((row) => optionRowSchema.parse(row)),
     objects: objectRows.map((row) => { const parsed = objectOptionRowSchema.parse(row); return { id: parsed.id, clientId: parsed.client_id, name: parsed.name, address: parsed.address }; }),
     contacts: contactRows.map((row) => { const parsed = contactOptionRowSchema.parse(row); return { id: parsed.id, clientId: parsed.client_id, name: parsed.name, phone: parsed.phone, isPrimary: parsed.is_primary }; }),
     masters: masterRows.map((row) => masterOptionRowSchema.parse(row)),
