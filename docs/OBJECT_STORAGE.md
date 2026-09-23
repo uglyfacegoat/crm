@@ -68,21 +68,18 @@ For complete application acceptance, run the upload browser harness with
 all upload families, downloads, ZIP and verified backup staging, then removes its test
 resources. Never point that harness at the working company.
 
-`npm run test:s3-backup` with `S3_BACKUP_TEST_IMAGE` and `BACKUP_TEST_ADMIN_URL` set
+`npm run test:s3-backup` with `S3_BACKUP_TEST_IMAGE` set
 additionally runs the **packaged worker**, makes a coordinated archive, restores a
 separate database, verifies all retained references, then removes one remote object
-and requires backup failure even with valid local bytes available. Use a built image
-and isolated PostgreSQL address reachable from Docker. The Docker hostname
-`host.docker.internal` is mapped to the host gateway in the fixture; select the test
-database port, never the working database.
+and requires backup failure even with valid local bytes available. It provisions
+its own temporary PostgreSQL container and MinIO bucket; the working CRM database
+is not used.
 
-`npm run test:backup-full-stage` with `BACKUP_FULL_STAGE_TEST_IMAGE`,
-`BACKUP_FULL_STAGE_TEST_NETWORK` and `BACKUP_TEST_ADMIN_URL` set runs the packaged
+`npm run test:backup-full-stage` with `BACKUP_FULL_STAGE_TEST_IMAGE` set runs the packaged
 backup integration on a separate 1 MiB tmpfs. It fills the staging volume
 during an object read, requires an explicit `ENOSPC` failure without a staged
 file or PostgreSQL snapshot session, frees the volume, then checks a complete
-retry. The test provisions and drops its own database; use only an isolated
-test PostgreSQL service/network.
+retry. It also provisions and removes its own PostgreSQL container.
 
 ## Migration and rollback gates — still open
 

@@ -7,6 +7,15 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, SEC-04 test isolation candidate:** the transfer, cutover,
+  packaged S3 backup and full-staging-volume npm commands now provision their
+  own PostgreSQL 17 container with random credentials and a temporary data
+  filesystem. They pass only its URLs to the test process and remove it on
+  completion. The transfer and cutover commands also passed with deliberately
+  invalid inherited admin URLs, proving their temporary URLs take precedence.
+  All four commands passed without using the CRM PostgreSQL
+  server. This does not yet separate all dev/staging/production secrets or
+  protect every other test entry point.
 - **2026-09-23, FS-09 disposable cutover rehearsal:** after the forward
   five-file transfer and independent local/S3 audits, a built standalone web
   served both historical document versions, the current version and ZIP over

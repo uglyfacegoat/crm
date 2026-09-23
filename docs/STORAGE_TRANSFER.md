@@ -69,13 +69,13 @@ Working-volume, chosen-provider and coordinated cutover/rollback acceptance
 remain open.
 
 For a disposable coordinated rehearsal, build and copy the standalone static
-assets, set `MIGRATION_TEST_ADMIN_URL` to a test PostgreSQL administrator,
-`STORAGE_CUTOVER_TEST_DOCKER_ADMIN_URL` to that same administrator address as
-reachable from a container, `STORAGE_CUTOVER_TEST_RUNTIME` to the built
-`server.js`, `STORAGE_CUTOVER_TEST_IMAGE` to the matching production image,
-and `CHROME_PATH` to the local Chrome binary.
+assets, set `STORAGE_CUTOVER_TEST_RUNTIME` to the built `server.js`,
+`STORAGE_CUTOVER_TEST_IMAGE` to the matching production image, and
+`CHROME_PATH` to the local Chrome binary.
 Then run `npm run test:storage-cutover`. It creates and removes its own
-database, MinIO fixture and private backup volume. It verifies authenticated
+PostgreSQL container, database, MinIO fixture and private backup volume; it
+does not connect to the working CRM database. `npm run test:storage-transfer`
+uses the same isolated PostgreSQL fixture. The cutover run verifies authenticated
 historical/current downloads and ZIP before and after the web backend switch,
 uploads a new file through the S3 web, then runs the packaged S3 backup worker
 and checks the archive from a separate container. It also checks authenticated
