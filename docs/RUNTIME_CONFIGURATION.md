@@ -1,9 +1,11 @@
 # Runtime configuration
 
 The web process validates configuration before handling application requests.
-The Docker entrypoint runs the same validation **before migrations**. A failure
-exits with code 1 and lists invalid variable names, never their values.
-Building an image does not require production credentials.
+The Docker entrypoint runs the same validation **before migrations**. Both
+background workers validate their own required settings before a database
+connection, storage client, or file operation. A failure exits with code 1
+and names the invalid setting, never its value. Building an image does not
+require production credentials.
 
 | Setting | Contract |
 | --- | --- |
@@ -47,6 +49,16 @@ The first suite covers required/optional settings, malformed URLs, copied exampl
 secrets, redacted failures and validation before migrations. The second launches
 the real standalone server without each mandatory setting and requires a prompt
 nonzero exit. The authenticated isolated smoke suite covers a valid startup.
+
+`scripts/worker-runtime-config.mjs` applies worker-specific startup checks:
+both workers require a PostgreSQL URL with a host, user and database. The
+reminder worker also validates its bounded interval. The backup worker validates
+schedule/retention bounds, the selected local/S3 backend, required S3 settings,
+and absolute storage/backup/export paths. `npm test` includes actual worker
+process starts with invalid settings and checks that the diagnostic does not
+print the database password. On 2026-09-23, both packaged workers also passed
+healthcheck against the working local database and rejected an empty URL before
+connecting; the updated workers were installed and remained healthy.
 
 Remaining P0.2 work includes least-privilege database identities, enforced
 environment separation, credential rotation/revocation rehearsal, and image/log

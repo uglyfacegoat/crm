@@ -7,7 +7,16 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
-- Latest work checkpoint: **2026-09-20 21:16 MSK**. S3 read-only inventory now passes
+- Latest checkpoint: **2026-09-23 19:12 MSK**. Removed the canceled legacy CRM
+  import flow and its three empty tables; migration 055 is applied in the
+  working database. The missing FS-01 writer inventory is restored in
+  `docs/STORAGE_WRITERS.md`. SEC-09 now covers both workers: 200 unit tests,
+  lint, typecheck and production build pass; packaged workers accept the
+  working configuration and reject an empty database URL before connecting.
+  Both updated workers are healthy; web/database stayed running. Assessment
+  remains **6.7/10**, estimated END completion **63%** because major P0 gates
+  remain open. GitHub CI for this branch has not been observed.
+- Earlier checkpoint: **2026-09-20 21:16 MSK**. S3 read-only inventory now passes
   all 24 leaf local/S3 integration scenarios (26 TAP including parents). The encoded-key
   defect is fixed and covered for spaces, literal plus and percent sequences. Fourteen
   additional protocol/error/deadline tests pass; scoped lint and diff whitespace checks

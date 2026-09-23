@@ -32,7 +32,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts/validate-runtime-config.m
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/config/environment.ts ./src/server/config/environment.ts
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/storage ./src/server/storage
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/seed-local-example-data.mjs ./scripts/seed-local-example-data.mjs
-COPY --from=builder --chown=nextjs:nodejs /app/scripts/reminder-worker.mjs /app/scripts/reminder-worker-config.mjs ./scripts/
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/reminder-worker.mjs /app/scripts/reminder-worker-config.mjs /app/scripts/worker-runtime-config.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-worker.mjs /app/scripts/backup-worker-config.mjs /app/scripts/backup-process.mjs /app/scripts/backup-restore.mjs /app/scripts/backup-restore-check.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-integrity.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/storage-audit.mjs /app/scripts/s3-audit-storage.mjs ./scripts/

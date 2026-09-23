@@ -1,16 +1,13 @@
 import postgres from "postgres";
 import {
   parseOperationalNotificationResult,
-  parseReminderWorkerInterval,
   parseReminderWorkerResult,
   reminderWorkerHealthWindow,
 } from "./reminder-worker-config.mjs";
+import { validateReminderWorkerEnvironment } from "./worker-runtime-config.mjs";
 
 const JOB_NAME = "chat.visit-reminders";
-const databaseUrl = process.env.DATABASE_URL;
-const intervalMs = parseReminderWorkerInterval(process.env.REMINDER_WORKER_INTERVAL_MS);
-
-if (!databaseUrl) throw new Error("DATABASE_URL is required to run the reminder worker.");
+const { databaseUrl, intervalMs } = validateReminderWorkerEnvironment(process.env);
 
 const sql = postgres(databaseUrl, {
   max: 1,

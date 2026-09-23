@@ -47,7 +47,7 @@
       }
     },
     "reminder-worker": {
-      "image": "crm-app:without-legacy-import-20260923",
+      "image": "crm-app:worker-preflight-20260923",
       "env_file": [
         {
           "path": ".env.docker-reminder-worker",
@@ -81,7 +81,7 @@
       }
     },
     "backup-worker": {
-      "image": "crm-app:without-legacy-import-20260923",
+      "image": "crm-app:worker-preflight-20260923",
       "env_file": [
         {
           "path": ".env.docker-backup-worker",

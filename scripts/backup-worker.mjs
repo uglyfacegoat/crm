@@ -13,24 +13,17 @@ import postgres from "postgres";
 import {
   backupWorkerHealthWindow,
   databaseProcessEnvironment,
-  parseBackupWorkerConfig,
 } from "./backup-worker-config.mjs";
 import { runProcess, sha256File } from "./backup-process.mjs";
 import { verifyBackupRestore } from "./backup-restore.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
-import { storageBackend } from "../src/server/storage/s3-config.mjs";
+import { validateBackupWorkerEnvironment } from "./worker-runtime-config.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 
 const JOB_NAME = "system.backup";
 const ARCHIVE_PATTERN = /^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$/;
-const databaseUrl = process.env.DATABASE_URL;
-const storageRoot = resolve(process.env.DOCUMENT_STORAGE_ROOT ?? "/app/storage");
-const objectStorage = storageBackend(process.env) === "s3" ? createS3Storage(process.env) : undefined;
-const backupRoot = resolve(process.env.BACKUP_ROOT ?? "/app/backups");
-const backupExportRoot = process.env.BACKUP_EXPORT_ROOT ? resolve(process.env.BACKUP_EXPORT_ROOT) : null;
-const config = parseBackupWorkerConfig(process.env);
-
-if (!databaseUrl) throw new Error("DATABASE_URL is required to run the backup worker.");
+const { databaseUrl, config, backend, storageRoot, backupRoot, backupExportRoot } = validateBackupWorkerEnvironment(process.env);
+const objectStorage = backend === "s3" ? createS3Storage(process.env) : undefined;
 
 const sql = postgres(databaseUrl, {
   max: 2,
