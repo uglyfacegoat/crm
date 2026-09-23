@@ -240,7 +240,8 @@ the original manifest. `review` then verifies the local archive and reports
 `quarantined_verified` or `quarantine_invalid`, and `resolve` requires the
 matching case ID. A disposable MinIO/PostgreSQL test covers partial version
 deletion, retry, corruption, referenced-key refusal and a crash just before
-the complete marker. This candidate is **not installed** in the working CRM.
+the complete marker. A denied delete credential leaves the `prepared` row,
+all S3 versions and the pause in place. This candidate is **not installed** in the working CRM.
 The packaged image applied 60 migrations on a disposable database and passed
 export/quarantine/review/resolve/resume against a disposable MinIO bucket;
 both historical object versions remained readable from the private volume

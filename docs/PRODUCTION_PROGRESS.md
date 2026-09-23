@@ -13,7 +13,7 @@ The overall goal remains active; this document is not a declaration of productio
   committed reference, deletes only listed version IDs, and retries a subset
   after interruption. Recovery review checks the archive before resolution.
   A disposable MinIO/PostgreSQL test covers corruption, deletion interrupted
-  twice, wrong case, referenced-key refusal and an external removal without
+  twice, wrong case, referenced-key refusal, denied delete credentials and an external removal without
   quarantine audit. The packaged image applied 60 migrations and completed
   export/quarantine/review/resolve/resume on a disposable MinIO bucket; two
   historical object versions remained readable from the private volume after

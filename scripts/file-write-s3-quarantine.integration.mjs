@@ -63,6 +63,16 @@ test("versioned S3 quarantine resumes partial removal only after verified privat
   await assert.rejects(quarantineS3Versions(options), /version checksum/);
   assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_s3_quarantine`)[0].count, 0);
   await writeFile(file, original);
+  const deniedRemover = createS3VersionRemover({ ...fixture.environment,
+    FILE_WRITE_S3_QUARANTINE_ACCESS_KEY_ID: fixture.environment.DOCUMENT_S3_ACCESS_KEY_ID,
+    FILE_WRITE_S3_QUARANTINE_SECRET_ACCESS_KEY: "invalid-fixture-secret" });
+  try { await assert.rejects(quarantineS3Versions({ ...options, versionRemover: deniedRemover })); }
+  finally { deniedRemover.close(); }
+  assert.equal((await sql`SELECT state FROM file_write_s3_quarantine WHERE operation_id = ${operationId}`)[0].state, "prepared");
+  const afterDenied = [];
+  for await (const item of objectStorage.inventory()) if (item.storageKey === storageKey) afterDenied.push(item);
+  assert.equal(afterDenied.length, 3);
+  await assert.rejects(setFileWriteMode({ databaseUrl, mode: "resume" }), /unresolved file write/);
   await assert.rejects(quarantineS3Versions({ ...options, onStage(stage) {
     if (stage === "version_deleted") throw new Error("Crash after one version removal");
   } }), /Crash after one version removal/);
