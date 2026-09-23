@@ -5,9 +5,10 @@ import { once } from "node:events";
 import { mkdtemp, readFile, readdir, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createConnection, createServer } from "node:net";
 import { chromium, request } from "playwright-core";
 import postgres from "postgres";
-import { unzipSync } from "fflate";
+import { unzipSync, zipSync } from "fflate";
 import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
 import { startS3Fixture } from "./fixtures/s3-server.mjs";
@@ -46,7 +47,32 @@ let page;
 let archiveClient;
 let s3Fixture;
 let objectStorage;
+let scannerProxy;
+let disableScanner;
 try {
+  if (process.env.UPLOAD_CHECK_SCANNER_FAILURE === "true") {
+    assert.equal(environment.CRM_FILE_SCAN_MODE, "required");
+    const upstreamHost = environment.CRM_CLAMD_HOST;
+    const upstreamPort = Number(environment.CRM_CLAMD_PORT);
+    let available = true;
+    const sockets = new Set();
+    scannerProxy = createServer((client) => {
+      sockets.add(client);
+      client.on("close", () => sockets.delete(client));
+      client.on("error", () => {});
+      if (!available) { client.destroy(); return; }
+      const upstream = createConnection({ host: upstreamHost, port: upstreamPort });
+      sockets.add(upstream);
+      upstream.on("close", () => sockets.delete(upstream));
+      upstream.on("error", () => client.destroy());
+      client.on("close", () => upstream.destroy());
+      client.pipe(upstream).pipe(client);
+    });
+    await new Promise((resolveListening) => scannerProxy.listen(0, "127.0.0.1", resolveListening));
+    environment.CRM_CLAMD_HOST = "127.0.0.1";
+    environment.CRM_CLAMD_PORT = String(scannerProxy.address().port);
+    disableScanner = () => { available = false; for (const socket of sockets) socket.destroy(); };
+  }
   if (storageMode === "s3") {
     s3Fixture = await startS3Fixture();
     Object.assign(environment, s3Fixture.environment);
@@ -319,6 +345,24 @@ try {
     assert.deepEqual(await avatarDownload.body(), imageBytes);
     console.log(`${suffix}: template, chat attachment and avatar persisted; template/avatar downloads and warning states verified.`);
   }
+  if (environment.CRM_FILE_SCAN_MODE === "required") {
+    const eicar = Buffer.from("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
+    const infectedOffice = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/eicar.com": eicar }));
+    await page.goto(`${baseUrl}/documents`);
+    await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+    const infectedDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+    await infectedDialog.locator('summary[aria-label="Заказ"]').click();
+    await infectedDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+    await infectedDialog.locator('input[name="title"]').fill("EICAR test");
+    await infectedDialog.locator('input[name="file"]').setInputFiles({ name: "eicar.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: infectedOffice });
+    const infectedId = await infectedDialog.locator('input[name="idempotencyKey"]').inputValue();
+    await infectedDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await infectedDialog.getByRole("status").filter({ hasText: "Файл не прошёл проверку безопасности." }).waitFor();
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${infectedId}`)[0].count, 0);
+    if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(infectedId)));
+    await infectedDialog.getByRole("button", { name: "Отмена", exact: true }).click();
+    console.log("scanner: EICAR inside DOCX was rejected before file and database writes.");
+  }
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = Buffer.alloc(15 * 1024 * 1024, 0x20);
@@ -399,6 +443,33 @@ try {
   assert.equal(replaced, 9);
   assert.equal(interceptionError, null);
   assert.deepEqual(browserErrors, []);
+  if (disableScanner) {
+    disableScanner();
+    const readiness = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
+    assert.equal(readiness.status, 503);
+    assert.equal((await readiness.json()).scanner, "unavailable");
+    const [existingDocument] = await sql`SELECT id FROM documents WHERE organization_id = ${member.organization_id} ORDER BY created_at LIMIT 1`;
+    assert.equal((await archiveClient.get(`${baseUrl}/api/v1/documents/${existingDocument.id}/download`)).status(), 500);
+    await page.context().clearCookies();
+    await page.goto(`${baseUrl}/login`);
+    await page.getByPlaceholder("Email или телефон").fill(environment.AUTH_BOOTSTRAP_ADMIN_EMAIL);
+    await page.getByPlaceholder("Пароль").fill(environment.AUTH_BOOTSTRAP_ADMIN_PASSWORD);
+    await page.getByRole("button", { name: "Войти в CRM", exact: true }).click();
+    await page.waitForURL((url) => url.pathname === "/");
+    await page.goto(`${baseUrl}/documents`);
+    await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+    const unavailableDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+    await unavailableDialog.locator('summary[aria-label="Заказ"]').click();
+    await unavailableDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+    await unavailableDialog.locator('input[name="title"]').fill("Scanner outage test");
+    await unavailableDialog.locator('input[name="file"]').setInputFiles({ name: "outage.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nOutage test\n") });
+    const unavailableId = await unavailableDialog.locator('input[name="idempotencyKey"]').inputValue();
+    await unavailableDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await unavailableDialog.getByRole("status").filter({ hasText: "Проверка файла временно недоступна." }).waitFor();
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${unavailableId}`)[0].count, 0);
+    if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(unavailableId)));
+    console.log("scanner outage: readiness failed, old file was not served, new file was not saved.");
+  }
   if (objectStorage) {
     assert.deepEqual(await readdir(directory), [], "S3 mode must not write files to the local document root");
     const stagingDirectory = join(directory, "verified-s3-snapshot");
@@ -413,7 +484,7 @@ try {
     await s3Fixture.close();
     const unavailable = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
     assert.equal(unavailable.status, 503, "S3 outage must make readiness fail while PostgreSQL remains available");
-    assert.deepEqual(await unavailable.json(), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable" });
+    assert.deepEqual(await unavailable.json(), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable", scanner: process.env.CRM_FILE_SCAN_MODE === "required" ? "available" : "disabled" });
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
@@ -434,6 +505,7 @@ try {
   await archiveClient?.dispose();
   await browser?.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }
+  if (scannerProxy) await new Promise((resolveClosed) => scannerProxy.close(resolveClosed));
   await sql?.end();
   try { if (databaseCreated) await admin`DROP DATABASE ${admin(databaseName)}`; }
   finally {

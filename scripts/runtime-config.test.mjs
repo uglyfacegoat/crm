@@ -70,6 +70,17 @@ test("optional website intake may be disabled, but configured secrets must be va
   assert.doesNotThrow(() => validateRuntimeEnvironment({ ...validEnvironment, CRM_WEBSITE_WEBHOOK_SECRET: "b".repeat(64) }));
 });
 
+test("required file scanning needs a valid private scanner endpoint", () => {
+  const scanner = { ...validEnvironment, CRM_FILE_SCAN_MODE: "required", CRM_CLAMD_HOST: "clamav", CRM_CLAMD_PORT: "3310" };
+  assert.doesNotThrow(() => validateRuntimeEnvironment(scanner));
+  for (const invalid of [
+    { CRM_CLAMD_HOST: undefined },
+    { CRM_CLAMD_HOST: "http://public.example.invalid" },
+    { CRM_CLAMD_PORT: "0" },
+    { CRM_CLAMD_TIMEOUT_MS: "not-a-number" },
+  ]) assert.throws(() => validateRuntimeEnvironment({ ...scanner, ...invalid }), /CRM_CLAMD/);
+});
+
 test("entrypoint rejects configuration before attempting database migrations", () => {
   const result = spawnSync("sh", ["docker-entrypoint.sh"], {
     encoding: "utf8",

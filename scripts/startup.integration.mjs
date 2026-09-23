@@ -80,7 +80,7 @@ test("liveness survives a database outage while readiness fails without exposing
     for (const path of ["ready", "health"]) {
       const response = await fetch(`${origin}/api/v1/system/${path}`, { signal: AbortSignal.timeout(15_000) });
       assert.equal(response.status, 503);
-      assert.deepEqual(await response.json(), { status: "unavailable", service: "crm-web", database: "unavailable", storage: "available" });
+      assert.deepEqual(await response.json(), { status: "unavailable", service: "crm-web", database: "unavailable", storage: "available", scanner: "disabled" });
       assert.equal(response.headers.get("cache-control"), "no-store");
     }
     assert.doesNotMatch(output, /do-not-log-this/);

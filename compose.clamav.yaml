@@ -1,0 +1,22 @@
+{
+  "services": {
+    "crm": {
+      "environment": {
+        "CRM_FILE_SCAN_MODE": "required",
+        "CRM_CLAMD_HOST": "clamav",
+        "CRM_CLAMD_PORT": "3310",
+        "CRM_CLAMD_TIMEOUT_MS": "10000"
+      },
+      "depends_on": {
+        "clamav": {
+          "condition": "service_started"
+        }
+      }
+    },
+    "clamav": {
+      "image": "clamav/clamav-debian@sha256:df80497be841a8ad57f95e04f978216241457f8f8ad608f1f682e3cd0fe63c45",
+      "restart": "unless-stopped",
+      "networks": ["crm_default"]
+    }
+  }
+}

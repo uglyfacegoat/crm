@@ -8,6 +8,8 @@ import { storageBackend } from "../storage/s3-config.mjs";
 import { recordFileWriteKey } from "../file-writes/gate.mjs";
 import { createS3Storage } from "../storage/s3-store.mjs";
 import { StoredFileIntegrityError, validateFileExpectation, validateStorageKey } from "../storage/file-integrity.mjs";
+import { FileScanRejectedError, FileScanUnavailableError, scanFileBuffer } from "../file-scan/clamd.mjs";
+import { DocumentFileValidationError } from "./file-validation";
 
 export { StoredFileIntegrityError };
 
@@ -65,6 +67,12 @@ export function createChatChannelAvatarStorageKey(organizationId: string, channe
 }
 
 export async function writeDocumentFile(storageKey: string, buffer: Buffer) {
+  try { await scanFileBuffer(buffer); }
+  catch (error) {
+    if (error instanceof FileScanRejectedError) throw new DocumentFileValidationError("Файл не прошёл проверку безопасности.");
+    if (error instanceof FileScanUnavailableError) throw new DocumentFileValidationError("Проверка файла временно недоступна. Повторите позже.");
+    throw error;
+  }
   await recordFileWriteKey(storageKey);
   if (storageBackend(process.env) === "s3") return objectStorage().write(storageKey, buffer);
   const absolutePath = resolveStorageKey(storageKey);
@@ -73,14 +81,18 @@ export async function writeDocumentFile(storageKey: string, buffer: Buffer) {
 }
 
 export async function readVerifiedDocumentFile(storageKey: string, expected: { sizeBytes: number; sha256: string }, maxBytes: number) {
-  if (storageBackend(process.env) === "s3") return objectStorage().readVerified(storageKey, expected, maxBytes);
+  if (storageBackend(process.env) === "s3") {
+    const buffer = await objectStorage().readVerified(storageKey, expected, maxBytes);
+    await scanFileBuffer(buffer);
+    return buffer;
+  }
   validateFileExpectation(expected, maxBytes);
   const file = await open(resolveStorageKey(storageKey), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const buffer = Buffer.alloc(expected.sizeBytes);
   try {
     const stats = await file.stat();
     if (!stats.isFile() || stats.size !== expected.sizeBytes) throw new StoredFileIntegrityError();
     // Allocate only the validated stored size, even if the file grows during reading.
-    const buffer = Buffer.alloc(expected.sizeBytes);
     let offset = 0;
     while (offset < buffer.length) {
       const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, offset);
@@ -90,10 +102,11 @@ export async function readVerifiedDocumentFile(storageKey: string, expected: { s
     if ((await file.stat()).size !== expected.sizeBytes || createHash("sha256").update(buffer).digest("hex") !== expected.sha256) {
       throw new StoredFileIntegrityError();
     }
-    return buffer;
   } finally {
     await file.close();
   }
+  await scanFileBuffer(buffer);
+  return buffer;
 }
 
 export async function removeDocumentFile(storageKey: string) {

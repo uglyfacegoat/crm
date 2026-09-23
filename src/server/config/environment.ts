@@ -1,6 +1,7 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { parseS3Config, storageBackend } from "../storage/s3-config.mjs";
+import { fileScanConfig } from "../file-scan/clamd.mjs";
 
 export const authModeSchema = z.enum(["preview", "required"]);
 export const booleanEnvironmentSchema = z.enum(["true", "false"]);
@@ -61,6 +62,8 @@ export function validateRuntimeEnvironment(environment: Environment) {
   if ((backend === "local" && mode === "required" && environment.NODE_ENV === "production") || environment.DOCUMENT_STORAGE_ROOT !== undefined) {
     if (!storageRootSchema.safeParse(environment.DOCUMENT_STORAGE_ROOT).success) invalidFields.push("DOCUMENT_STORAGE_ROOT");
   }
+  try { fileScanConfig(environment); }
+  catch { invalidFields.push("CRM_FILE_SCAN_MODE/CRM_CLAMD configuration"); }
   // An empty webhook secret intentionally disables public website intake.
   if (environment.CRM_WEBSITE_WEBHOOK_SECRET && !secretSchema.safeParse(environment.CRM_WEBSITE_WEBHOOK_SECRET).success) {
     invalidFields.push("CRM_WEBSITE_WEBHOOK_SECRET");

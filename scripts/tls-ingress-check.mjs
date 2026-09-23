@@ -160,7 +160,7 @@ try {
   try {
     const storageFailure = await send("/api/v1/system/ready");
     assert.equal(storageFailure.status, 503, "Readiness must fail when the document volume is not writable");
-    assert.deepEqual(JSON.parse(storageFailure.body), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable" });
+    assert.deepEqual(JSON.parse(storageFailure.body), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable", scanner: "disabled" });
     assert.equal((await send("/api/v1/system/live")).status, 200);
   } finally {
     await compose(["exec", "-T", "--user", "root", "crm", "chmod", "0700", "/app/storage"]);
@@ -174,7 +174,7 @@ try {
     const response = await send(`/api/v1/system/${path}`);
     assert.equal(response.status, 503, `${path} must fail when PostgreSQL is unavailable`);
     assert.equal(response.headers["cache-control"], "no-store");
-    assert.deepEqual(JSON.parse(response.body), { status: "unavailable", service: "crm-web", database: "unavailable", storage: "available" });
+    assert.deepEqual(JSON.parse(response.body), { status: "unavailable", service: "crm-web", database: "unavailable", storage: "available", scanner: "disabled" });
     assert.doesNotMatch(response.body, new RegExp(environment.CRM_DB_PASSWORD));
   }
   const webLogs = await compose(["logs", "--no-color", "crm"], { quiet: true });
