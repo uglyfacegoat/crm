@@ -9,6 +9,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { DeleteObjectCommand, PutBucketVersioningCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { unzipSync } from "fflate";
+import { chromium } from "playwright-core";
 import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
@@ -142,6 +143,10 @@ test("storage transfer resumes all retained references in both directions withou
   assert.equal(localAuditAfterForward.hasFindings, false);
   assert.equal(s3AuditAfterForward.hasFindings, false);
   await assert.rejects(sql`DELETE FROM file_storage_transfers WHERE id = ${forwardId}`, /append-only/);
+  let newKey;
+  let verifyRollbackHttp;
+  const newBytes = Buffer.from("%PDF-1.4\nNew file uploaded after S3 cutover\n");
+  const newSha = createHash("sha256").update(newBytes).digest("hex");
 
   if (process.env.STORAGE_CUTOVER_TEST_RUNTIME && process.env.STORAGE_CUTOVER_TEST_IMAGE) {
     await t.test("web and backup worker switch together and restore the same historical bytes", async () => {
@@ -170,6 +175,7 @@ test("storage transfer resumes all retained references in both directions withou
         DOCUMENT_STORAGE_ROOT: storageRoot, HOSTNAME: "127.0.0.1", PORT: String(port), NEXT_TELEMETRY_DISABLED: "1",
       };
       let web;
+      let browser;
       const startWeb = async (backend) => {
         const environment = backend === "s3"
           ? { ...webEnvironment, ...fixture.environment }
@@ -223,6 +229,7 @@ test("storage transfer resumes all retained references in both directions withou
         const files = Object.values(unzipSync(new Uint8Array(await exported.arrayBuffer())));
         assert.equal(files.length, 1);
         assert.deepEqual(Buffer.from(files[0]), latest);
+        return headers;
       };
       const volume = `crm-cutover-backup-${randomUUID()}`;
       try {
@@ -233,6 +240,38 @@ test("storage transfer resumes all retained references in both directions withou
         await stopWeb();
         await startWeb("s3");
         await verifyHttpFiles();
+        assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
+        browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
+        const page = await browser.newPage();
+        await page.goto(`${baseUrl}/login`);
+        await page.getByPlaceholder("Email или телефон").fill(loginEmail);
+        await page.getByPlaceholder("Пароль").fill(loginPassword);
+        await page.getByRole("button", { name: "Войти в CRM", exact: true }).click();
+        await page.waitForURL(url => url.pathname === "/");
+        await page.goto(`${baseUrl}/documents`);
+        await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+        const dialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+        await dialog.locator('summary[aria-label="Заказ"]').click();
+        await dialog.getByRole("button", { name: /transfer-1/ }).click();
+        await dialog.locator('input[name="title"]').fill("Uploaded after S3 cutover");
+        await dialog.locator('input[name="file"]').setInputFiles({ name: "new.pdf", mimeType: "application/pdf", buffer: newBytes });
+        const uploadedDocumentId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+        await dialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+        const [uploaded] = await sql`SELECT storage_key, size_bytes, sha256 FROM document_versions WHERE document_id = ${uploadedDocumentId}`;
+        assert.ok(uploaded);
+        assert.equal(Number(uploaded.size_bytes), newBytes.length);
+        assert.equal(uploaded.sha256, newSha);
+        newKey = uploaded.storage_key;
+        assert.deepEqual(await objectStorage.readVerified(newKey, { sizeBytes: newBytes.length, sha256: newSha }, 15 * 1024 * 1024), newBytes);
+        await assert.rejects(readFile(join(storageRoot, newKey)), { code: "ENOENT" });
+        const newDownload = await page.request.get(`${baseUrl}/api/v1/documents/${uploadedDocumentId}/download`);
+        assert.equal(newDownload.status(), 200);
+        assert.deepEqual(await newDownload.body(), newBytes);
+        assert.equal((await setFileWriteMode({ databaseUrl, mode: "pause" })).drained, true);
+        const s3AuditAfterWrite = await auditFiles({ sql, objectStorage: auditStorage, onRecord: async () => {} });
+        assert.equal(s3AuditAfterWrite.verifiedReferences, 6);
+        assert.equal(s3AuditAfterWrite.hasFindings, false);
         const createdVolume = spawnSync("docker", ["volume", "create", volume], { encoding: "utf8" });
         assert.equal(createdVolume.status, 0, createdVolume.stderr);
         const ownership = spawnSync("docker", ["run", "--rm", "--mount", `type=volume,source=${volume},target=/app/backups`,
@@ -251,12 +290,35 @@ test("storage transfer resumes all retained references in both directions withou
         assert.equal(backup.status, 0, backup.stderr);
         const [result] = await sql`SELECT status, last_result FROM background_job_status WHERE job_name = 'system.backup'`;
         assert.equal(result.status, "succeeded");
-        assert.deepEqual(result.last_result.verifiedFileCounts, completedForward.referenceCounts);
+        const afterWriteCounts = { ...completedForward.referenceCounts, document_versions: 3 };
+        assert.deepEqual(result.last_result.verifiedFileCounts, afterWriteCounts);
         const restore = runWorker("scripts/backup-restore-check.mjs", ["--verify-only"]);
         assert.equal(restore.status, 0, restore.stderr);
         const restoreResult = JSON.parse(restore.stdout);
-        assert.deepEqual(restoreResult.verifiedFileCounts, completedForward.referenceCounts);
+        assert.deepEqual(restoreResult.verifiedFileCounts, afterWriteCounts);
+        verifyRollbackHttp = async () => {
+          await sql`UPDATE documents SET archived_at = NULL WHERE id = ${documentId}`;
+          try {
+            await startWeb("local");
+            const headers = await verifyHttpFiles();
+            const downloaded = await fetch(`${baseUrl}/api/v1/documents/${uploadedDocumentId}/download`, { headers });
+            assert.equal(downloaded.status, 200);
+            assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), newBytes);
+            const exported = await fetch(`${baseUrl}/api/v1/documents/export`, {
+              method: "POST", headers: { ...headers, "content-type": "application/json" },
+              body: JSON.stringify({ documentIds: [uploadedDocumentId] }),
+            });
+            assert.equal(exported.status, 200);
+            const files = Object.values(unzipSync(new Uint8Array(await exported.arrayBuffer())));
+            assert.equal(files.length, 1);
+            assert.deepEqual(Buffer.from(files[0]), newBytes);
+          } finally {
+            await stopWeb();
+            await sql`UPDATE documents SET archived_at = now() WHERE id = ${documentId}`;
+          }
+        };
       } finally {
+        await browser?.close();
         await stopWeb();
         await sql`UPDATE documents SET archived_at = now() WHERE id = ${documentId}`;
         spawnSync("docker", ["volume", "rm", "--force", volume], { stdio: "ignore" });
@@ -273,16 +335,17 @@ test("storage transfer resumes all retained references in both directions withou
   await fixture.client.send(new DeleteObjectCommand({ Bucket: fixture.bucket,
     Key: original[0].key, VersionId: duplicate.VersionId }));
 
-  const newKey = `${organization.id}/${documentId}/v3.pdf`;
-  const newBytes = Buffer.from("New S3 file created after cutover");
-  const newSha = createHash("sha256").update(newBytes).digest("hex");
-  await objectStorage.write(newKey, newBytes);
-  await sql`INSERT INTO document_versions
-    (id, organization_id, document_id, version_number, storage_key, original_filename,
-      extension, mime_type, size_bytes, sha256, uploaded_by)
-    VALUES (${randomUUID()}, ${organization.id}, ${documentId}, 3, ${newKey}, 'new.pdf',
-      'pdf', 'application/pdf', ${newBytes.length}, ${newSha}, ${member.id})`;
+  if (!newKey) {
+    newKey = `${organization.id}/${documentId}/v3.pdf`;
+    await objectStorage.write(newKey, newBytes);
+    await sql`INSERT INTO document_versions
+      (id, organization_id, document_id, version_number, storage_key, original_filename,
+        extension, mime_type, size_bytes, sha256, uploaded_by)
+      VALUES (${randomUUID()}, ${organization.id}, ${documentId}, 3, ${newKey}, 'new.pdf',
+        'pdf', 'application/pdf', ${newBytes.length}, ${newSha}, ${member.id})`;
+  }
   const localNew = join(storageRoot, newKey);
+  await mkdir(dirname(localNew), { recursive: true });
   await writeFile(localNew, Buffer.from("conflicting local bytes"));
   const reverseId = randomUUID();
   const reverse = { databaseUrl, storageRoot, objectStorage, auditStorage, transferId: reverseId,
@@ -309,5 +372,6 @@ test("storage transfer resumes all retained references in both directions withou
   assert.equal(s3AuditAfterReverse.verifiedReferences, 6);
   assert.equal(localAuditAfterReverse.hasFindings, false);
   assert.equal(s3AuditAfterReverse.hasFindings, false);
+  if (verifyRollbackHttp) await t.test("local web reads the new S3-era upload after verified rollback", verifyRollbackHttp);
   assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
 });

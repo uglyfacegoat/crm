@@ -3,7 +3,7 @@ import { once } from "node:events";
 
 for (const name of [
   "MIGRATION_TEST_ADMIN_URL", "STORAGE_CUTOVER_TEST_DOCKER_ADMIN_URL",
-  "STORAGE_CUTOVER_TEST_RUNTIME", "STORAGE_CUTOVER_TEST_IMAGE",
+  "STORAGE_CUTOVER_TEST_RUNTIME", "STORAGE_CUTOVER_TEST_IMAGE", "CHROME_PATH",
 ]) {
   if (!process.env[name]) throw new Error(`Set ${name} for the disposable storage cutover rehearsal.`);
 }

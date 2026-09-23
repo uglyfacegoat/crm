@@ -14,9 +14,11 @@ The overall goal remains active; this document is not a declaration of productio
   disposable database. The packaged backup worker read S3, recorded verified
   counts for all four reference families and produced an archive on a private
   Docker volume. A separate container restored and checked that archive.
-  The source test later exercised the existing S3 → local rollback with a new
-  referenced S3 version. This is a candidate rehearsal, not the installed
-  web/worker cutover or chosen-provider acceptance.
+  A browser then uploaded a new document while S3 writes were enabled. The
+  worker backup included that sixth reference. After writer pause and the
+  verified S3 → local transfer, the local web served the new file and its ZIP
+  byte-for-byte. This is a candidate rehearsal, not the installed web/worker
+  cutover or chosen-provider acceptance.
 - **2026-09-23, FS-11 failure checks (source candidate):** S3 reads now have
   explicit disposable-server tests for an unavailable endpoint and a response
   interrupted after one byte; neither returns a file. Backup snapshot staging
