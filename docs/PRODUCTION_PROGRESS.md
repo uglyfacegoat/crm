@@ -7,6 +7,14 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 20:51 MSK, container-loss drill:** on a disposable database,
+  one packaged container paused file writes and quarantined an unreferenced
+  file on a private Docker volume. That container was removed. A new packaged
+  container with the same database and quarantine volume applied migrations
+  idempotently, then exported the verified bytes to a second private volume.
+  The exported file was readable after the second container was removed.
+  This proves the local quarantine copy is recoverable across app-container
+  replacement; it does not prove restoration into active document storage.
 - **2026-09-23 20:47 MSK, S3 recovery guard:** a referenced write-once key
   with multiple versions or a delete marker now blocks manual resolution even
   if its latest bytes match the database reference. A disposable versioned S3

@@ -181,7 +181,10 @@ changes a database reference. Review the exported bytes and business outcome
 before deciding whether any manual restoration is appropriate. A full restore
 drill and S3 quarantine remain open, as do retention decisions. A disposable
 packaged runtime exported the verified bytes onto a second private Docker
-volume; they remained readable after the container was removed.
+volume; they remained readable after the container was removed. A separate
+container-loss drill removed the app container after quarantine, started a new
+one against the same disposable database and persistent quarantine volume,
+then exported and verified the bytes again.
 
 Before deployment and FS-02 acceptance, complete quarantine restore drills
 and S3 quarantine. Confirm no other non-interactive business-file
