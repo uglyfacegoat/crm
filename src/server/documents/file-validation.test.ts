@@ -22,6 +22,28 @@ test("rejects a file with a forged extension", () => {
   );
 });
 
+test("rejects mismatched MIME, executable names and a forged Office container", () => {
+  const pdf = Buffer.from("%PDF-1.7\nminimal", "ascii");
+  assert.throws(
+    () => validateDocumentFile({ filename: "report.pdf", declaredMimeType: "image/png", buffer: pdf }),
+    /Тип файла не совпадает/,
+  );
+  assert.throws(
+    () => validateDocumentFile({ filename: "report.exe", declaredMimeType: "application/pdf", buffer: pdf }),
+    /Разрешены PDF/,
+  );
+  assert.throws(
+    () => validateDocumentFile({ filename: "report.docx", declaredMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("not a zip with word/ and [Content_Types].xml") }),
+    /Содержимое файла не соответствует/,
+  );
+});
+
+test("strips path fragments from the display name without using them as a storage key", () => {
+  const file = validateDocumentFile({ filename: "../../documents/акт.pdf", declaredMimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\nminimal", "ascii") });
+  assert.equal(file.filename, "акт.pdf");
+  assert.equal(file.extension, "pdf");
+});
+
 test("rejects a file larger than the configured limit", () => {
   assert.doesNotThrow(() => assertDocumentFileSize(MAX_DOCUMENT_SIZE_BYTES));
   assert.throws(() => assertDocumentFileSize(MAX_DOCUMENT_SIZE_BYTES + 1), /15 МБ/);
