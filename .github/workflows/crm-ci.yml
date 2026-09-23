@@ -209,6 +209,7 @@ jobs:
       - run: npm run test:storage-transfer
       - run: npm run test:request-limits
       - run: npm run test:chat-access
+      - run: npm run test:notifications-pagination
       - run: npm run test:finance-receipts
       - run: npm run db:migrate
       - run: npm run auth:create-admin

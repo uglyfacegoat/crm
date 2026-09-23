@@ -1,4 +1,4 @@
-import { notificationMutationResponseSchema, notificationResponseSchema, type NotificationSnapshot } from "./notifications";
+import { notificationMutationResponseSchema, notificationResponseSchema, type NotificationCursor, type NotificationSnapshot } from "./notifications";
 
 function responseError(payload: unknown, fallback: string) {
   if (typeof payload !== "object" || payload === null || !("error" in payload)) return fallback;
@@ -8,8 +8,9 @@ function responseError(payload: unknown, fallback: string) {
     : fallback;
 }
 
-export async function fetchNotifications(options: { limit: number; unreadOnly?: boolean; signal?: AbortSignal }): Promise<NotificationSnapshot> {
+export async function fetchNotifications(options: { limit: number; unreadOnly?: boolean; cursor?: NotificationCursor; signal?: AbortSignal }): Promise<NotificationSnapshot> {
   const query = new URLSearchParams({ limit: String(options.limit), unread: String(options.unreadOnly ?? false) });
+  if (options.cursor) { query.set("beforeAt", options.cursor.occurredAt); query.set("beforeId", options.cursor.id); }
   const response = await fetch(`/api/v1/notifications?${query}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",

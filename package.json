@@ -39,6 +39,7 @@
     "test:s3-storage-audit": "STORAGE_AUDIT_TEST_S3=true node scripts/isolated-postgres-test.mjs --test scripts/storage-audit.integration.mjs",
     "storage:audit": "node scripts/storage-audit.mjs --check",
     "test:chat-access": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/chat-access.integration.mjs",
+    "test:notifications-pagination": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/notifications-pagination.integration.mjs",
     "test:chat-download": "node --experimental-test-module-mocks --test scripts/chat-download.check.mjs",
     "test:document-download": "node --experimental-test-module-mocks --test scripts/document-download.check.mjs",
     "test:s3-storage": "node --test scripts/s3-storage.integration.mjs",

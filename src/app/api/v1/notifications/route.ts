@@ -21,12 +21,15 @@ export async function GET(request: Request) {
   const parsed = notificationQuerySchema.safeParse({
     limit: url.searchParams.get("limit") ?? undefined,
     unread: url.searchParams.get("unread") ?? undefined,
+    beforeAt: url.searchParams.get("beforeAt") ?? undefined,
+    beforeId: url.searchParams.get("beforeId") ?? undefined,
   });
   if (!parsed.success) return Response.json({ error: { code: "validation_error", message: "Некорректные параметры уведомлений." } }, { status: 400, headers: privateHeaders });
   try {
     const snapshot = getAuthMode() === "preview"
       ? getPreviewNotifications(parsed.data.limit, parsed.data.unread)
-      : await listNotifications(member, { limit: parsed.data.limit, unreadOnly: parsed.data.unread });
+      : await listNotifications(member, { limit: parsed.data.limit, unreadOnly: parsed.data.unread,
+        cursor: parsed.data.beforeAt && parsed.data.beforeId ? { occurredAt: parsed.data.beforeAt, id: parsed.data.beforeId } : null });
     return Response.json({ data: snapshot }, { headers: privateHeaders });
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для просмотра уведомлений." } }, { status: 403, headers: privateHeaders });

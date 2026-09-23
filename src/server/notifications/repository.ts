@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { notificationHref, notificationKinds, notificationSeverities, notificationSourceTypes, notificationTargetTypes, type NotificationSnapshot } from "@/lib/notifications";
+import { notificationHref, notificationKinds, notificationSeverities, notificationSourceTypes, notificationTargetTypes, type NotificationCursor, type NotificationSnapshot } from "@/lib/notifications";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { requirePermission } from "@/server/auth/permissions";
 import { getDatabase } from "@/server/database";
@@ -34,10 +34,12 @@ export class NotificationNotFoundError extends Error {
 
 export async function listNotifications(
   member: AuthenticatedMember,
-  options: { limit: number; unreadOnly: boolean },
+  options: { limit: number; unreadOnly: boolean; cursor?: NotificationCursor | null },
 ): Promise<NotificationSnapshot> {
   requirePermission(member, "notifications.read");
   const sql = getDatabase();
+  const cursorAt = options.cursor?.occurredAt ?? null;
+  const cursorId = options.cursor?.id ?? null;
   const [rows, summaryRows] = await Promise.all([
     sql`SELECT id, kind, severity, title, body, source_type, source_id, target_type, target_id, occurred_at, read_at
       FROM notifications
@@ -45,8 +47,9 @@ export async function listNotifications(
         AND recipient_member_id = ${member.memberId}
         AND resolved_at IS NULL
         AND (${options.unreadOnly} = false OR read_at IS NULL)
-      ORDER BY read_at IS NULL DESC, occurred_at DESC, id DESC
-      LIMIT ${options.limit}`,
+        AND (${cursorAt}::timestamptz IS NULL OR (occurred_at, id) < (${cursorAt}::timestamptz, ${cursorId}::uuid))
+      ORDER BY occurred_at DESC, id DESC
+      LIMIT ${options.limit + 1}`,
     sql`SELECT
         count(*) FILTER (WHERE read_at IS NULL)::integer AS unread_count,
         count(*) FILTER (WHERE read_at IS NULL AND severity = 'critical')::integer AS critical_unread_count
@@ -56,8 +59,10 @@ export async function listNotifications(
         AND resolved_at IS NULL`,
   ]);
   const summary = summaryRowSchema.parse(summaryRows[0]);
+  const visibleRows = rows.slice(0, options.limit);
+  const lastRow = visibleRows.at(-1);
   return {
-    items: rows.map((value) => {
+    items: visibleRows.map((value) => {
       const row = notificationRowSchema.parse(value);
       return {
         id: row.id,
@@ -76,6 +81,9 @@ export async function listNotifications(
     }),
     unreadCount: summary.unread_count,
     criticalUnreadCount: summary.critical_unread_count,
+    nextCursor: rows.length > options.limit && lastRow
+      ? { occurredAt: notificationRowSchema.parse(lastRow).occurred_at.toISOString(), id: notificationRowSchema.parse(lastRow).id }
+      : null,
     generatedAt: new Date().toISOString(),
   };
 }
