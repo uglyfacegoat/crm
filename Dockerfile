@@ -34,6 +34,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-quarantine.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-quarantine-export.mjs ./scripts/file-write-quarantine-export.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-s3-export.mjs ./scripts/file-write-s3-export.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-s3-quarantine.mjs ./scripts/file-write-s3-quarantine.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-s3-restore.mjs ./scripts/file-write-s3-restore.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-writes/lock-key.mjs ./src/server/file-writes/lock-key.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-writes/gate.mjs ./src/server/file-writes/gate.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/validate-runtime-config.mjs ./scripts/validate-runtime-config.mjs

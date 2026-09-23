@@ -7,6 +7,17 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, S3 archive restore drill candidate:** migration 061 adds an
+  append-only report. A dedicated restore command verifies the completed
+  quarantine archive, conditionally writes each historical object into a
+  distinct destination bucket, reads back size/SHA-256, and accepts an
+  identical retry and refuses a changed destination object. The disposable
+  MinIO test restored both versions after source deletion and recorded the
+  delete marker in its report. This is byte
+  recovery to a second bucket on the same temporary provider. The packaged
+  image applied 61 migrations and completed the same flow with readback and
+  SHA-256 checks plus identical retry. A full database/application or
+  independent-provider disaster recovery drill remains open.
 - **2026-09-23, versioned S3 quarantine source candidate:** migration 060
   records `prepared` before deleting any version and protects the completed
   history. The operator command verifies every archived version, refuses a

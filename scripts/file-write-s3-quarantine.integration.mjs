@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { DeleteObjectCommand, PutBucketVersioningCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, PutBucketVersioningCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
@@ -12,6 +12,7 @@ import { startS3Fixture } from "./fixtures/s3-server.mjs";
 import { createS3AuditStorage } from "./s3-audit-storage.mjs";
 import { exportS3Versions } from "./file-write-s3-export.mjs";
 import { createS3VersionRemover, quarantineS3Versions } from "./file-write-s3-quarantine.mjs";
+import { createS3RestoreTarget, restoreS3QuarantineArchive } from "./file-write-s3-restore.mjs";
 import { reviewOrResolveFileWrite } from "./file-write-recovery.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
@@ -113,6 +114,39 @@ test("versioned S3 quarantine resumes partial removal only after verified privat
   const recovered = await Promise.all(archive.map((item) => readFile(join(exportRoot, operationId,
     createHash("sha256").update(storageKey).digest("hex"), item.file))));
   assert.deepEqual(recovered.map((item) => item.toString()).sort(), bytes.map((item) => item.toString()).sort());
+
+  const restoreBucket = `crm-restore-${randomUUID()}`;
+  await fixture.client.send(new CreateBucketCommand({ Bucket: restoreBucket }));
+  const target = createS3RestoreTarget({ ...fixture.environment,
+    FILE_WRITE_S3_RESTORE_ENDPOINT: fixture.endpoint,
+    FILE_WRITE_S3_RESTORE_REGION: "us-east-1",
+    FILE_WRITE_S3_RESTORE_BUCKET: restoreBucket,
+    FILE_WRITE_S3_RESTORE_ACCESS_KEY_ID: fixture.environment.DOCUMENT_S3_ACCESS_KEY_ID,
+    FILE_WRITE_S3_RESTORE_SECRET_ACCESS_KEY: fixture.environment.DOCUMENT_S3_SECRET_ACCESS_KEY,
+    FILE_WRITE_S3_RESTORE_FORCE_PATH_STYLE: "true",
+    FILE_WRITE_S3_RESTORE_ALLOW_LOCAL_HTTP: "true",
+    FILE_WRITE_S3_RESTORE_TIMEOUT_MS: "3000",
+  });
+  try {
+    const restoreOptions = { databaseUrl, exportRoot, target, operationId, storageKey,
+      caseId: "S3-QUARANTINE", actor: "Test operator" };
+    const restored = await restoreS3QuarantineArchive(restoreOptions);
+    assert.equal(restored.versions.filter((item) => item.kind === "object").length, 2);
+    assert.equal(restored.versions.filter((item) => item.kind === "delete-marker").length, 1);
+    for (const item of restored.versions.filter((entry) => entry.targetKey)) {
+      const response = await fixture.client.send(new GetObjectCommand({ Bucket: restoreBucket, Key: item.targetKey }));
+      const targetBytes = Buffer.from(await response.Body.transformToByteArray());
+      assert.equal(targetBytes.length, item.sizeBytes);
+      assert.equal(createHash("sha256").update(targetBytes).digest("hex"), item.sha256);
+    }
+    assert.equal((await restoreS3QuarantineArchive(restoreOptions)).alreadyRestored, true);
+    await assert.rejects(restoreS3QuarantineArchive({ ...restoreOptions, caseId: "WRONG-CASE" }), /same case/);
+    await assert.rejects(sql`DELETE FROM file_write_s3_restore_drills WHERE operation_id = ${operationId}`, /append-only/);
+    const firstRestored = restored.versions.find((entry) => entry.targetKey);
+    await fixture.client.send(new PutObjectCommand({ Bucket: restoreBucket,
+      Key: firstRestored.targetKey, Body: Buffer.from("corrupt restore target") }));
+    await assert.rejects(restoreS3QuarantineArchive(restoreOptions), /Object storage write failed/);
+  } finally { target.close(); }
 
   const organizationId = randomUUID();
   const templateId = randomUUID();

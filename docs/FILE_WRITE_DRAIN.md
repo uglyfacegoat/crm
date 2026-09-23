@@ -248,6 +248,36 @@ both historical object versions remained readable from the private volume
 after the app container was removed. Chosen-provider permissions/consistency
 and independent archive restore acceptance remain open.
 
+## S3 archive restore drill candidate
+
+Migration 061 records an append-only restore report. Supply a **different**
+destination bucket or endpoint using `FILE_WRITE_S3_RESTORE_ENDPOINT`,
+`FILE_WRITE_S3_RESTORE_REGION`, `FILE_WRITE_S3_RESTORE_BUCKET`,
+`FILE_WRITE_S3_RESTORE_ACCESS_KEY_ID` and
+`FILE_WRITE_S3_RESTORE_SECRET_ACCESS_KEY`. Set the corresponding
+`FILE_WRITE_S3_RESTORE_FORCE_PATH_STYLE`, `FILE_WRITE_S3_RESTORE_TIMEOUT_MS`
+and (for loopback tests only) `FILE_WRITE_S3_RESTORE_ALLOW_LOCAL_HTTP` as
+needed. The destination bucket must already exist. Keep the archive volume
+mounted and the credentials private:
+
+```sh
+node scripts/file-write-s3-restore.mjs <operation-id> <storage-key> <case-id> <operator-name>
+```
+
+Only a completed S3 quarantine with the same case is accepted. The command
+rechecks every archived byte, writes each historical object version under a
+separate deterministic key in the destination bucket with conditional writes,
+reads it back and compares size/SHA-256. Delete markers remain in the report;
+this drill does not recreate original S3 version IDs or the live application
+state. A repeated run accepts only matching destination bytes and report;
+a mismatching existing object is never overwritten. The
+disposable MinIO test restores two historical versions into a second bucket
+after removing the originals and checks their hashes. A packaged image also
+applied 61 migrations on a disposable database and completed export,
+quarantine, restore to the second bucket and an identical retry with SHA-256
+readback. A full independent-provider and database/application recovery drill
+is still required.
+
 Before deployment and FS-02 acceptance, complete quarantine restore drills
 and S3 provider acceptance. Confirm no other non-interactive business-file
 writer bypasses the gate, rehearse interruption/restart and failure of
