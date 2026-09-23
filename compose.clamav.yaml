@@ -16,6 +16,10 @@
     "clamav": {
       "image": "clamav/clamav-debian@sha256:df80497be841a8ad57f95e04f978216241457f8f8ad608f1f682e3cd0fe63c45",
       "restart": "unless-stopped",
+      "environment": {
+        "CLAMD_CONF_SelfCheck": "60",
+        "FRESHCLAM_CHECKS": "4"
+      },
       "networks": ["crm_default"]
     }
   }

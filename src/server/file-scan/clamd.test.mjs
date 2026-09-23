@@ -15,7 +15,7 @@ async function withScanner(reply, run) {
         if (received.length < 18) return;
         const size = received.readUInt32BE(10);
         if (received.length < 18 + size) return;
-      } else if (!received.equals(Buffer.from("zPING\0"))) return;
+      } else if (!received.equals(Buffer.from("zVERSIONCOMMANDS\0"))) return;
       if (reply !== null) socket.end(`${reply}\0`);
     });
   });
@@ -50,10 +50,13 @@ test("required scan rejects a detected file and fails closed on scanner errors",
   }
 });
 
-test("availability uses PING and configuration cannot silently disable a required scan", { timeout: 3000 }, async () => {
-  await withScanner("PONG", async (environment, received) => {
+test("availability requires INSTREAM support and configuration cannot silently disable a scan", { timeout: 3000 }, async () => {
+  await withScanner("ClamAV 1.5.4/123/test| COMMANDS: SCAN INSTREAM PING", async (environment, received) => {
     await checkScannerAvailability(environment);
-    assert.deepEqual(received(), Buffer.from("zPING\0"));
+    assert.deepEqual(received(), Buffer.from("zVERSIONCOMMANDS\0"));
+  });
+  await withScanner("ClamAV 1.5.4/123/test| COMMANDS: SCAN PING", async (environment) => {
+    await assert.rejects(checkScannerAvailability(environment), FileScanUnavailableError);
   });
   await assert.rejects(scanFileBuffer(Buffer.from("file"), { CRM_FILE_SCAN_MODE: "required" }), /CRM_CLAMD/);
   await assert.rejects(scanFileBuffer(Buffer.from("file"), { CRM_FILE_SCAN_MODE: "misspelled" }), /CRM_FILE_SCAN_MODE/);

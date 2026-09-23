@@ -65,7 +65,8 @@ function requestClamd(command, payload, config) {
 export async function checkScannerAvailability(environment = process.env) {
   const config = fileScanConfig(environment);
   if (config.mode === "off") return "disabled";
-  if (await requestClamd(Buffer.from("zPING\0"), null, config) !== "PONG") throw new FileScanUnavailableError();
+  const reply = await requestClamd(Buffer.from("zVERSIONCOMMANDS\0"), null, config);
+  if (!reply.startsWith("ClamAV ") || !/\bCOMMANDS:.*\bINSTREAM\b/.test(reply)) throw new FileScanUnavailableError();
   return "available";
 }
 
