@@ -8,7 +8,8 @@ export function proxy(request: NextRequest) {
   const allowedOrigins = getAllowedRequestOrigins(request);
   const path = request.nextUrl.pathname;
   const host = request.headers.get("host");
-  if (path !== "/api/v1/system/health" && !allowedOrigins.some((origin) => new URL(origin).host === host)) {
+  if (!["/api/v1/system/health", "/api/v1/system/live", "/api/v1/system/ready"].includes(path)
+    && !allowedOrigins.some((origin) => new URL(origin).host === host)) {
     return NextResponse.json({ error: { code: "invalid_host", message: "Недопустимый адрес сервера." } }, { status: 421 });
   }
   const safeMethod = ["GET", "HEAD", "OPTIONS"].includes(request.method);

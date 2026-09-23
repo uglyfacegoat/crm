@@ -8,7 +8,7 @@ if (!baseUrl) throw new Error("SMOKE_BASE_URL is required.");
 const origin = new URL(baseUrl).origin;
 const send = (path, options = {}) => fetch(new URL(path, origin), { ...options, redirect: "manual", signal: AbortSignal.timeout(15_000) });
 
-for (const path of ["/login", "/api/v1/auth/session", "/api/v1/system/health"]) {
+for (const path of ["/login", "/api/v1/auth/session", "/api/v1/system/health", "/api/v1/system/live", "/api/v1/system/ready"]) {
   const response = await send(path);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(response.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
