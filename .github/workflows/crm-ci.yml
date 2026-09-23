@@ -69,6 +69,30 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      - name: Check production HTTPS Compose isolation
+        env:
+          CRM_APP_IMAGE: crm-app:tls-check
+          CRM_PUBLIC_ORIGIN: https://localhost:8443
+          CRM_PUBLIC_HOST: localhost
+          CRM_TLS_CERTIFICATE: /tmp/ci-certificate.pem
+          CRM_TLS_PRIVATE_KEY: /tmp/ci-private-key.pem
+          CRM_HTTP_PORT: '8080'
+          CRM_HTTPS_PORT: '8443'
+        run: |
+          docker compose --env-file /dev/null -f compose.yaml -f compose.https.yaml config --no-env-resolution --format json > /tmp/crm-https-compose.json
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const { services } = JSON.parse(readFileSync('/tmp/crm-https-compose.json', 'utf8'));
+          for (const name of ['crm', 'reminder-worker', 'backup-worker']) {
+            assert.equal(services[name].image, 'crm-app:tls-check');
+          }
+          assert.equal(services.crm.ports?.length ?? 0, 0);
+          assert.equal(services.database.ports?.length ?? 0, 0);
+          assert.equal(services.gateway.ports.length, 2);
+          assert.equal(services.crm.environment.AUTH_COOKIE_SECURE, 'true');
+          assert.equal(services.crm.environment.CRM_TRUST_PROXY, 'true');
+          JS
       - run: npx playwright-core install --with-deps chromium
       - run: docker build -t crm-app:tls-check .
       - run: npm run test:tls

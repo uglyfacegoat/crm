@@ -19,6 +19,7 @@ Supply the normal database/authentication settings plus these environment values
 ```dotenv
 CRM_PUBLIC_ORIGIN=https://crm.example.com
 CRM_PUBLIC_HOST=crm.example.com
+CRM_APP_IMAGE=crm-app:release-candidate
 CRM_TLS_CERTIFICATE=/absolute/private/path/fullchain.pem
 CRM_TLS_PRIVATE_KEY=/absolute/private/path/private-key.pem
 CRM_HTTPS_BIND_ADDRESS=0.0.0.0
@@ -39,6 +40,8 @@ docker compose --env-file .env.production -f compose.yaml -f compose.https.yaml 
 ```
 
 The override forces secure cookies, trusted-proxy mode and the configured origin.
+It also points web and both workers at the same explicitly named release image;
+the base local Compose file uses older image tags for the running development stand.
 Startup rejects HTTP origins or insecure cookies in authenticated trusted-proxy
 production. Plain HTTP redirects to the configured HTTPS origin, never a supplied
 Host. TLS supports 1.2/1.3 only; HSTS is applied without preloading or extending it

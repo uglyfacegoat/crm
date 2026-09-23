@@ -1,5 +1,6 @@
 services:
   crm:
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
     ports: !reset []
     environment:
       AUTH_MODE: required
@@ -8,6 +9,10 @@ services:
       CRM_ALLOWED_ORIGINS: ${CRM_PUBLIC_ORIGIN:?Set CRM_PUBLIC_ORIGIN}
   database:
     ports: !reset []
+  reminder-worker:
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
+  backup-worker:
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
   gateway:
     image: nginx:stable-alpine
     restart: unless-stopped

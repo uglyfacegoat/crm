@@ -14,6 +14,16 @@ The overall goal remains active; this document is not a declaration of productio
   historical notes below that remote CI had not been observed. Required branch
   checks, representative-volume acceptance and production cutover are separate
   open items.
+- **2026-09-23, REL-03 branch protection:** the private repository's default
+  branch is `master` and it is not protected. GitHub's protection and ruleset
+  APIs respond 403 with an upgrade-or-public-repository requirement on the
+  current plan. No required checks are enforced before merge.
+- **2026-09-23, REL-05 HTTPS release image parity:** the production Compose
+  override now requires an explicit candidate image for web and both workers.
+  The resolved configuration keeps app and database ports private and sets
+  secure-cookie/proxy mode; the CI HTTPS job checks these properties before
+  exercising the isolated gateway. The resolved configuration passed locally;
+  the new CI assertion awaits its remote run.
 - **2026-09-23, REL-01 local build:** nine empty, generated `.next` directories
   with anomalous link counts were removed. Two consecutive host `npm run build`
   commands completed in about five and three seconds without recreating them.
