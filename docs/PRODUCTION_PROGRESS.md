@@ -7,7 +7,7 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
-- **2026-09-23 20:51 MSK, container-loss drill:** on a disposable database,
+- **2026-09-23, container-loss drill:** on a disposable database,
   one packaged container paused file writes and quarantined an unreferenced
   file on a private Docker volume. That container was removed. A new packaged
   container with the same database and quarantine volume applied migrations
@@ -15,13 +15,13 @@ The overall goal remains active; this document is not a declaration of productio
   The exported file was readable after the second container was removed.
   This proves the local quarantine copy is recoverable across app-container
   replacement; it does not prove restoration into active document storage.
-- **2026-09-23 20:47 MSK, S3 recovery guard:** a referenced write-once key
+- **2026-09-23, S3 recovery guard:** a referenced write-once key
   with multiple versions or a delete marker now blocks manual resolution even
   if its latest bytes match the database reference. A disposable versioned S3
   fixture proved the matching-current-bytes case is refused. Historical
   versions still need individual classification and S3 quarantine; no S3
   object was deleted by the recovery tool.
-- **2026-09-23 20:44 MSK, quarantine recovery export:** a local-only command
+- **2026-09-23, quarantine recovery export:** a local-only command
   reads a completed quarantine manifest and matching case ID, checks the
   original copy, then creates a private checksum-verified export outside both
   storage and quarantine without replacing an existing file. Source tests
