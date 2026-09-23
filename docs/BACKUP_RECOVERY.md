@@ -139,6 +139,12 @@ temporary directory and is removed; the export timestamp is recorded only
 after the verified directory is renamed into place. This does not yet prove
 delivery to an independent offsite destination.
 
+Retention cleanup protects the most recent database-recorded successful,
+restore-verified archive and the newly verified archive while its success record
+is still pending. This applies to both protected and host-export directories.
+The current age-based setting remains provisional; daily/weekly/monthly policy,
+RPO and RTO still need owner approval.
+
 ## Remaining production requirements
 
 - Representative-volume acceptance of the coordinated snapshot: staging disk space,

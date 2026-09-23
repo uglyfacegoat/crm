@@ -1,13 +1,12 @@
 import { randomBytes } from "node:crypto";
 import {
   mkdir,
-  readdir,
   rename,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 import postgres from "postgres";
 import {
   backupWorkerHealthWindow,
@@ -15,13 +14,13 @@ import {
 } from "./backup-worker-config.mjs";
 import { runProcess, sha256File } from "./backup-process.mjs";
 import { exportArchive } from "./backup-export.mjs";
+import { removeExpiredArchives } from "./backup-retention.mjs";
 import { verifyBackupRestore } from "./backup-restore.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
 import { validateBackupWorkerEnvironment } from "./worker-runtime-config.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 
 const JOB_NAME = "system.backup";
-const ARCHIVE_PATTERN = /^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$/;
 const { databaseUrl, config, backend, storageRoot, backupRoot, backupExportRoot } = validateBackupWorkerEnvironment(process.env);
 const objectStorage = backend === "s3" ? createS3Storage(process.env) : undefined;
 
@@ -52,26 +51,6 @@ async function prepareDirectories() {
       throw new Error("Backup export, protected backup, and document storage directories must be separate.");
     }
     await mkdir(backupExportRoot, { recursive: true, mode: 0o700 });
-  }
-}
-
-async function removeExpiredArchives(root, now) {
-  const cutoff = now.getTime() - config.retentionDays * 86_400_000;
-  const entries = await readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !ARCHIVE_PATTERN.test(entry.name)) continue;
-    const timestamp = Date.UTC(
-      Number(entry.name.slice(0, 4)),
-      Number(entry.name.slice(4, 6)) - 1,
-      Number(entry.name.slice(6, 8)),
-      Number(entry.name.slice(9, 11)),
-      Number(entry.name.slice(11, 13)),
-      Number(entry.name.slice(13, 15)),
-    );
-    if (!Number.isFinite(timestamp) || timestamp >= cutoff) continue;
-    const archivePath = resolve(root, entry.name);
-    if (!isPathInside(root, archivePath)) throw new Error("Refusing to remove a backup outside the configured root.");
-    await rm(archivePath, { recursive: true });
   }
 }
 
@@ -201,8 +180,16 @@ async function executeBackup() {
       hostExportedAt,
     };
     const completedAt = new Date();
-    await removeExpiredArchives(backupRoot, completedAt);
-    if (backupExportRoot) await removeExpiredArchives(backupExportRoot, completedAt);
+    const [lastAccepted] = await sql`
+      SELECT archive_name FROM backup_runs
+      WHERE status = 'succeeded' AND restore_verified_at IS NOT NULL AND archive_name IS NOT NULL
+      ORDER BY completed_at DESC LIMIT 1
+    `;
+    const protectedArchiveNames = [lastAccepted?.archive_name, archive.archiveName];
+    await removeExpiredArchives(backupRoot, completedAt, config.retentionDays, protectedArchiveNames);
+    if (backupExportRoot) {
+      await removeExpiredArchives(backupExportRoot, completedAt, config.retentionDays, protectedArchiveNames);
+    }
     await sql.begin(async (transaction) => {
       await transaction`
         UPDATE backup_runs SET status = 'succeeded', completed_at = now(), restore_verified_at = now()

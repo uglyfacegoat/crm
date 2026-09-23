@@ -7,6 +7,11 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, BK-04 retention guard:** age-based cleanup now excludes both
+  the most recent accepted, restore-verified archive and the new verified
+  archive awaiting its success record, in protected and host-export roots.
+  A unit test proves expired older copies are removed while those two remain.
+  The owner has not set daily/weekly/monthly retention, RPO or RTO.
 - **2026-09-23, BK-03 host-export verification:** the backup worker now checks
   the exact exported member set, every copied SHA-256 and the source manifest
   hash before publishing the host copy. An isolated test corrupts a copied
