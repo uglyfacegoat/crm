@@ -7,6 +7,13 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, REL-02 remote CI passed:** [GitHub run 35909351720](https://github.com/uglyfacegoat/crm/actions/runs/35909351720)
+  completed successfully at commit `20f104b`; all five jobs passed: quality,
+  dependency security, HTTPS ingress, migration/runtime HTTP/browser flows,
+  and packaged local/S3 backup and storage audit. This supersedes earlier
+  historical notes below that remote CI had not been observed. Required branch
+  checks, representative-volume acceptance and production cutover are separate
+  open items.
 - **2026-09-23, REL-01 local build:** nine empty, generated `.next` directories
   with anomalous link counts were removed. Two consecutive host `npm run build`
   commands completed in about five and three seconds without recreating them.

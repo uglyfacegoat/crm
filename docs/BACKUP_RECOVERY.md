@@ -125,7 +125,8 @@ The CI `backup-recovery` job builds the runtime image and tests its packaged scr
 not replacements mounted over the implementation. Only the test script is mounted.
 It covers a full migrated schema, historical versions, each missing/corrupt file family,
 real tar links, worker success/failure, CLI exit codes, independent verification and
-cleanup. Remote GitHub execution is not yet verified.
+cleanup. The packaged backup and storage-audit CI job passed in
+[GitHub run 35909351720](https://github.com/uglyfacegoat/crm/actions/runs/35909351720).
 Snapshot checks hold a real writer lock, observe the backup waiting, commit the
 writer, replace/delete a live avatar after staging, and restore the retained old
 reference successfully. They check pre-snapshot writes are included, later writes

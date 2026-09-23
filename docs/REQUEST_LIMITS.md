@@ -53,7 +53,8 @@ It checks authorization before budget consumption, concurrent sessions/forged IP
 company denial, HTTP contracts, recovery and the browser dialog at 1440/390 px.
 Browser captures are under `artifacts/production/search-limit-*.png`.
 
-CI defines both checks. Actual remote CI execution remains unverified.
+CI defines both checks; the remote runtime job passed in
+[GitHub run 35909351720](https://github.com/uglyfacegoat/crm/actions/runs/35909351720).
 
 ## Chat messages and uploads
 

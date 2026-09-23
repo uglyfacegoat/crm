@@ -47,7 +47,8 @@ pause response before storage I/O, and the receipt integration suite still
 covers actual database commits and lost COMMIT acknowledgements; all nine
 file-action paths now assert a durable unresolved key after a lost COMMIT.
 Source action tests also cover failed rollback cleanup. The new test
-is included in CI configuration; remote CI execution has not been observed.
+is included in CI and passed in
+[GitHub run 35909351720](https://github.com/uglyfacegoat/crm/actions/runs/35909351720).
 The earlier keyed production image was started with all 56 migrations on a disposable
 PostgreSQL database. Its HTTP health endpoint and packaged
 `status`/`pause`/`inspect`/`resume` commands passed. The disposable database was

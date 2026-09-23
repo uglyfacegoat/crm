@@ -95,4 +95,5 @@ files/references. It covers all four families, old versions/deleted parents, mul
 lookup batches, missing/corrupt files, links, output failure, CLI status/flags and a
 reference committed by another connection after the snapshot begins. Test-only
 files/databases are removed. CI runs the same tests against the packaged runtime
-implementation; remote CI execution must still be verified separately.
+implementation; the packaged audit CI job passed in
+[GitHub run 35909351720](https://github.com/uglyfacegoat/crm/actions/runs/35909351720).
