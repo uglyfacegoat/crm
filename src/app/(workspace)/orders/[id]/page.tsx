@@ -494,10 +494,10 @@ export default async function OrderDetailPage({
                 </p>
               )}
               <Link
-                href="/documents"
+                href={`/documents?client=${order.clientId}&object=${order.objectId}&order=${order.id}`}
                 className="focus-ring mt-4 inline-flex rounded-lg text-xs text-[var(--accent)] hover:underline"
               >
-                Открыть архив
+                Все документы заказа
               </Link>
             </section>
           ) : null}

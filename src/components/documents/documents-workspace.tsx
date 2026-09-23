@@ -388,6 +388,7 @@ function DocumentDetails({
                   </span>
                 </button>
               ))}
+              {related.length > 8 ? <Link href={`/documents?client=${document.clientId}`} className="focus-ring mt-3 inline-flex rounded-lg text-xs text-[var(--accent)] hover:underline">Все документы заказчика</Link> : null}
             </div>
           ) : (
             <p className="mt-3 text-[10px] leading-4 text-[var(--muted)]">
