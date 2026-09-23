@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 import { BACKUP_FILE_TABLES, STORAGE_KEY, verifyRestoredFile } from "./backup-integrity.mjs";
+import { verifyQuarantineCopy } from "./file-write-quarantine.mjs";
 import { createS3AuditStorage } from "./s3-audit-storage.mjs";
 import { FILE_WRITE_LOCK_CLASS, FILE_WRITE_LOCK_ID } from "../src/server/file-writes/lock-key.mjs";
 import { storageBackend } from "../src/server/storage/s3-config.mjs";
@@ -31,7 +32,7 @@ async function unreferencedFileState(storageRoot, key) {
   throw new Error("Invalid storage key.");
 }
 
-async function inspectOperation(connection, operation, storageRoot, objectStorage) {
+async function inspectOperation(connection, operation, storageRoot, objectStorage, quarantineRoot) {
   const entries = [];
   const objectVersions = new Map();
   let bucketVersioning = null;
@@ -65,9 +66,25 @@ async function inspectOperation(connection, operation, storageRoot, objectStorag
       for (const row of rows) references.push({ table, row });
     }
     if (!references.length) {
-      entries.push({ key, state: objectStorage
+      let state = objectStorage
         ? objectVersions.has(key) ? "unreferenced_present" : "absent_unreferenced"
-        : await unreferencedFileState(storageRoot, key), references: [], ...versionEvidence });
+        : await unreferencedFileState(storageRoot, key);
+      let quarantine = null;
+      if (!objectStorage) {
+        const [record] = await connection`SELECT quarantine_path, size_bytes, sha256, case_id, state
+          FROM file_write_quarantine WHERE operation_id = ${operation.id} AND storage_key = ${key}`;
+        if (record) {
+          quarantine = { path: record.quarantine_path, sizeBytes: Number(record.size_bytes),
+            sha256: record.sha256, caseId: record.case_id, state: record.state };
+          if (state === "absent_unreferenced") {
+            try {
+              await verifyQuarantineCopy(quarantineRoot, operation.id, key, record);
+              state = "quarantined_verified";
+            } catch { state = "quarantine_invalid"; }
+          }
+        }
+      }
+      entries.push({ key, state, references: [], quarantine, ...versionEvidence });
       continue;
     }
     let valid = true;
@@ -86,7 +103,8 @@ async function inspectOperation(connection, operation, storageRoot, objectStorag
   return { entries, bucketVersioning };
 }
 
-export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, objectStorage, operationId, reviewSha256, evidenceSha256, caseId, actor }) {
+export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, objectStorage, quarantineRoot,
+  operationId, reviewSha256, evidenceSha256, caseId, actor }) {
   if (!databaseUrl || !UUID.test(operationId ?? "")) throw new Error("DATABASE_URL and a valid operation ID are required.");
   const resolving = reviewSha256 !== undefined;
   if (resolving && (!SHA256.test(reviewSha256) || !SHA256.test(evidenceSha256 ?? "")
@@ -120,14 +138,17 @@ export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, objec
             }
             throw new Error("File write operation was not found or was resolved with different evidence.");
           }
-          const { entries, bucketVersioning } = await inspectOperation(connection, operation, storageRoot, objectStorage);
+          const { entries, bucketVersioning } = await inspectOperation(connection, operation, storageRoot, objectStorage, quarantineRoot);
           const review = { operationId: operation.id, startedAt: operation.started_at.toISOString(),
             backend: objectStorage ? "s3" : "local", bucketVersioning, storageKeys: operation.storage_keys, entries };
           const hash = createHash("sha256").update(JSON.stringify(review)).digest("hex");
-          const eligible = entries.every(({ state }) => state === "referenced_verified" || state === "absent_unreferenced");
+          const eligible = entries.every(({ state }) => ["referenced_verified", "absent_unreferenced", "quarantined_verified"].includes(state));
           if (resolving) {
             if (hash !== reviewSha256) throw new Error("Recovery review changed; inspect the operation again.");
             if (!eligible) throw new Error("Unreferenced or invalid files require separate preservation and review.");
+            if (entries.some(({ quarantine }) => quarantine && quarantine.caseId !== caseId)) {
+              throw new Error("Resolution case ID differs from its quarantine record.");
+            }
             await connection`INSERT INTO file_write_resolutions
               (operation_id, started_at, storage_keys, review, review_sha256, evidence_sha256, case_id, actor, database_role)
               VALUES (${operation.id}, ${operation.started_at}, ${operation.storage_keys}, ${connection.json(review)},
@@ -169,7 +190,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     let result;
     try {
       result = await reviewOrResolveFileWrite({ databaseUrl: process.env.DATABASE_URL,
-        storageRoot: process.env.DOCUMENT_STORAGE_ROOT, objectStorage, operationId,
+        storageRoot: process.env.DOCUMENT_STORAGE_ROOT, objectStorage,
+        quarantineRoot: process.env.FILE_WRITE_QUARANTINE_ROOT, operationId,
         ...(mode === "resolve" ? { reviewSha256, evidenceSha256, caseId, actor: actorWords.join(" ") } : {}) });
     } finally { objectStorage?.close(); }
     console.log(JSON.stringify(result));

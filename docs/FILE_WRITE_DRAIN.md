@@ -80,8 +80,9 @@ production Dockerfile. This is not an installed working-CRM browser check.
    matching key nor a clean audit alone establishes the interrupted outcome.
 4. Establish the outcome of **each** interrupted request from application and
    database evidence. Preserve unknown files and backup material. For local or
-   S3 storage, the command below can resolve only a key whose current bytes match
-   a committed reference, or one absent from both storage and references.
+   S3 storage, the command below can resolve a key whose current bytes match
+   a committed reference, one absent from both storage and references, or a
+   local key moved into a verified quarantine by the candidate below.
    If ownership/outcome is uncertain, leave the row and pause in place.
 5. Only after all rows are accounted for, rerun the audit and `inspect`. Resume
    only when `pending=0` and the operator has confirmed the storage state.
@@ -122,16 +123,52 @@ document-storage tree.
    `alreadyResolved: true`; different evidence is rejected.
 
 An unreferenced file, invalid reference or unexpected path blocks resolution.
-Preserve such files in a recoverable quarantine with its own verified manifest
-before attempting a fresh review. This command neither moves nor deletes bytes
-and does not validate a quarantine manifest; that acceptance remains open.
+For local files, the quarantine command below can preserve an unreferenced file
+and make it eligible for a fresh review. S3 quarantine remains unimplemented.
+The recovery command never moves or deletes storage bytes.
 After all per-ID resolutions, rerun the full storage audit and `inspect` before
 `resume`. The evidence file and raw review contain internal keys; do not place
 them in public logs or the repository. A self-reported operator name does not
 replace access control on the operator shell and database credentials.
 
-Before deployment and FS-02 acceptance, complete packaged S3 recovery and
-implement and verify recoverable quarantine for unreferenced files. Confirm no other non-interactive business-file
+## Local quarantine candidate
+
+Migration 058 adds durable `prepared`/`complete` quarantine records. Choose a
+private, absolute `FILE_WRITE_QUARANTINE_ROOT` outside
+`DOCUMENT_STORAGE_ROOT` and back up its contents separately. In Docker,
+mount this path on a persistent private volume before starting the container;
+the image deliberately does not create an ephemeral quarantine directory.
+Set both variables and `DATABASE_URL` in the operator environment. After stopping writers,
+persisting `pause`, confirming the key is unreferenced, and recording a case ID:
+
+```sh
+node scripts/file-write-quarantine.mjs <operation-id> <storage-key> <case-id> <operator-name>
+```
+
+The command checks all four reference tables and records the source size/hash
+before copying. It creates a new destination without replacing an existing
+file, verifies and syncs the copy, rechecks the source and references, then
+unlinks only the original unreferenced path. The operation row remains pending.
+An interruption leaves a durable `prepared` record; rerun the **same** command
+with the same case/operator to complete it. If the copy or source changed,
+the command stops without accepting it. A completed quarantine record cannot
+be updated or deleted by the application role.
+
+Now rerun `file-write-recovery.mjs review` with
+`FILE_WRITE_QUARANTINE_ROOT` set. It verifies the quarantined bytes and reports
+`quarantined_verified`; a missing or corrupt copy reports
+`quarantine_invalid` and blocks `resolve`. Use the quarantine's case ID for
+resolution. The test suite interrupts before copy, after copy and after unlink,
+then retries, and verifies referenced files are refused. The final packaged
+image applied 58 migrations in a disposable database and passed HTTP health,
+pause/quarantine/review/resolve/resume with a private Docker volume. The copy
+remained readable after the container was removed. The candidate has not been
+installed in the working CRM. It does not provide
+an automated restore from quarantine or S3 quarantine; those recovery drills
+and retention decisions remain open.
+
+Before deployment and FS-02 acceptance, complete quarantine restore drills
+and S3 quarantine. Confirm no other non-interactive business-file
 writer bypasses the gate, rehearse interruption/restart and failure of
 the lease connection, and verify browser messages in the installed build.
 FS-03 additionally requires competitive uploads, process crash, connection

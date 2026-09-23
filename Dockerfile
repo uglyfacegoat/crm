@@ -30,6 +30,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrate.mjs ./scripts/migrate.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-drain.mjs ./scripts/file-write-drain.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-recovery.mjs ./scripts/file-write-recovery.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-quarantine.mjs ./scripts/file-write-quarantine.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-writes/lock-key.mjs ./src/server/file-writes/lock-key.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-writes/gate.mjs ./src/server/file-writes/gate.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/validate-runtime-config.mjs ./scripts/validate-runtime-config.mjs

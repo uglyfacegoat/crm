@@ -7,6 +7,19 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 20:37 MSK, local quarantine candidate:** migration 058 records
+  prepared/completed moves with source size, SHA-256, case and operator. The
+  local command requires pause, verifies four reference families, copies into
+  a private destination, syncs and verifies bytes before removing the source,
+  and retries safely after interruptions. Recovery review rechecks the copy
+  and only accepts the same case ID. Disposable PostgreSQL integration covers
+  interruption before copy, after copy and after unlink, corruption, referenced
+  file refusal, immutability and resolution. An isolated packaged image applied
+  58 migrations and passed HTTP health, pause, quarantine, review, resolve,
+  retained-byte verification and resume. The final image has no built-in
+  quarantine directory. A repeat with a private Docker volume passed the
+  same flow, and the copied bytes survived container removal. Restore from
+  quarantine and S3 quarantine remain open. Working CRM remains on 55 migrations.
 - **2026-09-23 20:17 MSK, source only:** the recovery review now handles S3
   via the read-only version inventory. Referenced current bytes must verify;
   an unreferenced key with any historical version or delete marker remains
