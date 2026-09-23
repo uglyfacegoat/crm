@@ -7,6 +7,18 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, versioned S3 quarantine source candidate:** migration 060
+  records `prepared` before deleting any version and protects the completed
+  history. The operator command verifies every archived version, refuses a
+  committed reference, deletes only listed version IDs, and retries a subset
+  after interruption. Recovery review checks the archive before resolution.
+  A disposable MinIO/PostgreSQL test covers corruption, deletion interrupted
+  twice, wrong case, referenced-key refusal and an external removal without
+  quarantine audit. The packaged image applied 60 migrations and completed
+  export/quarantine/review/resolve/resume on a disposable MinIO bucket; two
+  historical object versions remained readable from the private volume after
+  the app container was removed. Chosen-provider acceptance and an independent
+  restore drill remain open; the working CRM has not been upgraded.
 - **2026-09-23, S3 version preservation candidate:** migration 059 and a
   read-only export command preserve each explicitly addressed object version
   plus delete-marker metadata in a private local manifest. The command

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve, sep } from "node:path";
@@ -38,6 +39,54 @@ async function assertFile(path, expected) {
   if (actual.sizeBytes !== expected.sizeBytes || actual.sha256 !== expected.sha256) {
     throw new Error("S3 export copy does not match its version checksum.");
   }
+}
+
+export async function verifyS3ExportCopy(exportRoot, operationId, storageKey, record) {
+  if (!isAbsolute(exportRoot ?? "") || !UUID.test(operationId ?? "") || !STORAGE_KEY.test(storageKey ?? "")) {
+    throw new Error("Valid S3 export root, operation and key are required.");
+  }
+  const root = resolve(exportRoot);
+  const keyHash = hash(storageKey);
+  const operationDirectory = join(root, operationId);
+  const keyDirectory = join(operationDirectory, keyHash);
+  const relativePath = join(operationId, keyHash, "manifest.json");
+  if (record?.export_path !== relativePath || !/^[a-f0-9]{64}$/.test(record.manifest_sha256 ?? "")) {
+    throw new Error("S3 export audit points to an invalid manifest.");
+  }
+  for (const directory of [root, operationDirectory, keyDirectory]) await privateDirectory(directory);
+  const manifestPath = join(root, relativePath);
+  const stat = await lstat(manifestPath);
+  if (!stat.isFile() || stat.nlink !== 1 || stat.size < 1 || stat.size > 1024 * 1024
+    || (stat.mode & 0o077) !== 0) throw new Error("S3 export manifest is not a private regular file.");
+  const bytes = await readFile(manifestPath);
+  if (hash(bytes) !== record.manifest_sha256) throw new Error("S3 export manifest checksum changed.");
+  const manifest = JSON.parse(bytes.toString("utf8"));
+  if (manifest.operationId !== operationId || manifest.storageKey !== storageKey
+    || manifest.caseId !== record.case_id || manifest.versioning !== "Enabled"
+    || !Array.isArray(manifest.versions) || !manifest.versions.length
+    || manifest.versions.filter((item) => item.isLatest).length !== 1
+    || !isDeepStrictEqual(manifest, record.manifest)) {
+    throw new Error("S3 export manifest does not match its audit record.");
+  }
+  const ids = new Set();
+  for (const item of manifest.versions) {
+    if (typeof item.versionId !== "string" || !item.versionId || ids.has(item.versionId)) {
+      throw new Error("S3 export manifest has duplicate or invalid versions.");
+    }
+    ids.add(item.versionId);
+    if (item.kind === "delete-marker") {
+      if (item.file !== null || item.sha256 !== null || item.sizeBytes !== 0) {
+        throw new Error("S3 export delete marker has invalid metadata.");
+      }
+      continue;
+    }
+    if (item.kind !== "object" || item.file !== `${hash(item.versionId)}.bin`
+      || !/^[a-f0-9]{64}$/.test(item.sha256 ?? "")) {
+      throw new Error("S3 export object version has invalid metadata.");
+    }
+    await assertFile(join(keyDirectory, item.file), item);
+  }
+  return manifest;
 }
 
 export async function exportS3Versions({ databaseUrl, exportRoot, storageRoot, objectStorage,
@@ -86,7 +135,9 @@ export async function exportS3Versions({ databaseUrl, exportRoot, storageRoot, o
         }
         items.sort((a, b) => a.versionId.localeCompare(b.versionId));
         await privateDirectory(operationDirectory, true);
+        await syncDirectory(root);
         await privateDirectory(keyDirectory, true);
+        await syncDirectory(operationDirectory);
         const versions = [];
         for (const item of items) {
           if (item.kind === "delete-marker") {
@@ -109,6 +160,7 @@ export async function exportS3Versions({ databaseUrl, exportRoot, storageRoot, o
         await syncDirectory(keyDirectory);
         const manifest = { operationId, storageKey, caseId, versioning, versions };
         const manifestBytes = Buffer.from(JSON.stringify(manifest));
+        if (manifestBytes.length > 1024 * 1024) throw new Error("S3 version manifest is too large.");
         const manifestSha256 = hash(manifestBytes);
         let alreadyExported = false;
         try { await writeFile(manifestPath, manifestBytes, { flag: "wx", mode: 0o600 }); }

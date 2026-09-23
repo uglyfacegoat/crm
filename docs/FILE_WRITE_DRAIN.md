@@ -126,7 +126,8 @@ document-storage tree.
 
 An unreferenced file, invalid reference or unexpected path blocks resolution.
 For local files, the quarantine command below can preserve an unreferenced file
-and make it eligible for a fresh review. S3 quarantine remains unimplemented.
+and make it eligible for a fresh review. A versioned S3 quarantine candidate
+is described below; it still needs packaged and provider acceptance.
 The recovery command never moves or deletes storage bytes.
 After all per-ID resolutions, rerun the full storage audit and `inspect` before
 `resume`. The evidence file and raw review contain internal keys; do not place
@@ -179,7 +180,7 @@ checksum, creates a new private file without replacement, then rechecks its
 checksum and syncs it. It never writes directly into live document storage or
 changes a database reference. Review the exported bytes and business outcome
 before deciding whether any manual restoration is appropriate. A full restore
-drill and S3 quarantine remain open, as do retention decisions. A disposable
+drill and S3 quarantine acceptance remain open, as do retention decisions. A disposable
 packaged runtime exported the verified bytes onto a second private Docker
 volume; they remained readable after the container was removed. A separate
 container-loss drill removed the app container after quarantine, started a new
@@ -211,11 +212,43 @@ MinIO/PostgreSQL test covers two versions, a delete marker, repeat export,
 wrong case, a changed inventory and append-only audit. The packaged image
 also applied 59 migrations on a disposable database, archived two versions
 and a delete marker onto a private Docker volume, and retained the bytes after
-the app container was removed. Provider-specific acceptance and actual S3
-quarantine remain open.
+the app container was removed. Provider-specific acceptance remains open.
+
+## Versioned S3 quarantine candidate
+
+Migration 060 adds a durable `prepared`/`complete` record. This command can
+remove an **unreferenced** key's versions from an enabled-versioning bucket
+only after the complete private export above exists for the same operation,
+key and case. Back up the persistent export volume separately and verify its
+restore before using this on a real bucket. Use a dedicated operator identity
+with narrowly scoped `DeleteObjectVersion` permission via
+`FILE_WRITE_S3_QUARANTINE_ACCESS_KEY_ID` and
+`FILE_WRITE_S3_QUARANTINE_SECRET_ACCESS_KEY`; keep these outside the repository.
+With all writer processes stopped and `pause` still in force:
+
+```sh
+node scripts/file-write-s3-quarantine.mjs <operation-id> <storage-key> <case-id> <operator-name>
+```
+
+The command verifies every archived byte and manifest against the append-only
+database record, checks all four reference tables, then records `prepared`
+**before** requesting deletion by explicit S3 version ID. It rechecks the
+reference tables and S3 inventory, and marks `complete` only when no version
+or delete marker remains. An interrupted run keeps the manifest and `prepared`
+row; the same case/operator can retry only while all remaining versions match
+the original manifest. `review` then verifies the local archive and reports
+`quarantined_verified` or `quarantine_invalid`, and `resolve` requires the
+matching case ID. A disposable MinIO/PostgreSQL test covers partial version
+deletion, retry, corruption, referenced-key refusal and a crash just before
+the complete marker. This candidate is **not installed** in the working CRM.
+The packaged image applied 60 migrations on a disposable database and passed
+export/quarantine/review/resolve/resume against a disposable MinIO bucket;
+both historical object versions remained readable from the private volume
+after the app container was removed. Chosen-provider permissions/consistency
+and independent archive restore acceptance remain open.
 
 Before deployment and FS-02 acceptance, complete quarantine restore drills
-and S3 quarantine. Confirm no other non-interactive business-file
+and S3 provider acceptance. Confirm no other non-interactive business-file
 writer bypasses the gate, rehearse interruption/restart and failure of
 the lease connection, and verify browser messages in the installed build.
 FS-03 additionally requires competitive uploads, process crash, connection

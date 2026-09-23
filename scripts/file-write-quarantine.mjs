@@ -124,6 +124,7 @@ export async function quarantineFileWrite({ databaseUrl, storageRoot, quarantine
         try { await mkdir(destinationDirectory, { mode: 0o700 }); }
         catch (error) { if (error.code !== "EEXIST") throw error; }
         await realDirectory(destinationDirectory, true);
+        await syncDirectory(safeQuarantineRoot);
         const expected = { sizeBytes: Number(record.size_bytes), sha256: record.sha256 };
         let destination = await optionalDigest(destinationPath);
         if (!destination && record.state !== "complete") {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,7 +11,7 @@ import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
 import { startS3Fixture } from "./fixtures/s3-server.mjs";
 import { createS3AuditStorage } from "./s3-audit-storage.mjs";
-import { exportS3Versions } from "./file-write-s3-export.mjs";
+import { exportS3Versions, verifyS3ExportCopy } from "./file-write-s3-export.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
@@ -74,6 +74,10 @@ test("S3 version export preserves every object version and delete marker without
   assert.equal(logged.manifest_sha256, result.manifestSha256);
   assert.deepEqual(logged.manifest, manifest);
   assert.equal(logged.case_id, "S3-EXPORT-CASE");
+  assert.deepEqual(await verifyS3ExportCopy(exportRoot, operationId, storageKey, {
+    export_path: result.manifestPath, manifest_sha256: result.manifestSha256,
+    case_id: logged.case_id, manifest: logged.manifest,
+  }), manifest);
   await assert.rejects(sql`DELETE FROM file_write_s3_exports WHERE operation_id = ${operationId}`, /append-only/);
   const cli = spawnSync(process.execPath, ["scripts/file-write-s3-export.mjs", operationId,
     storageKey, "S3-EXPORT-CASE", "Test operator"], {
@@ -82,6 +86,16 @@ test("S3 version export preserves every object version and delete marker without
   });
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(JSON.parse(cli.stdout).alreadyExported, true);
+  const firstObject = manifest.versions.find((entry) => entry.kind === "object");
+  const objectPath = join(exportRoot, operationId,
+    createHash("sha256").update(storageKey).digest("hex"), firstObject.file);
+  const originalCopy = await readFile(objectPath);
+  await writeFile(objectPath, Buffer.from("corrupt export copy"));
+  await assert.rejects(verifyS3ExportCopy(exportRoot, operationId, storageKey, {
+    export_path: result.manifestPath, manifest_sha256: result.manifestSha256,
+    case_id: logged.case_id, manifest: logged.manifest,
+  }), /version checksum/);
+  await writeFile(objectPath, originalCopy);
   await assert.rejects(exportS3Versions({ ...options, caseId: "OTHER-CASE" }), /manifest differs|audit does not match/);
   await fixture.client.send(new PutObjectCommand({ Bucket: fixture.bucket, Key: storageKey, Body: first }));
   await assert.rejects(exportS3Versions(options), /manifest differs/);

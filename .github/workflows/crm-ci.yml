@@ -166,6 +166,7 @@ jobs:
       - run: npm run test:file-recovery
       - run: npm run test:file-quarantine
       - run: npm run test:file-s3-export
+      - run: npm run test:file-s3-quarantine
       - run: npm run test:request-limits
       - run: npm run test:chat-access
       - run: npm run test:finance-receipts
