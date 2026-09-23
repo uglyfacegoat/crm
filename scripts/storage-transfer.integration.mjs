@@ -12,6 +12,7 @@ import { setFileWriteMode } from "./file-write-drain.mjs";
 import { startS3Fixture } from "./fixtures/s3-server.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 import { createS3AuditStorage } from "./s3-audit-storage.mjs";
+import { auditStorage as auditFiles } from "./storage-audit.mjs";
 import { inspectStorageTransfer, transferDocumentStorage } from "./storage-transfer.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
@@ -129,6 +130,14 @@ test("storage transfer resumes all retained references in both directions withou
     assert.deepEqual(await objectStorage.readVerified(item.key,
       { sizeBytes: item.bytes.length, sha256: item.fields.sha256 }, 15 * 1024 * 1024), item.bytes);
   }
+  const localAuditAfterForward = await auditFiles({ sql, storageRoot,
+    onRecord: async () => {} });
+  const s3AuditAfterForward = await auditFiles({ sql, objectStorage: auditStorage,
+    onRecord: async () => {} });
+  assert.equal(localAuditAfterForward.verifiedReferences, 5);
+  assert.equal(s3AuditAfterForward.verifiedReferences, 5);
+  assert.equal(localAuditAfterForward.hasFindings, false);
+  assert.equal(s3AuditAfterForward.hasFindings, false);
   await assert.rejects(sql`DELETE FROM file_storage_transfers WHERE id = ${forwardId}`, /append-only/);
 
   await fixture.client.send(new PutBucketVersioningCommand({ Bucket: fixture.bucket,
@@ -168,5 +177,13 @@ test("storage transfer resumes all retained references in both directions withou
   assert.deepEqual(await readFile(localNew), newBytes);
   assert.deepEqual(await objectStorage.readVerified(newKey,
     { sizeBytes: newBytes.length, sha256: newSha }, 15 * 1024 * 1024), newBytes);
+  const localAuditAfterReverse = await auditFiles({ sql, storageRoot,
+    onRecord: async () => {} });
+  const s3AuditAfterReverse = await auditFiles({ sql, objectStorage: auditStorage,
+    onRecord: async () => {} });
+  assert.equal(localAuditAfterReverse.verifiedReferences, 6);
+  assert.equal(s3AuditAfterReverse.verifiedReferences, 6);
+  assert.equal(localAuditAfterReverse.hasFindings, false);
+  assert.equal(s3AuditAfterReverse.hasFindings, false);
   assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
 });

@@ -55,5 +55,10 @@ the disposable fixture was corrected. A packaged image applied 62 migrations
 on a disposable database, copied local → S3, then copied a newly referenced
 S3-only file back to a persistent local volume. `inspect` and `resume` passed,
 and both local files remained readable after the app container was removed.
+An independent storage audit checked all five references after forward copy
+and all six after reverse copy against both backends, with no findings.
+Fresh standalone browser suites passed 18 uploads and nine warning states in
+each backend, including the paused-upload message; S3 backup staging verified
+the same four reference families. These runs used disposable databases.
 Working-volume, chosen-provider and coordinated cutover/rollback acceptance
 remain open.

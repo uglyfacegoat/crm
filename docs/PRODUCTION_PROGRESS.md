@@ -7,6 +7,13 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, transfer follow-up acceptance:** the independent storage
+  audit found no issues after forward copy (five references verified in both
+  local and S3) or reverse copy (six in both). On a fresh standalone build,
+  both local and S3 browser suites passed 18 real uploads, nine injected
+  warning states, the paused-upload refusal and no browser errors. S3 backup
+  staging verified all four reference families and historical hashes. These
+  checks used disposable databases and storage, not the installed CRM.
 - **2026-09-23, storage transfer source candidate:** migration 062 adds a
   per-key, append-only journal and blocks writer `resume` while a session is
   unfinished. The command copies the complete four-family reference snapshot
@@ -17,7 +24,9 @@ The overall goal remains active; this document is not a declaration of productio
   S3-only version, conflict refusal and restart before the complete marker.
   The packaged image applied 62 migrations on a disposable database and passed
   local → S3, a new S3-only file, S3 → local, journal inspection and resume;
-  local bytes survived app-container removal. Working-volume, chosen-provider
+  local bytes survived app-container removal. The separate storage-audit
+  implementation verified five references in both backends after forward
+  copy and six after reverse copy, with no findings. Working-volume, chosen-provider
   and coordinated cutover acceptance remain open.
 - **2026-09-23, S3 archive restore drill candidate:** migration 061 adds an
   append-only report. A dedicated restore command verifies the completed
