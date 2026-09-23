@@ -186,6 +186,34 @@ container-loss drill removed the app container after quarantine, started a new
 one against the same disposable database and persistent quarantine volume,
 then exported and verified the bytes again.
 
+## S3 version export candidate
+
+Migration 059 adds an append-only manifest record for a read-only S3 version
+export. This is a preservation step, **not** S3 quarantine: the command never
+deletes or changes an object and does not make an unreferenced key eligible for
+manual resolution. Use a private, persistent `FILE_WRITE_S3_EXPORT_ROOT`
+outside document storage and back it up separately. The production image does
+not create this directory; mount a private volume before running the CLI.
+After stopping writers and persisting `pause`, use an enabled-versioning bucket:
+
+```sh
+node scripts/file-write-s3-export.mjs <operation-id> <storage-key> <case-id> <operator-name>
+```
+
+The command inventories all versions of the recorded key, downloads every
+object version by explicit version ID, verifies its listed size and SHA-256,
+and records delete markers in the manifest. It writes private files without
+replacement, syncs them, rechecks bucket versioning and the inventory, then
+commits the manifest hash and operator case to the database. A retry accepts
+only identical files, inventory, case and manifest. A partial or conflicting
+copy stops for investigation; nothing is silently overwritten. A disposable
+MinIO/PostgreSQL test covers two versions, a delete marker, repeat export,
+wrong case, a changed inventory and append-only audit. The packaged image
+also applied 59 migrations on a disposable database, archived two versions
+and a delete marker onto a private Docker volume, and retained the bytes after
+the app container was removed. Provider-specific acceptance and actual S3
+quarantine remain open.
+
 Before deployment and FS-02 acceptance, complete quarantine restore drills
 and S3 quarantine. Confirm no other non-interactive business-file
 writer bypasses the gate, rehearse interruption/restart and failure of

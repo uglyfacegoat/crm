@@ -1,6 +1,9 @@
-import { S3Client, GetBucketVersioningCommand, ListObjectVersionsCommand } from "@aws-sdk/client-s3";
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
+import { S3Client, GetBucketVersioningCommand, GetObjectCommand, ListObjectVersionsCommand } from "@aws-sdk/client-s3";
 import { parseS3Config } from "../src/server/storage/s3-config.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
+import { STORAGE_KEY } from "../src/server/storage/file-integrity.mjs";
 
 function decodeKey(encoded) {
   // S3-compatible services may encode spaces as '+'; a literal plus is '%2B'.
@@ -29,6 +32,36 @@ export function createS3AuditStorage(environment) {
 
   return {
     readVerified: files.readVerified,
+    async readVersion(storageKey, versionId, sizeBytes) {
+      if (!STORAGE_KEY.test(storageKey ?? "") || typeof versionId !== "string" || !versionId
+        || versionId.length > 1024 || !Number.isSafeInteger(sizeBytes)
+        || sizeBytes < 1 || sizeBytes > 15 * 1024 * 1024) {
+        throw new Error("Invalid object version request.");
+      }
+      const signal = AbortSignal.timeout(config.timeoutMs);
+      let body;
+      const abort = () => body?.destroy(new Error("Object version read timed out."));
+      try {
+        const response = await client.send(new GetObjectCommand({ Bucket: config.bucket,
+          Key: storageKey, VersionId: versionId }), { abortSignal: signal });
+        if (!(response.Body instanceof Readable) || response.ContentLength !== sizeBytes
+          || response.VersionId !== versionId) throw new Error("Object version metadata changed.");
+        body = response.Body;
+        signal.addEventListener("abort", abort, { once: true });
+        signal.throwIfAborted();
+        const bytes = Buffer.alloc(sizeBytes);
+        let offset = 0;
+        for await (const chunk of body) {
+          if (!(chunk instanceof Uint8Array) || chunk.length > bytes.length - offset) {
+            throw new Error("Object version exceeded its listed size.");
+          }
+          bytes.set(chunk, offset);
+          offset += chunk.length;
+        }
+        if (offset !== sizeBytes) throw new Error("Object version was truncated.");
+        return { bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
+      } finally { signal.removeEventListener("abort", abort); body?.destroy(); }
+    },
     async versioning() {
       const response = await send(new GetBucketVersioningCommand({ Bucket: config.bucket }));
       if (response.Status === undefined) return "Disabled";
