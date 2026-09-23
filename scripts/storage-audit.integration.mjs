@@ -329,15 +329,17 @@ test("storage audit diagnoses all retained files without modifying storage or re
 
     if (process.env.S3_AUDIT_TEST_IMAGE) await s3Test.test("packaged runtime CLI reports success, findings and permission failure without local files", async () => {
       const databaseAddress = new URL(databaseUrl);
-      if (["localhost", "127.0.0.1"].includes(databaseAddress.hostname)) databaseAddress.hostname = "host.docker.internal";
+      if (process.platform !== "linux" && ["localhost", "127.0.0.1"].includes(databaseAddress.hostname)) {
+        databaseAddress.hostname = "host.docker.internal";
+      }
       const environment = {
         ...process.env, ...fixture.environment,
         DATABASE_URL: databaseAddress.toString(), DOCUMENT_STORAGE_ROOT: "",
-        DOCUMENT_S3_ENDPOINT: "http://127.0.0.1:9000",
+        DOCUMENT_S3_ENDPOINT: process.platform === "linux" ? fixture.endpoint : "http://127.0.0.1:9000",
       };
       const keys = [...Object.keys(fixture.environment), "DATABASE_URL", "DOCUMENT_STORAGE_ROOT"];
       const packaged = (overrides = {}) => spawnSync("docker", [
-        "run", "--rm", "--network", `container:${fixture.containerName}`,
+        "run", "--rm", "--network", process.platform === "linux" ? "host" : `container:${fixture.containerName}`,
         ...keys.flatMap(key => ["--env", key]), "--entrypoint", "node", process.env.S3_AUDIT_TEST_IMAGE,
         "scripts/storage-audit.mjs", "--check",
       ], { env: { ...environment, ...overrides }, encoding: "utf8", timeout: 30_000 });

@@ -26,6 +26,16 @@ The overall goal remains active; this document is not a declaration of productio
   cookies, login, Host/Origin checks, body caps and spoof-resistant 429 limits
   on this Mac. The production override resolves with only the gateway ports
   exposed. A repeat remote CI result is still needed.
+- **2026-09-23, packaged S3 audit on Linux:** the first repeated CI run
+  exposed the same loopback-only Docker port issue in its packaged audit CLI.
+  The audit fixture now uses host networking and the published fixture ports
+  on Linux while retaining the Docker Desktop path. Its local packaged suite
+  passes 27 TAP checks; Linux CI confirmation remains open.
+- **2026-09-23, second complete GitHub CI run:** quality, dependency security,
+  HTTPS ingress and database/runtime HTTP/browser jobs passed. The backup job
+  passed packaged local and S3 backup/restore, then failed its packaged S3
+  audit at the Linux Docker host boundary described above. That final audit
+  fixture fix awaits a new remote run.
 - **2026-09-23, REL-02 CI validation:** authenticated read-only GitHub CLI
   access through the existing Git credential found failed push runs with no
   jobs. `actionlint` identified the invalid job-level `runner.temp` context;

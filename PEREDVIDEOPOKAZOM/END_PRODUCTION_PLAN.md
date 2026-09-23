@@ -392,7 +392,7 @@ CI/выпуск → права и устойчивость → производ�
 ### 0.6. CI, сборка, миграции и безопасный выпуск — P0.5
 
 - [x] **REL-01.** Исправлено зависание локальной очистки/сборки `.next`: удалены девять пустых каталогов с аномальным числом ссылок, два последовательных локальных `npm run build` прошли за 5 и 3 секунды.
-- [ ] **REL-02.** Прогнать настоящий CI: typecheck, lint, unit, integration/flow, production build, clean migrations, upgrade и dependency/security scan. **23 сентября, частично:** все пять удалённых jobs стартовали, security scan прошёл. Исправлены локально ошибки download-фикстур, пустого storage-каталога и Linux-сети S3-теста; восстановленный HTTPS-стенд прошёл на Mac. Повторный удалённый CI ещё открыт.
+- [ ] **REL-02.** Прогнать настоящий CI: typecheck, lint, unit, integration/flow, production build, clean migrations, upgrade и dependency/security scan. **23 сентября, частично:** во втором полном удалённом прогоне 4 из 5 jobs прошли (quality, security, HTTPS, HTTP/browser); в пятом backup/restore прошёл, но packaged S3 audit упал из-за адреса Linux Docker. Исправление прошло локально, повторный удалённый CI ещё открыт.
 - [ ] **REL-03.** Включить обязательные checks перед merge и проверить запрет merge при красном gate. **Нужен доступ/полномочия в репозитории.**
 - [ ] **REL-04.** Проверить upgrade с предыдущей принятой схемы и реальной обезличенной резервной копии; сохранять старую историю/checksum миграций.
 - [ ] **REL-05.** Проверить reproducible install/build, runtime-зависимости, non-root контейнер, конфигурацию и health startup.
