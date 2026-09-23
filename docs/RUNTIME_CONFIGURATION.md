@@ -43,8 +43,10 @@ when it is unavailable. The existing `/api/v1/system/health` remains a
 compatibility alias for readiness, including the current worker heartbeat
 summary. All three responses use `Cache-Control: no-store`; readiness errors
 are logged by category without raw database error text. The Docker healthcheck
-still uses `/health`. Storage/S3 access and backup freshness are not yet
-readiness dependencies and need separate acceptance/monitoring.
+still uses `/health`. The isolated packaged HTTPS suite verifies 200/503 after
+stopping its disposable PostgreSQL container and checks that test credentials
+do not appear in responses or web logs. Storage/S3 access and backup freshness
+are not yet readiness dependencies and need separate acceptance/monitoring.
 
 Verification:
 

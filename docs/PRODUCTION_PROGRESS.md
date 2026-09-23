@@ -7,6 +7,13 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, OBS-07 packaged HTTPS acceptance:** the freshly built runtime
+  image passed the isolated TLS ingress suite. After stopping only its disposable
+  PostgreSQL container, `/live` remained 200 while `/ready` and `/health`
+  returned 503 with `Cache-Control: no-store`; response bodies and web logs
+  excluded the fixture credentials. Local browser and HTTPS checks passed using
+  installed Chrome. S3/storage dependency checks and worker freshness alerts
+  remain open.
 - **2026-09-23, OBS-02 operator CLI startup redaction candidate:**
   `file-write-drain` and `backup-restore-check` now catch top-level failures
   and emit safe categories rather than Node exception stacks. The process

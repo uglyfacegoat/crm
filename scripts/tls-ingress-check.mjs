@@ -97,6 +97,12 @@ try {
   const protectedPage = await send("/tasks");
   assert.equal(protectedPage.status, 307);
   assert.equal(new URL(protectedPage.headers.location, origin).href, `${origin}/login?next=%2Ftasks`);
+  for (const path of ["live", "ready", "health"]) {
+    const response = await send(`/api/v1/system/${path}`);
+    assert.equal(response.status, 200, `${path} must succeed with the test database available`);
+    assert.equal(response.headers["cache-control"], "no-store");
+    if (path !== "live") assert.equal(JSON.parse(response.body).database, "available");
+  }
   for (const version of ["TLSv1.2", "TLSv1.3"]) {
     const login = await send("/login", { minVersion: version, maxVersion: version });
     assert.equal(login.status, 200);
@@ -147,7 +153,22 @@ try {
   }).then((response) => response.status)));
   assert.ok(statuses.includes(429), "Changing a client-supplied IP must not bypass the gateway limit");
   assert.ok(statuses.every((status) => [415, 429].includes(status)));
-  console.log("TLS ingress passed: private app/database ports, verified certificate, TLS 1.2/1.3, HTTP redirect, secure cookies, login action, host/origin rejection, body caps and spoof-resistant gateway rate limit.");
+  await compose(["stop", "database"]);
+  const liveWithoutDatabase = await send("/api/v1/system/live");
+  assert.equal(liveWithoutDatabase.status, 200, "The packaged web process must remain live during a database outage");
+  assert.equal(liveWithoutDatabase.headers["cache-control"], "no-store");
+  for (const path of ["ready", "health"]) {
+    const response = await send(`/api/v1/system/${path}`);
+    assert.equal(response.status, 503, `${path} must fail when PostgreSQL is unavailable`);
+    assert.equal(response.headers["cache-control"], "no-store");
+    assert.deepEqual(JSON.parse(response.body), { status: "unavailable", service: "crm-web", database: "unavailable" });
+    assert.doesNotMatch(response.body, new RegExp(environment.CRM_DB_PASSWORD));
+  }
+  const webLogs = await compose(["logs", "--no-color", "crm"], { quiet: true });
+  for (const secret of [environment.CRM_DB_PASSWORD, environment.AUTH_THROTTLE_SECRET, environment.AUTH_BOOTSTRAP_ADMIN_PASSWORD]) {
+    assert.ok(!webLogs.includes(secret), "The packaged web log must not contain test credentials");
+  }
+  console.log("TLS ingress passed: private app/database ports, verified certificate, TLS 1.2/1.3, HTTP redirect, secure cookies, login action, host/origin rejection, body caps, rate limit and packaged live/ready behavior during a database outage.");
 } finally {
   await browser?.close();
   // This randomly named project and directory belong exclusively to this test run.
