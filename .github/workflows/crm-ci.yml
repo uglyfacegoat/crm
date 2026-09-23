@@ -198,6 +198,7 @@ jobs:
           }
           JS
       - run: npm run test:migrations
+      - run: npm run test:visit-conflicts
       - run: npm run test:file-drain
       - run: npm run test:file-recovery
       - run: npm run test:file-quarantine

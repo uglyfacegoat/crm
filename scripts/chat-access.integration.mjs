@@ -70,6 +70,36 @@ test("chat file authorization uses current tenant, membership, channel and permi
     const [count] = await sql`SELECT count(*)::integer AS total FROM chat_messages WHERE channel_id = ${channelId}`;
     assert.equal(count.total, 1);
   });
+  await t.test("sharing order and task cards does not assign work or change business state", async () => {
+    const { member, channelId } = await fixture();
+    const [client] = await sql`INSERT INTO clients (organization_id, legal_name)
+      VALUES (${member.organizationId}, 'Shared customer') RETURNING id`;
+    const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+      VALUES (${member.organizationId}, ${client.id}, 'Shared object', 'Office', 'Test address') RETURNING id`;
+    const [order] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+      client_name_snapshot, object_name_snapshot, object_address_snapshot, agreed_total_minor)
+      VALUES (${member.organizationId}, ${client.id}, ${object.id}, 'SHARED-1', 'new', 'RUB',
+        'Shared customer', 'Shared object', 'Test address', 0) RETURNING id`;
+    const [task] = await sql`INSERT INTO tasks (organization_id, title, created_by, updated_by)
+      VALUES (${member.organizationId}, 'Shared task', ${member.memberId}, ${member.memberId}) RETURNING id`;
+    for (const [sharedEntityType, sharedEntityId] of [["order", order.id], ["task", task.id]]) {
+      await chat.sendChatMessage(member, {
+        channelId, idempotencyKey: randomUUID(), body: "", sharedEntityType, sharedEntityId,
+      });
+    }
+    const [orderState] = await sql`SELECT status, assigned_master_id, version FROM orders WHERE id = ${order.id}`;
+    assert.equal(orderState.status, "new");
+    assert.equal(orderState.assigned_master_id, null);
+    assert.equal(orderState.version, 1);
+    const [taskState] = await sql`SELECT status, assigned_member_id, version FROM tasks WHERE id = ${task.id}`;
+    assert.deepEqual(taskState, { status: "open", assigned_member_id: null, version: 1 });
+    assert.equal(Number((await sql`SELECT count(*) FROM tasks WHERE organization_id = ${member.organizationId}`)[0].count), 1);
+    assert.equal(Number((await sql`SELECT count(*) FROM service_visits WHERE organization_id = ${member.organizationId}`)[0].count), 0);
+    assert.equal(Number((await sql`SELECT count(*) FROM chat_message_entities WHERE organization_id = ${member.organizationId}`)[0].count), 2);
+    const auditActions = (await sql`SELECT action FROM audit_events WHERE organization_id = ${member.organizationId}
+      ORDER BY created_at`).map((row) => row.action);
+    assert.deepEqual(auditActions, ["chat.entity.shared", "chat.entity.shared"]);
+  });
   await t.test("cross-company channels and nonmembers are rejected", async () => {
     const own = await fixture();
     const other = await fixture();

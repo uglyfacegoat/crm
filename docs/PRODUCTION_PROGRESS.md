@@ -11,6 +11,16 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-24, B-04 schedule conflict and CHAT-11 inert cards:**
+  `npm run test:visit-conflicts` passed on isolated PostgreSQL 17. The
+  repository rejects an overlapping master assignment before saving, accepts
+  the adjacent slot, and the database exclusion constraint prevents two
+  concurrent employees from saving overlapping visits. The same constraint
+  exists in the working database. `npm run test:chat-access` passed with a
+  case that shares order and task cards, then checks that their status,
+  assignee, version, task count and visit count remain unchanged; only
+  `chat.entity.shared` audit actions appear. The new tests and plan updates
+  are local source changes, not yet deployed or pushed.
 - **2026-09-23, REL-04 real-data upgrade rehearsal:** a read-only `pg_dump`
   streamed the 55-migration working database into disposable PostgreSQL on
   `tmpfs`; no raw dump file was stored. The copy was anonymized before
