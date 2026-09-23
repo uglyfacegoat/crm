@@ -5,6 +5,7 @@ import { getDatabase } from "@/server/database";
 
 export const requestLimitPolicies = {
   global_search: { member: 120, organization: 1200, windowSeconds: 60 },
+  client_list: { member: 120, organization: 1200, windowSeconds: 60 },
   chat_message: { member: 60, organization: 600, windowSeconds: 60 },
   chat_upload: { member: 10, organization: 100, windowSeconds: 60 },
   chat_download: { member: 300, organization: 3000, windowSeconds: 60 },

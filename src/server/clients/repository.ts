@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import type { Client } from "@/lib/mock-data";
+import { CLIENT_PAGE_SIZE, type ClientListPage, type ClientListQuery } from "@/lib/client-list";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
@@ -51,28 +52,55 @@ function databaseConstraint(error: unknown) {
   return "constraint_name" in error && typeof error.constraint_name === "string" ? error.constraint_name : "unknown";
 }
 
-export async function listClients(member: AuthenticatedMember): Promise<Client[]> {
+export async function listClientsPage(member: AuthenticatedMember, query: ClientListQuery): Promise<ClientListPage> {
   requirePermission(member, "clients.read");
   const sql = getDatabase();
-  const rows = await sql`
-    SELECT clients.id, clients.legal_name, clients.kind, clients.tax_id,
-      primary_contact.full_name AS contact_name, primary_contact.phone, primary_contact.email,
-      count(DISTINCT objects.id)::int AS object_count, count(DISTINCT orders.id)::int AS order_count
-    FROM clients
-    LEFT JOIN client_contacts primary_contact
-      ON primary_contact.organization_id = clients.organization_id
-      AND primary_contact.client_id = clients.id AND primary_contact.is_primary
-    LEFT JOIN client_objects objects ON objects.organization_id = clients.organization_id AND objects.client_id = clients.id
-    LEFT JOIN orders ON orders.organization_id = clients.organization_id AND orders.client_id = clients.id
-    WHERE clients.organization_id = ${member.organizationId}
-    GROUP BY clients.id, primary_contact.full_name, primary_contact.phone, primary_contact.email
-    ORDER BY clients.created_at DESC
-    LIMIT 200
-  `;
-  return rows.map((row) => {
+  const kind = query.kind === "all" ? null : query.kind === "Юр. лицо" ? "legal_entity" : "individual";
+  const offset = (query.page - 1) * CLIENT_PAGE_SIZE;
+  const [rows, summaryRows] = await Promise.all([
+    sql`
+      WITH client_rows AS (
+        SELECT clients.id, clients.legal_name, clients.kind, clients.tax_id,
+          primary_contact.full_name AS contact_name,
+          coalesce(primary_contact.phone, clients.primary_phone) AS phone,
+          coalesce(primary_contact.email, clients.primary_email) AS email,
+          (SELECT count(*)::int FROM client_objects objects WHERE objects.organization_id = clients.organization_id AND objects.client_id = clients.id) AS object_count,
+          (SELECT count(*)::int FROM orders WHERE orders.organization_id = clients.organization_id AND orders.client_id = clients.id) AS order_count
+        FROM clients
+        LEFT JOIN client_contacts primary_contact ON primary_contact.organization_id = clients.organization_id
+          AND primary_contact.client_id = clients.id AND primary_contact.is_primary
+        WHERE clients.organization_id = ${member.organizationId}
+          AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', clients.legal_name, clients.tax_id,
+            clients.primary_phone, clients.primary_email, primary_contact.full_name, primary_contact.phone, primary_contact.email), ${query.q}))
+          AND (${kind}::text IS NULL OR clients.kind = ${kind})
+      )
+      SELECT *, count(*) OVER ()::int AS total_count FROM client_rows
+      WHERE (${query.history} = 'all' OR (${query.history} = 'with-orders' AND order_count > 0) OR (${query.history} = 'without-orders' AND order_count = 0))
+        AND (${query.minOrders}::int IS NULL OR order_count >= ${query.minOrders})
+        AND (${query.minObjects}::int IS NULL OR object_count >= ${query.minObjects})
+      ORDER BY
+        CASE WHEN ${query.sort} = 'orders-desc' THEN order_count END DESC NULLS LAST,
+        CASE WHEN ${query.sort} = 'objects-desc' THEN object_count END DESC NULLS LAST,
+        legal_name ASC, id ASC
+      LIMIT ${CLIENT_PAGE_SIZE} OFFSET ${offset}
+    `,
+    sql`
+      SELECT count(*)::int AS total,
+        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM orders WHERE orders.organization_id = clients.organization_id AND orders.client_id = clients.id))::int AS active,
+        (SELECT count(*)::int FROM client_objects WHERE organization_id = ${member.organizationId}) AS objects,
+        (SELECT count(*)::int FROM orders WHERE organization_id = ${member.organizationId}) AS orders
+      FROM clients WHERE organization_id = ${member.organizationId}
+    `,
+  ]);
+  const summaryRow = z.object({ total: z.number().int(), active: z.number().int(), objects: z.number().int(), orders: z.number().int() }).parse(summaryRows[0]);
+  const summary = { ...summaryRow, withoutOrders: summaryRow.total - summaryRow.active };
+  if (!rows.length && query.page > 1) return listClientsPage(member, { ...query, page: 1 });
+  const items: Client[] = rows.map((row) => {
     const parsed = clientListRowSchema.parse(row);
     return { id: parsed.id, name: parsed.legal_name, kind: parsed.kind === "legal_entity" ? "Юр. лицо" : "Физ. лицо", taxId: parsed.tax_id, phone: parsed.phone ?? "Не указан", email: parsed.email ?? "Не указан", objects: parsed.object_count, orders: parsed.order_count, contact: parsed.contact_name ?? "Не указан" };
   });
+  const total = rows.length ? z.number().int().parse(rows[0].total_count) : 0;
+  return { items, total, page: query.page, pageSize: CLIENT_PAGE_SIZE, summary };
 }
 
 export async function getClientDetail(member: AuthenticatedMember, clientId: string): Promise<ClientDetail> {
