@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "audit:unused": "knip",
+    "audit:secrets": "gitleaks git --redact .",
     "typecheck": "next typegen && tsc --noEmit",
     "test:migrations": "node scripts/isolated-postgres-test.mjs --test scripts/migrations.integration.mjs",
     "test:working-upgrade": "node scripts/working-upgrade-check.mjs",
@@ -102,6 +104,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
+    "knip": "^6.38.0",
     "playwright-core": "^1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5"

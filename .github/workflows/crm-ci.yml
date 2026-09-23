@@ -44,11 +44,20 @@ jobs:
       - run: npm run test:startup
 
   security:
-    name: Dependency security scan
+    name: Dependency and secret security scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan Git history for secrets without container network access
+        run: >-
+          docker run --rm --network none --read-only
+          --mount "type=bind,source=$PWD,target=/repo,readonly"
+          -w /repo
+          ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git --redact --log-level error /repo
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

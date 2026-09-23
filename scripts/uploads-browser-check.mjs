@@ -72,6 +72,7 @@ try {
   });
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await page.context().tracing.start({ screenshots: true, snapshots: true });
   const browserErrors = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") browserErrors.push(message.text()); });
@@ -365,8 +366,17 @@ try {
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
   console.log("Upload browser check passed: 18 real submissions, 9 injected warning states, no browser errors.");
+  await page.context().tracing.stop();
 } catch (error) {
-  if (page) await page.screenshot({ path: join(artifacts, "failure.png") });
+  if (page) {
+    for (const capture of [
+      () => page.screenshot({ path: join(artifacts, "failure.png") }),
+      () => page.context().tracing.stop({ path: join(artifacts, "failure-trace.zip") }),
+    ]) {
+      try { await capture(); }
+      catch (captureError) { console.error("Browser diagnostic capture failed:", captureError); }
+    }
+  }
   throw error;
 } finally {
   await archiveClient?.dispose();
