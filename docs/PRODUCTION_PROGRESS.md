@@ -11,6 +11,18 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-24, SEC-08 and OPS-03 acceptance:**
+  `npm run test:session-revocation` used an isolated PostgreSQL database and
+  production standalone server. A real settings action changed an employee's
+  role while two browser tabs were open; both session requests and a separate
+  cross-company active-scope session immediately returned 401. Fresh login
+  received the new role and no settings access.
+  Deactivation revoked the fresh session and prevented another login.
+  `BACKUP_FULL_STAGE_TEST_IMAGE=crm-app:ops03-candidate npm run test:backup-full-stage`
+  passed 21 checks using the packaged candidate and a separate 1 MiB tmpfs.
+  Real `ENOSPC` left no partial staged file, did not start `pg_dump`, preserved
+  every source file byte, closed snapshot sessions, and recovered after freeing
+  space. Neither candidate was deployed to the working containers.
 - **2026-09-24, B-04 schedule conflict and CHAT-11 inert cards:**
   `npm run test:visit-conflicts` passed on isolated PostgreSQL 17. The
   repository rejects an overlapping master assignment before saving, accepts

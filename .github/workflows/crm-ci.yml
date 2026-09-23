@@ -247,6 +247,8 @@ jobs:
           SITES_CHECK_BASE_URL="$SMOKE_BASE_URL" node scripts/sites-flow-check.mjs
       - name: Isolated document, finance, visit and chat upload acceptance
         run: UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
+      - name: Session revocation with open browser tabs
+        run: SESSION_CHECK_RUNTIME=.next/standalone/server.js npm run test:session-revocation
       - name: Private S3 upload, download and backup staging acceptance
         run: UPLOAD_CHECK_STORAGE=s3 UPLOAD_CHECK_ARTIFACTS=artifacts/uploads-s3 UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
       - uses: actions/upload-artifact@v4

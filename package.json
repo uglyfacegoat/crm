@@ -11,6 +11,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test:migrations": "node scripts/isolated-postgres-test.mjs --test scripts/migrations.integration.mjs",
     "test:visit-conflicts": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/visit-schedule-conflict.integration.mjs",
+    "test:session-revocation": "node scripts/isolated-postgres-test.mjs --experimental-strip-types scripts/session-revocation-browser-check.mjs",
     "test:working-upgrade": "node scripts/working-upgrade-check.mjs",
     "test:file-drain": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-drain.integration.mjs",
     "test:file-recovery": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-recovery.integration.mjs",

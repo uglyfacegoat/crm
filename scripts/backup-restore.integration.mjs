@@ -290,6 +290,16 @@ test("backup restores the full application schema and validates every retained f
       assert.equal(dumped, false);
       await assert.rejects(readFile(attemptedPath), { code: "ENOENT" });
       assert.equal((await admin`SELECT count(*)::integer AS count FROM pg_stat_activity WHERE datname = ${databaseName} AND application_name = 'crm_backup_snapshot'`)[0].count, 0);
+      for (const reference of references) {
+        assert.deepEqual(await readFile(reference.path), reference.content,
+          "A full staging volume must not alter an already accepted source file");
+      }
+      for (const table of new Set(references.map((reference) => reference.table))) {
+        const [rows] = await sql`SELECT count(*)::integer AS total FROM ${sql(table)}
+          WHERE organization_id = ${organizationId}`;
+        assert.equal(rows.total, references.filter((reference) => reference.table === table).length,
+          "A failed snapshot must preserve every database file reference");
+      }
     } finally {
       await rm(filler, { force: true });
       await rm(stagingDirectory, { recursive: true, force: true });
