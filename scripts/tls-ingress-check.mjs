@@ -38,6 +38,7 @@ const environment = {
   AUTH_THROTTLE_SECRET: randomBytes(32).toString("hex"),
   CRM_WEBSITE_WEBHOOK_SECRET: "",
   CRM_PUBLIC_ORIGIN: origin,
+  CRM_PUBLIC_HOST: "localhost",
   CRM_HTTP_PORT: httpPort,
   CRM_HTTPS_PORT: httpsPort,
   CRM_HTTPS_BIND_ADDRESS: "127.0.0.1",
@@ -63,7 +64,7 @@ async function run(command, args, { quiet = false } = {}) {
   return output;
 }
 
-const composeArgs = ["compose", "--env-file", "/dev/null", "-p", project, "-f", "compose.yaml", "-f", "compose.https.yaml", "-f", "scripts/fixtures/compose.tls-check.yaml"];
+const composeArgs = ["compose", "--env-file", "/dev/null", "-p", project, "-f", "scripts/fixtures/compose.tls-check.yaml"];
 const compose = (args, options) => run("docker", [...composeArgs, ...args], options);
 
 try {

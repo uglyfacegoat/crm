@@ -20,7 +20,12 @@ The overall goal remains active; this document is not a declaration of productio
   a Linux Docker host-network difference in the packaged S3 test. The
   storage-directory fix is in the workflow; the S3 runner now uses host
   networking on Linux and retains the verified Docker Desktop path on macOS.
-  The macOS packaged S3 suite still passes all 21 checks. HTTPS remains open.
+  The macOS packaged S3 suite still passes all 21 checks. The missing HTTPS
+  override and shared nginx template have since been restored. A standalone
+  Compose fixture passed TLS 1.2/1.3, verified certificate, redirects, secure
+  cookies, login, Host/Origin checks, body caps and spoof-resistant 429 limits
+  on this Mac. The production override resolves with only the gateway ports
+  exposed. A repeat remote CI result is still needed.
 - **2026-09-23, REL-02 CI validation:** authenticated read-only GitHub CLI
   access through the existing Git credential found failed push runs with no
   jobs. `actionlint` identified the invalid job-level `runner.temp` context;

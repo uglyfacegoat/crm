@@ -18,6 +18,7 @@ Supply the normal database/authentication settings plus these environment values
 
 ```dotenv
 CRM_PUBLIC_ORIGIN=https://crm.example.com
+CRM_PUBLIC_HOST=crm.example.com
 CRM_TLS_CERTIFICATE=/absolute/private/path/fullchain.pem
 CRM_TLS_PRIVATE_KEY=/absolute/private/path/private-key.pem
 CRM_HTTPS_BIND_ADDRESS=0.0.0.0
@@ -26,7 +27,8 @@ CRM_HTTPS_PORT=443
 ```
 
 `crm.example.com` is an example, not an assigned domain. The origin must match the
-certificate and include a nonstandard public port when used. The certificate chain
+certificate and include a nonstandard public port when used. `CRM_PUBLIC_HOST` is
+the hostname without a port; the gateway rejects a different Host. The certificate chain
 and private key must already exist; they are mounted read-only, never copied into
 the image. Keep the private key outside the checkout with owner-only permissions.
 The default bind is loopback; opening it publicly is an explicit operator choice.
@@ -74,7 +76,8 @@ npm run test:tls
 ```
 
 Set `CHROME_PATH` if using a system Chrome instead of Playwright's downloaded browser.
-The test creates a random Compose project, disposable database/storage, test account
+The test uses a standalone Compose fixture with the same checked-in nginx template;
+it creates a random project, disposable database/storage, test account
 and one-day localhost certificate. It checks resolved port isolation, certificate
 verification, TLS protocols, redirects, secure cookies, login via Server Action,
 unsafe return URLs, host/origin rejection, body limits and spoof-resistant ingress
