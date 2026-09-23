@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { copyFile, lstat, open } from "node:fs/promises";
@@ -77,7 +78,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.log(JSON.stringify(result));
   } catch (error) {
     console.error(JSON.stringify({ event: "file_write.quarantine_export_failed",
-      code: error.code ?? "QUARANTINE_EXPORT_FAILED", message: error.message }));
+      code: safeCliErrorCode(error, "QUARANTINE_EXPORT_FAILED") }));
     process.exitCode = 1;
   }
 }

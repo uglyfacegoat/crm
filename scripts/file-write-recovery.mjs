@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
@@ -220,7 +221,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.log(JSON.stringify(result));
     if (mode === "review" && !result.eligibleForManualResolution) process.exitCode = 2;
   } catch (error) {
-    console.error(JSON.stringify({ event: "file_write.recovery_failed", code: error.code ?? "RECOVERY_FAILED", message: error.message }));
+    console.error(JSON.stringify({ event: "file_write.recovery_failed", code: safeCliErrorCode(error, "RECOVERY_FAILED") }));
     process.exitCode = 1;
   }
 }

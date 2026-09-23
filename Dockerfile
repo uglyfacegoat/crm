@@ -28,6 +28,7 @@ COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules/zod ./node_modu
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrate.mjs ./scripts/migrate.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/safe-cli-error.mjs ./scripts/safe-cli-error.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-drain.mjs ./scripts/file-write-drain.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-recovery.mjs ./scripts/file-write-recovery.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-quarantine.mjs ./scripts/file-write-quarantine.mjs

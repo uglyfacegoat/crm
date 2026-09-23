@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { lstat, opendir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { isAbsolute, join, resolve } from "node:path";
@@ -165,7 +166,7 @@ async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try { await main(); }
   catch (error) {
-    console.error(JSON.stringify({ event: "storage.audit.failed", code: error.code ?? "AUDIT_FAILED" }));
+    console.error(JSON.stringify({ event: "storage.audit.failed", code: safeCliErrorCode(error, "AUDIT_FAILED") }));
     process.exitCode = 1;
   }
 }

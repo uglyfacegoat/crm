@@ -7,6 +7,13 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, OBS-02 CLI/worker log redaction candidate:** eight recovery,
+  quarantine, transfer and audit commands now emit only a fixed failure
+  category or allowlisted system/SQL code; arbitrary exception messages and
+  provider-defined codes are excluded. Backup and reminder workers apply the
+  same rule to persisted failure codes. The helper is copied into the runtime
+  image. 203 unit tests, isolated storage-audit integration, lint, typecheck
+  and local production build pass. Other log sources still need audit.
 - **2026-09-23, OBS-02 HTTP log redaction candidate:** 32 action/route files
   now record an allowlisted error code instead of serializing arbitrary
   exception messages, which may contain database details or user data. A unit

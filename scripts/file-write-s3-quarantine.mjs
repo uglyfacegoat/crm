@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -147,7 +148,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.log(JSON.stringify(result));
   } catch (error) {
     console.error(JSON.stringify({ event: "file_write.s3_quarantine_failed",
-      code: error.code ?? "S3_QUARANTINE_FAILED", message: error.message }));
+      code: safeCliErrorCode(error, "S3_QUARANTINE_FAILED") }));
     process.exitCode = 1;
   } finally { objectStorage?.close(); versionRemover?.close(); }
 }

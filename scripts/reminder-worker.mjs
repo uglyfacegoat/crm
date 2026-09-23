@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import postgres from "postgres";
 import {
   parseOperationalNotificationResult,
@@ -63,7 +64,7 @@ async function runCycle() {
     `;
     console.log(JSON.stringify({ operation: "reminder_worker.cycle", status: "succeeded", ...safeResult }));
   } catch (error) {
-    const errorCode = error instanceof Error && error.name ? error.name.slice(0, 120) : "UnknownError";
+    const errorCode = safeCliErrorCode(error, "REMINDER_WORKER_FAILED");
     try {
       await connection`
         INSERT INTO background_job_status (

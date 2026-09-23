@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { constants } from "node:fs";
@@ -221,7 +222,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.log(JSON.stringify(result));
   } catch (error) {
     console.error(JSON.stringify({ event: "file_write.s3_export_failed",
-      code: error.code ?? "S3_EXPORT_FAILED", message: error.message }));
+      code: safeCliErrorCode(error, "S3_EXPORT_FAILED") }));
     process.exitCode = 1;
   } finally { objectStorage?.close(); }
 }

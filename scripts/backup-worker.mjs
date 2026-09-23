@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { randomBytes } from "node:crypto";
 import {
   mkdir,
@@ -125,7 +126,7 @@ async function createArchive(runId) {
 }
 
 async function markJobFailure(runId, error) {
-  const failureCode = error instanceof Error && error.name !== "Error" ? error.name.slice(0, 120) : "backup_execution_failed";
+  const failureCode = safeCliErrorCode(error, "backup_execution_failed");
   await sql.begin(async (transaction) => {
     await transaction`
       UPDATE backup_runs SET status = 'failed', completed_at = now(), failure_code = ${failureCode}

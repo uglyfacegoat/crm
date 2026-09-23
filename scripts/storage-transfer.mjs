@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open } from "node:fs/promises";
@@ -300,7 +301,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.log(JSON.stringify(result));
   } catch (error) {
     console.error(JSON.stringify({ event: "storage.transfer_failed",
-      code: error.code ?? "STORAGE_TRANSFER_FAILED", message: error.message }));
+      code: safeCliErrorCode(error, "STORAGE_TRANSFER_FAILED") }));
     process.exitCode = 1;
   } finally { objectStorage?.close(); auditStorage?.close(); }
 }
