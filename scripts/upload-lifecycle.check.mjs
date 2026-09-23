@@ -166,4 +166,27 @@ test("remaining upload actions preserve committed and uncertain files", async (t
       assert.equal(writeDocumentFile.mock.callCount(), 0);
     });
   }
+  for (const [name, action, exists, fileField, image] of [
+    ["closing act", visits.completeVisitAction, functions.visitCompletionExists, "file", false],
+    ["visit photo", visits.uploadAssignedVisitEvidenceAction, functions.visitEvidenceExists, "file", true],
+    ["template", templates.uploadDocumentTemplateAction, functions.documentTemplateExists, "file", false],
+    ["chat attachment", chat.sendChatMessageAction, functions.chatMessageExists, "file", false],
+  ]) {
+    await t.test(`${name}: confirmed retry does not read or rewrite the file`, async () => {
+      exists.mock.mockImplementation(async () => true);
+      const payload = new FormData();
+      for (const [field, value] of Object.entries({
+        idempotencyKey: id, visitId: id, channelId: id, expectedVersion: "1", actTitle: "Signed act",
+        completionNotes: "Work complete", kind: "work_photo", note: "", title: "Approved template", description: "",
+        body: "Message with attachment",
+      })) payload.set(field, value);
+      const file = new File([image ? png : pdf], image ? "image.png" : "file.pdf", { type: image ? "image/png" : "application/pdf" });
+      payload.set(fileField, file);
+      const read = mock.method(file, "arrayBuffer", () => { throw new Error("A confirmed retry must not read the file"); });
+      const result = await action(previous, payload);
+      assert.equal(result.status, "success", result.message);
+      assert.equal(read.mock.callCount(), 0);
+      assert.equal(writeDocumentFile.mock.callCount(), 0);
+    });
+  }
 });
