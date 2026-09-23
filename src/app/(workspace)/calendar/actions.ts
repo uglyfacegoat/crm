@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
+import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -142,12 +142,13 @@ async function completeVisitActionImpl(_previous: CompleteVisitState, formData: 
     const rejected = error instanceof VisitVersionConflictError || error instanceof VisitNotFoundError
       || error instanceof VisitImmutableError || error instanceof AuthorizationError;
     if (storageKey && fileWritten && rejected) {
-      try { await removeDocumentFile(storageKey); } catch (cleanupError) { logUnexpected("service_visits.complete.cleanup", member.memberId, cleanupError); }
+      try { await removeDocumentFile(storageKey); } catch (cleanupError) { markFileWriteUncertain(); logUnexpected("service_visits.complete.cleanup", member.memberId, cleanupError); }
     }
     if (error instanceof VisitVersionConflictError) return { status: "error", message: "Выезд уже изменил другой сотрудник. Обновите страницу и повторите.", fieldErrors: {}, documentId: null };
     if (error instanceof VisitNotFoundError) return { status: "error", message: "Выезд больше не существует или недоступен.", fieldErrors: {}, documentId: null };
     if (error instanceof VisitImmutableError) return { status: "error", message: "Отменённый или уже завершённый выезд закрыть повторно нельзя.", fieldErrors: {}, documentId: null };
     if (error instanceof AuthorizationError) return { status: "error", message: "Этот выезд не назначен вашей учётной записи.", fieldErrors: {}, documentId: null };
+    markFileWriteUncertain();
     logUnexpected("service_visits.complete", member.memberId, error);
     return { status: "error", message: "Не удалось подтвердить завершение выезда. Обновите карточку и проверьте акт перед повторной отправкой.", fieldErrors: {}, documentId: null };
   }
@@ -237,7 +238,7 @@ async function uploadAssignedVisitEvidenceActionImpl(
     }
     const rejected = error instanceof AuthorizationError || error instanceof VisitNotFoundError || error instanceof VisitImmutableError;
     if (storageKey && fileWritten && rejected) {
-      try { await removeDocumentFile(storageKey); } catch (cleanupError) { logUnexpected("service_visits.evidence.cleanup", member.memberId, cleanupError); }
+      try { await removeDocumentFile(storageKey); } catch (cleanupError) { markFileWriteUncertain(); logUnexpected("service_visits.evidence.cleanup", member.memberId, cleanupError); }
     }
     if (error instanceof AuthorizationError || error instanceof VisitNotFoundError) {
       return { status: "error", message: "Этот выезд не назначен вашей учётной записи.", fieldErrors: {} };
@@ -245,6 +246,7 @@ async function uploadAssignedVisitEvidenceActionImpl(
     if (error instanceof VisitImmutableError) {
       return { status: "error", message: "К отменённому выезду нельзя добавлять материалы.", fieldErrors: {} };
     }
+    markFileWriteUncertain();
     logUnexpected("service_visits.evidence.create", member.memberId, error);
     return { status: "error", message: "Не удалось подтвердить сохранение материала. Обновите документы заказа и проверьте результат перед повторной отправкой.", fieldErrors: {} };
   }

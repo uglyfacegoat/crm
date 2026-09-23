@@ -37,11 +37,12 @@ const removeDocumentFile = mock.fn();
 const FileWritesPausedError = class extends Error {};
 const FileWriteLeaseLostError = class extends Error {};
 const withFileWriteLease = mock.fn(async (operation) => operation());
+const markFileWriteUncertain = mock.fn();
 mock.module("next/cache.js", { namedExports: { revalidatePath } });
 mock.module(new URL("server/auth/config.ts", root), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", root), { namedExports: { requireSession: async () => ({ organizationId: "test", memberId: "test" }) } });
 mock.module(new URL("server/file-writes/gate.mjs", root), { namedExports: {
-  FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease,
+  FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease,
 } });
 mock.module(new URL("server/request-limits/repository.ts", root), { namedExports: { consumeRequestLimit: async () => ({ allowed: true }) } });
 mock.module(new URL("server/documents/storage.ts", root), { namedExports: {
@@ -66,7 +67,7 @@ test("remaining upload actions preserve committed and uncertain files", async (t
   t.beforeEach(async () => {
     await rm(path, { force: true });
     await writeFile(oldPath, png);
-    for (const fn of [...Object.values(functions), revalidatePath, writeDocumentFile, removeDocumentFile, withFileWriteLease, log]) {
+    for (const fn of [...Object.values(functions), revalidatePath, writeDocumentFile, removeDocumentFile, withFileWriteLease, markFileWriteUncertain, log]) {
       fn.mock.resetCalls();
       fn.mock.mockImplementation(async () => undefined);
     }
@@ -102,6 +103,7 @@ test("remaining upload actions preserve committed and uncertain files", async (t
       assert.equal(result.refreshRequired, undefined);
       assert.deepEqual(await readFile(path), image ? png : pdf);
       if (name === "chat avatar") await assert.rejects(readFile(oldPath), { code: "ENOENT" });
+      assert.equal(markFileWriteUncertain.mock.callCount(), 0);
     });
     for (let failAt = 1; failAt <= refreshes; failAt += 1) {
       await t.test(`${name}: refresh failure ${failAt} reports committed state`, async () => {
@@ -130,6 +132,14 @@ test("remaining upload actions preserve committed and uncertain files", async (t
       assert.deepEqual(await readFile(path), image ? png : pdf);
       assert.deepEqual(await readFile(oldPath), png);
       assert.equal(removeDocumentFile.mock.callCount(), 0);
+      assert.equal(markFileWriteUncertain.mock.callCount(), 1);
+    });
+    await t.test(`${name}: failed rollback cleanup retains an unresolved operation`, async () => {
+      persist.mock.mockImplementation(async () => { throw rejection; });
+      removeDocumentFile.mock.mockImplementation(async () => { throw new Error("Storage cleanup unavailable"); });
+      assert.equal((await action(previous, form())).status, "error");
+      assert.deepEqual(await readFile(path), image ? png : pdf);
+      assert.equal(markFileWriteUncertain.mock.callCount(), 1);
     });
     await t.test(`${name}: existing file is never adopted or deleted`, async () => {
       await writeFile(path, "Other request owns these bytes");

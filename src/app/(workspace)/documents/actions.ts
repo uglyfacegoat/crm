@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
+import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -190,6 +190,7 @@ async function uploadDocumentActionImpl(
     }
     // A lost COMMIT response is not proof of rollback; retaining bytes is safer than deleting evidence.
     outcomeUnknown = true;
+    markFileWriteUncertain();
     logUnexpected("documents.upload", member.memberId, error);
     return {
       status: "error",
@@ -201,6 +202,7 @@ async function uploadDocumentActionImpl(
       try {
         await removeDocumentFile(storageKey);
       } catch (cleanupError) {
+        markFileWriteUncertain();
         logUnexpected(
           "documents.upload.cleanup",
           member.memberId,
@@ -362,6 +364,7 @@ async function uploadDocumentVersionActionImpl(
       };
     }
     outcomeUnknown = true;
+    markFileWriteUncertain();
     logUnexpected("documents.version_upload", member.memberId, error);
     return {
       status: "error",
@@ -373,6 +376,7 @@ async function uploadDocumentVersionActionImpl(
       try {
         await removeDocumentFile(storageKey);
       } catch (cleanupError) {
+        markFileWriteUncertain();
         logUnexpected(
           "documents.version_upload.cleanup",
           member.memberId,

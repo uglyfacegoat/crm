@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
+import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/permissions";
@@ -139,7 +139,7 @@ async function sendChatMessageActionImpl(_previous: ChatMutationState, formData:
     }
     const rejected = error instanceof AuthorizationError || error instanceof ChatChannelNotFoundError || error instanceof ChatEntityUnavailableError;
     if (storageKey && fileWritten && rejected) {
-      try { await removeDocumentFile(storageKey); } catch (cleanupError) { logUnexpected("chat.attachment.cleanup", member.memberId, cleanupError); }
+      try { await removeDocumentFile(storageKey); } catch (cleanupError) { markFileWriteUncertain(); logUnexpected("chat.attachment.cleanup", member.memberId, cleanupError); }
     }
     if (error instanceof DocumentFileValidationError) return { status: "error", message: error.message, fieldErrors: { file: [error.message] }, entityId: null };
     if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для отправки сообщений.", fieldErrors: {}, entityId: null };
@@ -149,6 +149,7 @@ async function sendChatMessageActionImpl(_previous: ChatMutationState, formData:
       if (await chatMessageExists(member, parsed.data.idempotencyKey, parsed.data.channelId)) return { status: "success", message: null, fieldErrors: {}, entityId: parsed.data.idempotencyKey };
       return { status: "error", message: "Вложение ещё обрабатывается. Подождите и повторите.", fieldErrors: {}, entityId: null };
     }
+    markFileWriteUncertain();
     logUnexpected("chat.message.send", member.memberId, error);
     return { status: "error", message: "Не удалось подтвердить отправку. Проверьте переписку перед повторной отправкой. Текст сохранён в поле.", fieldErrors: {}, entityId: null };
   }
@@ -184,7 +185,7 @@ async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState,
     const result = await updateChatChannelSettings(member, parsed.data, avatar);
     persisted = true;
     if (storageKey && result.previousAvatarStorageKey && result.previousAvatarStorageKey !== storageKey) {
-      try { await removeDocumentFile(result.previousAvatarStorageKey); } catch (cleanupError) { logUnexpected("chat.avatar.previous_cleanup", member.memberId, cleanupError); }
+      try { await removeDocumentFile(result.previousAvatarStorageKey); } catch (cleanupError) { markFileWriteUncertain(); logUnexpected("chat.avatar.previous_cleanup", member.memberId, cleanupError); }
     }
     revalidatePath("/chat");
     return { status: "success", message: "Настройки группы сохранены.", fieldErrors: {}, entityId: parsed.data.channelId };
@@ -196,7 +197,7 @@ async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState,
     const rejected = error instanceof AuthorizationError || error instanceof ChatGeneralChannelMutationError
       || error instanceof ChatChannelConflictError || error instanceof ChatChannelVersionConflictError || error instanceof ChatChannelNotFoundError;
     if (storageKey && fileWritten && rejected) {
-      try { await removeDocumentFile(storageKey); } catch (cleanupError) { logUnexpected("chat.avatar.cleanup", member.memberId, cleanupError); }
+      try { await removeDocumentFile(storageKey); } catch (cleanupError) { markFileWriteUncertain(); logUnexpected("chat.avatar.cleanup", member.memberId, cleanupError); }
     }
     if (error instanceof DocumentFileValidationError) return { status: "error", message: error.message, fieldErrors: { avatar: [error.message] }, entityId: null };
     if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для изменения группы.", fieldErrors: {}, entityId: null };
@@ -205,6 +206,7 @@ async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState,
     if (error instanceof ChatChannelVersionConflictError) return { status: "error", message: "Настройки уже изменились. Обновите страницу.", fieldErrors: {}, entityId: null };
     if (error instanceof ChatChannelNotFoundError) return { status: "error", message: "Группа больше недоступна.", fieldErrors: {}, entityId: null };
     if (errorCode(error) === "EEXIST") return { status: "error", message: "Фото группы уже обрабатывается. Обновите страницу и повторите.", fieldErrors: {}, entityId: null };
+    markFileWriteUncertain();
     logUnexpected("chat.channel.settings_update", member.memberId, error);
     return { status: "error", message: "Не удалось подтвердить сохранение настроек. Обновите группу и проверьте результат перед повторным изменением.", fieldErrors: {}, entityId: null };
   }

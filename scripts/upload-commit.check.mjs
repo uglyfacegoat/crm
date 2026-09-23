@@ -39,11 +39,12 @@ const removeDocumentFile = mock.fn();
 const FileWritesPausedError = class extends Error {};
 const FileWriteLeaseLostError = class extends Error {};
 const withFileWriteLease = mock.fn(async (operation) => operation());
+const markFileWriteUncertain = mock.fn();
 mock.module("next/cache.js", { namedExports: { revalidatePath } });
 mock.module(new URL("server/auth/config.ts", sourceRoot), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", sourceRoot), { namedExports: { requireSession: async () => ({ organizationId: "test-organization", memberId: "test-member" }) } });
 mock.module(new URL("server/file-writes/gate.mjs", sourceRoot), { namedExports: {
-  FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease,
+  FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease,
 } });
 mock.module(new URL("server/documents/repository.ts", sourceRoot), { namedExports: { ...documentFunctions, ...documentErrors } });
 mock.module(new URL("server/finance/repository.ts", sourceRoot), { namedExports: { ...financeFunctions, ...financeErrors } });
@@ -77,7 +78,7 @@ test("file mutations distinguish persistence from post-commit cache failures", a
   t.after(async () => { await rm(directory, { recursive: true, force: true }); mock.restoreAll(); hooks.deregister(); });
   t.beforeEach(async () => {
     await rm(path, { force: true });
-    for (const fn of [...Object.values(documentFunctions), ...Object.values(financeFunctions), revalidatePath, writeDocumentFile, removeDocumentFile, withFileWriteLease, log]) {
+    for (const fn of [...Object.values(documentFunctions), ...Object.values(financeFunctions), revalidatePath, writeDocumentFile, removeDocumentFile, withFileWriteLease, markFileWriteUncertain, log]) {
       fn.mock.resetCalls();
       fn.mock.mockImplementation(async () => undefined);
     }
@@ -106,6 +107,7 @@ test("file mutations distinguish persistence from post-commit cache failures", a
       assert.equal(persist.mock.callCount(), 1);
       assert.deepEqual(await readFile(path), content);
       assert.equal(removeDocumentFile.mock.callCount(), 0);
+      assert.equal(markFileWriteUncertain.mock.callCount(), 0);
     });
     for (const failAt of [1, 2]) {
       await t.test(`${name}: revalidation failure ${failAt} never deletes committed bytes`, async () => {
@@ -131,6 +133,7 @@ test("file mutations distinguish persistence from post-commit cache failures", a
       assert.equal(revalidatePath.mock.callCount(), 0);
       assert.equal(removeDocumentFile.mock.callCount(), 1);
       await assert.rejects(readFile(path), { code: "ENOENT" });
+      assert.equal(markFileWriteUncertain.mock.callCount(), 0);
     });
     await t.test(`${name}: unknown transaction outcome retains evidence without claiming success or rollback`, async () => {
       persist.mock.mockImplementation(async () => { throw new Error("Connection lost while receiving COMMIT response"); });
@@ -141,6 +144,14 @@ test("file mutations distinguish persistence from post-commit cache failures", a
       assert.equal(removeDocumentFile.mock.callCount(), 0);
       assert.deepEqual(await readFile(path), content);
       assert.equal(log.mock.callCount(), 1);
+      assert.equal(markFileWriteUncertain.mock.callCount(), 1);
+    });
+    await t.test(`${name}: failed rollback cleanup retains an unresolved operation`, async () => {
+      persist.mock.mockImplementation(async () => { throw rollbackError; });
+      removeDocumentFile.mock.mockImplementation(async () => { throw new Error("Storage cleanup unavailable"); });
+      assert.equal((await action(previous, form())).status, "error");
+      assert.deepEqual(await readFile(path), content);
+      assert.equal(markFileWriteUncertain.mock.callCount(), 1);
     });
     await t.test(`${name}: another request's existing file is never removed`, async () => {
       await writeFile(path, content);

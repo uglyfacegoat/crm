@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
+import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -77,9 +77,10 @@ async function uploadDocumentTemplateActionImpl(
       return { status: "error", message: "Эта загрузка ещё обрабатывается. Подождите и повторите.", fieldErrors: {} };
     }
     if (storageKey && fileWritten && error instanceof AuthorizationError) {
-      try { await removeDocumentFile(storageKey); } catch (cleanupError) { unexpected("document_templates.upload.cleanup", member.memberId, cleanupError); }
+      try { await removeDocumentFile(storageKey); } catch (cleanupError) { markFileWriteUncertain(); unexpected("document_templates.upload.cleanup", member.memberId, cleanupError); }
     }
     if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для публикации шаблона.", fieldErrors: {} };
+    markFileWriteUncertain();
     unexpected("document_templates.upload", member.memberId, error);
     return { status: "error", message: "Не удалось подтвердить публикацию шаблона. Обновите список и проверьте результат перед повторной загрузкой.", fieldErrors: {} };
   }

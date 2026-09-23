@@ -21,6 +21,12 @@ export async function recordFileWriteKey(storageKey) {
     SET storage_keys = CASE WHEN ${storageKey} = ANY(storage_keys) THEN storage_keys ELSE array_append(storage_keys, ${storageKey}) END
     WHERE id = ${operation.id} RETURNING id`;
   if (rows.length !== 1) throw new FileWriteLeaseLostError();
+  operation.hasFileAttempt = true;
+}
+
+export function markFileWriteUncertain() {
+  const operation = activeOperation.getStore();
+  if (operation?.hasFileAttempt) operation.uncertain = true;
 }
 function pool() {
   if (!gatePool) {
@@ -38,6 +44,7 @@ export async function withFileWriteLease(work) {
   const operationId = randomUUID();
   let locked = false;
   let registered = false;
+  const operation = { connection, id: operationId, hasFileAttempt: false, uncertain: false };
   let failure;
   try {
     await connection`SET statement_timeout = '30000ms'`;
@@ -47,14 +54,14 @@ export async function withFileWriteLease(work) {
     if (state?.accepting !== true) throw new FileWritesPausedError();
     await connection`INSERT INTO file_write_operations (id) VALUES (${operationId})`;
     registered = true;
-    return await activeOperation.run({ connection, id: operationId }, work);
+    return await activeOperation.run(operation, work);
   } catch (error) {
     failure = error;
     throw error;
   } finally {
     const cleanupErrors = [];
     try {
-      if (registered) await connection`DELETE FROM file_write_operations WHERE id = ${operationId}`;
+      if (registered && !operation.uncertain) await connection`DELETE FROM file_write_operations WHERE id = ${operationId}`;
     } catch (error) {
       cleanupErrors.push(error);
     }

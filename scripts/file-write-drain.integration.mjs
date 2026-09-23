@@ -19,7 +19,7 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
   const sql = postgres(databaseUrl, { max: 1 });
   const previousUrl = process.env.DATABASE_URL;
   process.env.DATABASE_URL = databaseUrl;
-  const { withFileWriteLease, recordFileWriteKey, FileWritesPausedError, closeFileWriteGate } = await import("../src/server/file-writes/gate.mjs");
+  const { withFileWriteLease, recordFileWriteKey, markFileWriteUncertain, FileWritesPausedError, closeFileWriteGate } = await import("../src/server/file-writes/gate.mjs");
   t.after(async () => {
     if (previousUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousUrl;
@@ -86,6 +86,18 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
   }
   assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
   assert.equal(await withFileWriteLease(async () => "accepted"), "accepted");
+
+  assert.equal(await withFileWriteLease(async () => {
+    await recordFileWriteKey("tenant/uncertain/v1.pdf");
+    markFileWriteUncertain();
+    return "outcome unknown";
+  }), "outcome unknown");
+  const uncertainPause = await setFileWriteMode({ databaseUrl, mode: "pause" });
+  assert.equal(uncertainPause.drained, false, "A handled uncertain outcome must retain its operation row");
+  assert.deepEqual((await setFileWriteMode({ databaseUrl, mode: "inspect" })).operations[0].storageKeys, ["tenant/uncertain/v1.pdf"]);
+  await assert.rejects(setFileWriteMode({ databaseUrl, mode: "resume" }), /unresolved file write/);
+  await sql`DELETE FROM file_write_operations`;
+  await setFileWriteMode({ databaseUrl, mode: "resume" });
 
   const holder = spawn(process.execPath, ["scripts/fixtures/file-lease-holder.mjs"], {
     env: { ...process.env, DATABASE_URL: databaseUrl }, stdio: ["ignore", "pipe", "pipe"],

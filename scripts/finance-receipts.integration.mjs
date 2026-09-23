@@ -40,7 +40,7 @@ const templateActions = await import("../src/app/(workspace)/settings/template-a
 const chatActions = await import("../src/app/(workspace)/chat/actions.ts");
 const { AuthorizationError } = await import("../src/server/auth/permissions.ts");
 const storage = await import("../src/server/documents/storage.ts");
-const { closeFileWriteGate } = await import("../src/server/file-writes/gate.mjs");
+const { closeFileWriteGate, withFileWriteLease } = await import("../src/server/file-writes/gate.mjs");
 const previous = { status: "idle", message: null, fieldErrors: {} };
 const content = Buffer.from("%PDF-1.4\nFinance receipt evidence\n");
 
@@ -127,6 +127,11 @@ test("uploads retain committed bytes and finance retries preserve file ownership
     assert.deepEqual(await storage.readVerifiedDocumentFile(version.storage_key, { sizeBytes: Number(version.size_bytes), sha256: version.sha256 }, 1024), content);
   }
 
+  async function assertUnresolvedKey(connection, key) {
+    const rows = await connection`SELECT id FROM file_write_operations WHERE ${key} = ANY(storage_keys)`;
+    assert.equal(rows.length, 1, "Unknown COMMIT must retain a durable file-operation row");
+  }
+
   for (const [kind, action, table] of [
     ["payment", actions.createPaymentAction, "order_payments"],
     ["payout", actions.createPayoutAction, "order_master_payouts"],
@@ -188,6 +193,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
         assert.match(result.message, /Не удалось подтвердить/);
         assert.equal(revalidatePath.mock.callCount(), 0);
         assert.equal(log.mock.callCount(), 1);
+        await assertUnresolvedKey(directSql, submission.key);
 
         // Observe persistence through an independent connection, not the proxy.
         sql = directSql;
@@ -336,6 +342,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
         assert.match(result.message, /Не удалось подтвердить/);
         assert.equal(revalidatePath.mock.callCount(), 0);
         assert.equal(log.mock.callCount(), 1);
+        await assertUnresolvedKey(directSql, storage.createDocumentVersionStorageKey(own.member.organizationId, documentId, versionUpload ? 2 : 1, "pdf"));
         await assertHistory();
         assert.equal((await action(previous, payload)).status, "success");
         await assertHistory();
@@ -390,7 +397,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
           if (kind === "chat avatar") {
             parentId = channel.id;
             previousAvatarKey = storage.createChatChannelAvatarStorageKey(own.member.organizationId, channel.id, 1, "png");
-            await storage.writeDocumentFile(previousAvatarKey, png);
+            await withFileWriteLease(() => storage.writeDocumentFile(previousAvatarKey, png));
             await sql`INSERT INTO chat_channel_avatars (organization_id, channel_id, storage_key, mime_type, size_bytes, sha256, uploaded_by)
               VALUES (${own.member.organizationId}, ${channel.id}, ${previousAvatarKey}, 'image/png', ${png.length},
                 ${createHash("sha256").update(png).digest("hex")}, ${own.member.memberId})`;
@@ -430,6 +437,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
             assert.equal(result.status, "error");
             assert.match(result.message, /Не удалось подтвердить/);
             assert.equal(revalidatePath.mock.callCount(), 0);
+            await assertUnresolvedKey(directSql, key);
           } else {
             assert.equal(result.status, "success", result.message);
             assert.equal(result.refreshRequired, true);

@@ -11,7 +11,10 @@ same. A recorded key does not prove that the bytes were written or committed.
 Each of the nine interactive upload
 paths, plus the local example seed, acquires a PostgreSQL shared advisory lock, checks the flag, inserts its
 operation row, and holds the lock through file I/O, business commit or rollback,
-and owned-file cleanup. A paused upload receives a specific user-facing error
+and owned-file cleanup. When an action cannot confirm persistence, or owned-file
+cleanup fails, it marks the attempt uncertain; the durable row is retained
+after the lease unlocks and later blocks a false successful drain. A normal
+confirmed commit or completed rollback removes its row. A paused upload receives a specific user-facing error
 before writing bytes. Text-only chat and finance operations without receipts
 continue. The gate uses a separate bounded pool so an operation cannot consume
 all connections needed for its own business transaction.
@@ -37,10 +40,13 @@ pause waits for two concurrent operations, rejects a new write and the local
 example seed, persists across new
 connections, rejects a writer started in a fresh process while paused, and
 remains undrained after a process crash or termination of
-the lease's database connection. It also pages through 101 unresolved rows
+the lease's database connection. A handled unknown outcome also retains its
+row and blocks `resume`. It pages through 101 unresolved rows
 without silently omitting the final record. The existing action tests cover a user-facing
 pause response before storage I/O, and the receipt integration suite still
-covers actual database commits and lost COMMIT acknowledgements. The new test
+covers actual database commits and lost COMMIT acknowledgements; all nine
+file-action paths now assert a durable unresolved key after a lost COMMIT.
+Source action tests also cover failed rollback cleanup. The new test
 is included in CI configuration; remote CI execution has not been observed.
 The keyed production image was started with all 56 migrations on a disposable
 PostgreSQL database. Its HTTP health endpoint and packaged

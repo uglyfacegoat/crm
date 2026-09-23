@@ -7,6 +7,15 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 20:00 MSK:** fixed a drain gap: a handled unknown COMMIT outcome
+  or failed owned-file cleanup now retains its keyed operation row after the
+  lease ends. PostgreSQL lease test confirms `pause` stays undrained and
+  `resume` refuses; 28 receipt/commit integration checks assert retained rows
+  for all nine file-action paths. Action tests cover failed cleanup (47+44
+  TAP), 200 unit tests, typecheck, lint and production build pass. After the
+  source fix, both local and S3 standalone browser suites again passed 18
+  submissions, nine warning states and the paused-upload check. This is still
+  source acceptance; working containers and migration count are unchanged.
 - **2026-09-23 19:52 MSK:** FS-02/03 inspection now pages through every
   unresolved row with an ID cursor; the PostgreSQL test covers 101 rows and
   a fresh writer process rejected while paused. Disposable-browser acceptance

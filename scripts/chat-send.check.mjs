@@ -35,6 +35,7 @@ mock.module(new URL("server/auth/session.ts", sourceRoot), { namedExports: { req
 mock.module(new URL("server/file-writes/gate.mjs", sourceRoot), { namedExports: {
   FileWriteLeaseLostError: class extends Error {},
   FileWritesPausedError: class extends Error {},
+  markFileWriteUncertain: () => {},
   withFileWriteLease: async (operation) => operation(),
 } });
 mock.module(new URL("server/chat/repository.ts", sourceRoot), { namedExports: { ...functions, ...errors } });

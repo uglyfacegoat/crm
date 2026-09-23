@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
+import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -116,6 +116,7 @@ async function removeUncommittedReceipt(receipt: FinanceReceiptFile | null) {
   try {
     await removeDocumentFile(receipt.storageKey);
   } catch (error) {
+    markFileWriteUncertain();
     console.error(JSON.stringify({ operation: "finance.receipt.cleanup", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
   }
 }
@@ -170,6 +171,7 @@ async function createPaymentActionImpl(_previous: FinanceActionState, formData: 
       await removeUncommittedReceipt(receipt);
       return { ...emptyState, status: "error", message: known };
     }
+    markFileWriteUncertain();
     logUnexpected("finance.payment.create", member.memberId, error);
     return { ...emptyState, status: "error", message: "Не удалось подтвердить оплату. Обновите историю оплат и проверьте результат перед повторной отправкой." };
   }
@@ -206,6 +208,7 @@ async function createPayoutActionImpl(_previous: FinanceActionState, formData: F
       await removeUncommittedReceipt(receipt);
       return { ...emptyState, status: "error", message: known };
     }
+    markFileWriteUncertain();
     logUnexpected("finance.payout.create", member.memberId, error);
     return { ...emptyState, status: "error", message: "Не удалось подтвердить выплату. Обновите историю выплат и проверьте результат перед повторной отправкой." };
   }
