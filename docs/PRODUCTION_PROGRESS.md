@@ -7,6 +7,16 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, FS-09 disposable cutover rehearsal:** after the forward
+  five-file transfer and independent local/S3 audits, a built standalone web
+  served both historical document versions, the current version and ZIP over
+  authenticated HTTP in local mode, then again in S3 mode on the same
+  disposable database. The packaged backup worker read S3, recorded verified
+  counts for all four reference families and produced an archive on a private
+  Docker volume. A separate container restored and checked that archive.
+  The source test later exercised the existing S3 → local rollback with a new
+  referenced S3 version. This is a candidate rehearsal, not the installed
+  web/worker cutover or chosen-provider acceptance.
 - **2026-09-23, FS-11 failure checks (source candidate):** S3 reads now have
   explicit disposable-server tests for an unavailable endpoint and a response
   interrupted after one byte; neither returns a file. Backup snapshot staging

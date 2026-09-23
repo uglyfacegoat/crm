@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { DeleteObjectCommand, PutBucketVersioningCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { unzipSync } from "fflate";
 import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
@@ -18,7 +21,7 @@ import { inspectStorageTransfer, transferDocumentStorage } from "./storage-trans
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
 
-test("storage transfer resumes all retained references in both directions without replacing conflicting bytes", { timeout: 30_000 }, async (t) => {
+test("storage transfer resumes all retained references in both directions without replacing conflicting bytes", { timeout: 90_000 }, async (t) => {
   const admin = postgres(adminUrl, { max: 1 });
   const name = `crm_storage_transfer_test_${randomUUID().replaceAll("-", "")}`;
   const storageRoot = await mkdtemp(join(tmpdir(), "crm-transfer-local-"));
@@ -139,6 +142,127 @@ test("storage transfer resumes all retained references in both directions withou
   assert.equal(localAuditAfterForward.hasFindings, false);
   assert.equal(s3AuditAfterForward.hasFindings, false);
   await assert.rejects(sql`DELETE FROM file_storage_transfers WHERE id = ${forwardId}`, /append-only/);
+
+  if (process.env.STORAGE_CUTOVER_TEST_RUNTIME && process.env.STORAGE_CUTOVER_TEST_IMAGE) {
+    await t.test("web and backup worker switch together and restore the same historical bytes", async () => {
+      const dockerAdminUrl = process.env.STORAGE_CUTOVER_TEST_DOCKER_ADMIN_URL;
+      if (!dockerAdminUrl) throw new Error("Set STORAGE_CUTOVER_TEST_DOCKER_ADMIN_URL for the disposable database reachable from Docker.");
+      const dockerDatabaseUrl = new URL(dockerAdminUrl);
+      dockerDatabaseUrl.pathname = `/${name}`;
+      const portServer = createServer();
+      await new Promise(resolved => portServer.listen(0, "127.0.0.1", resolved));
+      const port = portServer.address().port;
+      await new Promise(resolved => portServer.close(resolved));
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const loginEmail = `cutover-${randomUUID()}@example.invalid`;
+      const loginPassword = randomBytes(32).toString("hex");
+      const adminCreation = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/create-member.ts"], {
+        env: { ...process.env, DATABASE_URL: databaseUrl, AUTH_MEMBER_ORGANIZATION_ID: organization.id,
+          AUTH_MEMBER_NAME: "Cutover tester", AUTH_MEMBER_EMAIL: loginEmail,
+          AUTH_MEMBER_PASSWORD: loginPassword, AUTH_MEMBER_ROLE: "admin" },
+        encoding: "utf8", timeout: 30_000,
+      });
+      assert.equal(adminCreation.status, 0, adminCreation.stderr);
+      const webEnvironment = {
+        ...process.env, DATABASE_URL: databaseUrl, NODE_ENV: "production", AUTH_MODE: "required",
+        AUTH_THROTTLE_SECRET: randomBytes(32).toString("hex"), CRM_ALLOWED_ORIGINS: baseUrl,
+        AUTH_COOKIE_SECURE: "false", CRM_TRUST_PROXY: "false", CRM_WEBSITE_WEBHOOK_SECRET: randomBytes(32).toString("hex"),
+        DOCUMENT_STORAGE_ROOT: storageRoot, HOSTNAME: "127.0.0.1", PORT: String(port), NEXT_TELEMETRY_DISABLED: "1",
+      };
+      let web;
+      const startWeb = async (backend) => {
+        const environment = backend === "s3"
+          ? { ...webEnvironment, ...fixture.environment }
+          : { ...webEnvironment, DOCUMENT_STORAGE_BACKEND: "local" };
+        web = spawn(process.execPath, [resolve(process.env.STORAGE_CUTOVER_TEST_RUNTIME)], {
+          env: environment, stdio: ["ignore", "ignore", "pipe"],
+        });
+        let errors = "";
+        web.stderr.on("data", chunk => { errors = `${errors}${chunk}`.slice(-2000); });
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          if (web.exitCode !== null || web.signalCode !== null) throw new Error(`Cutover web exited before ready: ${errors}`);
+          try {
+            if ((await fetch(`${baseUrl}/api/v1/system/health`, { signal: AbortSignal.timeout(1000) })).ok) return;
+          } catch { /* Wait for the disposable server to bind. */ }
+          await new Promise(done => setTimeout(done, 100));
+        }
+        throw new Error(`Cutover web startup timed out: ${errors}`);
+      };
+      const stopWeb = async () => {
+        if (web && web.exitCode === null && web.signalCode === null) {
+          const exit = once(web, "exit");
+          web.kill("SIGTERM");
+          await exit;
+        }
+        web = undefined;
+      };
+      const verifyHttpFiles = async () => {
+        const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
+          method: "POST", headers: { origin: baseUrl, "content-type": "application/json" },
+          body: JSON.stringify({ identity: loginEmail, password: loginPassword }),
+        });
+        assert.equal(login.status, 200);
+        const cookie = login.headers.get("set-cookie")?.split(";", 1)[0];
+        assert.ok(cookie);
+        const headers = { cookie, origin: baseUrl };
+        const versions = await sql`SELECT id, version_number FROM document_versions WHERE document_id = ${documentId} ORDER BY version_number`;
+        for (const version of versions) {
+          const response = await fetch(`${baseUrl}/api/v1/documents/${documentId}/versions/${version.id}/download`, { headers });
+          assert.equal(response.status, 200);
+          assert.deepEqual(Buffer.from(await response.arrayBuffer()), original.find(item => item.fields.document_id === documentId && item.fields.version_number === version.version_number).bytes);
+        }
+        const latest = original.find(item => item.fields.document_id === documentId && item.fields.version_number === 2).bytes;
+        const current = await fetch(`${baseUrl}/api/v1/documents/${documentId}/download`, { headers });
+        assert.equal(current.status, 200);
+        assert.deepEqual(Buffer.from(await current.arrayBuffer()), latest);
+        const exported = await fetch(`${baseUrl}/api/v1/documents/export`, {
+          method: "POST", headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ documentIds: [documentId] }),
+        });
+        assert.equal(exported.status, 200);
+        const files = Object.values(unzipSync(new Uint8Array(await exported.arrayBuffer())));
+        assert.equal(files.length, 1);
+        assert.deepEqual(Buffer.from(files[0]), latest);
+      };
+      const volume = `crm-cutover-backup-${randomUUID()}`;
+      try {
+        const [latestVersion] = await sql`SELECT id FROM document_versions WHERE document_id = ${documentId} AND version_number = 2`;
+        await sql`UPDATE documents SET archived_at = NULL, current_version_id = ${latestVersion.id} WHERE id = ${documentId}`;
+        await startWeb("local");
+        await verifyHttpFiles();
+        await stopWeb();
+        await startWeb("s3");
+        await verifyHttpFiles();
+        const createdVolume = spawnSync("docker", ["volume", "create", volume], { encoding: "utf8" });
+        assert.equal(createdVolume.status, 0, createdVolume.stderr);
+        const ownership = spawnSync("docker", ["run", "--rm", "--mount", `type=volume,source=${volume},target=/app/backups`,
+          "--user", "root", "--entrypoint", "chown", process.env.STORAGE_CUTOVER_TEST_IMAGE, "1001:1001", "/app/backups"], { encoding: "utf8" });
+        assert.equal(ownership.status, 0, ownership.stderr);
+        const workerEnvironment = { ...process.env, DATABASE_URL: dockerDatabaseUrl.toString(),
+          ...fixture.environment, DOCUMENT_S3_ENDPOINT: "http://127.0.0.1:9000",
+          DOCUMENT_STORAGE_ROOT: "/app/storage", BACKUP_ROOT: "/app/backups" };
+        const workerKeys = ["DATABASE_URL", ...Object.keys(fixture.environment), "DOCUMENT_STORAGE_ROOT", "BACKUP_ROOT"];
+        const runWorker = (command, args = []) => spawnSync("docker", ["run", "--rm", "--network", `container:${fixture.containerName}`,
+          "--mount", `type=volume,source=${volume},target=/app/backups`,
+          ...workerKeys.flatMap(key => ["--env", key]), "--entrypoint", "node",
+          process.env.STORAGE_CUTOVER_TEST_IMAGE, command, ...args],
+        { env: workerEnvironment, encoding: "utf8", timeout: 120_000 });
+        const backup = runWorker("scripts/backup-worker.mjs", ["--run-once"]);
+        assert.equal(backup.status, 0, backup.stderr);
+        const [result] = await sql`SELECT status, last_result FROM background_job_status WHERE job_name = 'system.backup'`;
+        assert.equal(result.status, "succeeded");
+        assert.deepEqual(result.last_result.verifiedFileCounts, completedForward.referenceCounts);
+        const restore = runWorker("scripts/backup-restore-check.mjs", ["--verify-only"]);
+        assert.equal(restore.status, 0, restore.stderr);
+        const restoreResult = JSON.parse(restore.stdout);
+        assert.deepEqual(restoreResult.verifiedFileCounts, completedForward.referenceCounts);
+      } finally {
+        await stopWeb();
+        await sql`UPDATE documents SET archived_at = now() WHERE id = ${documentId}`;
+        spawnSync("docker", ["volume", "rm", "--force", volume], { stdio: "ignore" });
+      }
+    });
+  }
 
   await fixture.client.send(new PutBucketVersioningCommand({ Bucket: fixture.bucket,
     VersioningConfiguration: { Status: "Enabled" } }));

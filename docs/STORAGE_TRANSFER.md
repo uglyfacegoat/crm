@@ -62,3 +62,15 @@ each backend, including the paused-upload message; S3 backup staging verified
 the same four reference families. These runs used disposable databases.
 Working-volume, chosen-provider and coordinated cutover/rollback acceptance
 remain open.
+
+For a disposable coordinated rehearsal, build and copy the standalone static
+assets, set `MIGRATION_TEST_ADMIN_URL` to a test PostgreSQL administrator,
+`STORAGE_CUTOVER_TEST_DOCKER_ADMIN_URL` to that same administrator address as
+reachable from a container, `STORAGE_CUTOVER_TEST_RUNTIME` to the built
+`server.js`, and `STORAGE_CUTOVER_TEST_IMAGE` to the matching production image.
+Then run `npm run test:storage-cutover`. It creates and removes its own
+database, MinIO fixture and private backup volume. It verifies authenticated
+historical/current downloads and ZIP before and after the web backend switch,
+then runs the packaged S3 backup worker and checks the archive from a separate
+container. This does not switch the installed CRM or substitute for acceptance
+against the selected provider.

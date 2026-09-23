@@ -14,6 +14,7 @@
     "test:file-s3-export": "node --test scripts/file-write-s3-export.integration.mjs",
     "test:file-s3-quarantine": "node --test scripts/file-write-s3-quarantine.integration.mjs",
     "test:storage-transfer": "node --test scripts/storage-transfer.integration.mjs",
+    "test:storage-cutover": "node scripts/storage-cutover-check.mjs",
     "test:backup-restore": "node --test scripts/backup-restore.integration.mjs",
     "test:request-limits": "node --experimental-test-module-mocks --test scripts/request-limits.integration.mjs",
     "test:startup": "node --test scripts/startup.integration.mjs",
