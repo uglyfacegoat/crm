@@ -106,8 +106,26 @@ try {
   let warningResponse = null;
   let replaced = 0;
   let interceptionError = null;
+  let duplicateDocumentPost = false;
+  let duplicateDocumentResponse = null;
   // This injects the already-tested action state, not a backend cache failure.
   await page.route("**/*", async (route) => {
+    if (duplicateDocumentPost && route.request().method() === "POST" && route.request().headers()["next-action"]
+      && new URL(route.request().url()).pathname === "/documents") {
+      duplicateDocumentPost = false;
+      try {
+        const [response, duplicate] = await Promise.all([
+          route.fetch(),
+          archiveClient.post(route.request().url(), {
+            data: route.request().postDataBuffer(),
+            headers: route.request().headers(),
+          }),
+        ]);
+        duplicateDocumentResponse = { status: duplicate.status(), body: await duplicate.text() };
+        await route.fulfill({ response });
+      } catch (error) { interceptionError = error; await route.abort(); }
+      return;
+    }
     if (!warningResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
     const expected = warningResponse;
     warningResponse = null;
@@ -188,7 +206,26 @@ try {
     await dialog.locator('input[name="title"]').fill(`Upload ${suffix}`);
     await dialog.locator('input[name="file"]').setInputFiles({ name: "document.pdf", mimeType: "application/pdf", buffer: documentBytes });
     const documentId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
-    await submit(dialog, "Загрузить документ", warn ? { saved: "Документ сохранён в архиве.", warning: "Документ сохранён, но страницу не удалось обновить. Обновите её вручную." } : null, "document-warning.png");
+    if (!warn) duplicateDocumentPost = true;
+    if (warn) {
+      await submit(dialog, "Загрузить документ", { saved: "Документ сохранён в архиве.", warning: "Документ сохранён, но страницу не удалось обновить. Обновите её вручную." }, "document-warning.png");
+    } else {
+      await dialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+      await page.waitForTimeout(1_300);
+      if (await dialog.isVisible()) {
+        assert.match(await dialog.getByRole("status").innerText(), /загрузка ещё обрабатывается|Документ уже загружен/i);
+        await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+      }
+    }
+    if (!warn) {
+      if (interceptionError) throw interceptionError;
+      assert.ok(duplicateDocumentResponse, "Concurrent duplicate POST must run");
+      assert.equal(duplicateDocumentResponse.status, 200);
+      assert.match(duplicateDocumentResponse.body, /Документ уже загружен|загрузка ещё обрабатывается|Документ сохранён в архиве/);
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE organization_id = ${member.organization_id} AND id = ${documentId}`)[0].count, 1);
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE organization_id = ${member.organization_id} AND document_id = ${documentId}`)[0].count, 1);
+    }
     await verifyVersion(documentId, 1, documentBytes);
     await page.goto(`${baseUrl}/documents?document=${documentId}`);
     await page.getByRole("button", { name: "Новая версия", exact: true }).click();
