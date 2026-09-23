@@ -11,12 +11,14 @@ try {
   const fixture = await startS3Fixture();
   try {
     const environment = {
-      ...process.env, ...fixture.environment, DOCUMENT_S3_ENDPOINT: "http://127.0.0.1:9000",
-      BACKUP_TEST_ADMIN_URL: database.dockerAdminUrl, BACKUP_TEST_S3: "true",
+      ...process.env, ...fixture.environment,
+      DOCUMENT_S3_ENDPOINT: process.platform === "linux" ? fixture.endpoint : "http://127.0.0.1:9000",
+      BACKUP_TEST_ADMIN_URL: process.platform === "linux" ? database.adminUrl : database.dockerAdminUrl,
+      BACKUP_TEST_S3: "true",
     };
     const keys = [...Object.keys(fixture.environment), "BACKUP_TEST_ADMIN_URL", "BACKUP_TEST_S3"];
     const child = spawn("docker", [
-      "run", "--rm", "--network", `container:${fixture.containerName}`,
+      "run", "--rm", "--network", process.platform === "linux" ? "host" : `container:${fixture.containerName}`,
       "--mount", `type=bind,source=${resolve("scripts/backup-restore.integration.mjs")},target=/app/scripts/backup-restore.integration.mjs,readonly`,
       ...keys.flatMap(key => ["--env", key]), "--entrypoint", "node", image, "--test", "scripts/backup-restore.integration.mjs",
     ], { env: environment, stdio: "inherit" });

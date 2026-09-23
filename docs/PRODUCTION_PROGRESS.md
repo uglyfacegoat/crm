@@ -7,6 +7,20 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, REL-01 local build:** nine empty, generated `.next` directories
+  with anomalous link counts were removed. Two consecutive host `npm run build`
+  commands completed in about five and three seconds without recreating them.
+  No source or company data was removed. GitHub quality then found two download
+  tests writing fixtures through the now lease-protected business API; both
+  tests use direct writes into a disposable directory and pass locally (8 and
+  20 TAP checks), as do lint and typecheck.
+- **2026-09-23, first remote CI run:** all five jobs started; the dependency
+  scan passed. The other failures exposed missing checked-in HTTPS Compose
+  configuration, an uncreated empty storage directory in the HTTP job, and
+  a Linux Docker host-network difference in the packaged S3 test. The
+  storage-directory fix is in the workflow; the S3 runner now uses host
+  networking on Linux and retains the verified Docker Desktop path on macOS.
+  The macOS packaged S3 suite still passes all 21 checks. HTTPS remains open.
 - **2026-09-23, REL-02 CI validation:** authenticated read-only GitHub CLI
   access through the existing Git credential found failed push runs with no
   jobs. `actionlint` identified the invalid job-level `runner.temp` context;

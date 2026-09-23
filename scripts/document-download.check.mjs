@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { mock, test } from "node:test";
 import { unzipSync, zipSync, strToU8 } from "fflate";
 import { AuthorizationError } from "../src/server/auth/permissions.ts";
@@ -61,7 +61,9 @@ test("all document readers bound file allocation and preserve access checks", as
     clientId: randomUUID(), clientName: "Клиент", objectId: randomUUID(), objectName: "Объект", orderNumber: "1001", category: "act",
   };
   file.storageKey = storage.createDocumentStorageKey(member.organizationId, file.documentId, "pdf");
-  await storage.writeDocumentFile(file.storageKey, bytes);
+  const fixturePath = join(directory, file.storageKey);
+  await mkdir(dirname(fixturePath), { recursive: true });
+  await writeFile(fixturePath, bytes, { flag: "wx" });
   const context = { params: Promise.resolve({ id: file.documentId, versionId: file.id }) };
   const endpoints = [
     ["document", download, getDocumentDownload, DocumentNotFoundError, 15 * 1024 * 1024],
@@ -135,7 +137,7 @@ test("all document readers bound file allocation and preserve access checks", as
       "word/document.xml": strToU8('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>&lt;script&gt;private&lt;/script&gt;</w:t></w:r></w:p></w:body></w:document>'),
     }));
     const document = { ...file, filename: "Акт.docx", mimeType: docxMime, sizeBytes: content.length, sha256: createHash("sha256").update(content).digest("hex"), storageKey: storage.createDocumentStorageKey(member.organizationId, file.documentId, "docx") };
-    await storage.writeDocumentFile(document.storageKey, content);
+    await writeFile(join(directory, document.storageKey), content, { flag: "wx" });
     getDocumentDownload.mock.mockImplementation(async () => document);
     const response = await send(preview);
     assert.equal(response.status, 200);

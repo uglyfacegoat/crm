@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { mock, test } from "node:test";
 import { AuthorizationError } from "../src/server/auth/permissions.ts";
 
@@ -42,7 +42,9 @@ test("chat download preserves authorization, range semantics and bounded integri
   const member = { memberId: randomUUID(), organizationId: randomUUID() };
   const attachment = { id: randomUUID(), filename: "запись.wav", mimeType: "audio/wav", sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
   attachment.storageKey = storage.createChatAttachmentStorageKey(member.organizationId, attachment.id, "wav");
-  await storage.writeDocumentFile(attachment.storageKey, bytes);
+  const fixturePath = join(directory, attachment.storageKey);
+  await mkdir(dirname(fixturePath), { recursive: true });
+  await writeFile(fixturePath, bytes, { flag: "wx" });
   const context = { params: Promise.resolve({ id: attachment.id }) };
   const send = (headers = {}, method = "GET") => (method === "HEAD" ? HEAD : GET)(new Request("http://localhost/file", { headers, method }), context);
   t.beforeEach(() => {

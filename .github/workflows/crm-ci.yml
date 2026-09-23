@@ -179,7 +179,7 @@ jobs:
       - run: npx playwright-core install --with-deps chromium
       - name: Start production server and verify HTTP behavior
         run: |
-          mkdir -p artifacts
+          mkdir -p artifacts "$DOCUMENT_STORAGE_ROOT"
           cp -R .next/static .next/standalone/.next/static
           cp -R public .next/standalone/public
           HOSTNAME=127.0.0.1 PORT=3100 node .next/standalone/server.js > artifacts/ci-server.log 2>&1 &
