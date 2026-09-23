@@ -28,6 +28,7 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
   const filtered = remoteSearch
     ? searchResponse?.type === activeType && searchResponse.query === searchTerm ? searchResponse.data : []
     : options.filter((option) => option.type === activeType && matchesSearchText(searchTerm, [option.title, option.subtitle, option.statusLabel, ...option.meta]));
+  const searchPending = remoteSearch && !searchError && (searching || searchResponse?.type !== activeType || searchResponse.query !== searchTerm);
 
   useEffect(() => {
     if (!open || !activeType || !remoteSearch) return;
@@ -88,7 +89,7 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => setSelectedType(type)}
+                      onClick={() => { setSelectedType(type); setSearchError(null); }}
                       className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] px-3 text-xs transition-colors ${active ? "bg-[var(--accent)] text-[var(--on-accent)] shadow-sm" : "text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
                     >
                       <ChatEntityIcon type={type} className="size-3.5" />
@@ -99,11 +100,11 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
               </div>
               <label className="mt-4 flex h-11 shrink-0 items-center gap-2 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3">
                 <Search className="size-4 text-[var(--muted)]" />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по всем доступным объектам" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-secondary)]" />
+                <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchError(null); }} placeholder="Поиск по всем доступным объектам" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-secondary)]" />
               </label>
               <p className="mt-2 text-[10px] text-[var(--muted)]">Сначала показаны последние объекты. Введите минимум 2 символа для поиска по всему реестру.</p>
               <div role="tabpanel" className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                {remoteSearch && searching ? <p role="status" className="py-3 text-xs text-[var(--muted)]">Ищу объекты…</p> : null}
+                {searchPending ? <p role="status" className="py-3 text-xs text-[var(--muted)]">Ищу объекты…</p> : null}
                 {remoteSearch && searchError ? <p role="alert" className="py-3 text-xs text-[var(--danger-ink)]">{searchError}</p> : null}
                 {filtered.map((entity) => {
                   const active = selected?.type === entity.type && selected.id === entity.id;
@@ -124,7 +125,7 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
                     </button>
                   );
                 })}
-                {!filtered.length && !searching && !searchError ? <div className="grid min-h-44 place-items-center rounded-[14px] border border-dashed border-[var(--line)] text-center"><div><Search className="mx-auto size-5 text-[var(--muted)]" /><p className="mt-3 text-xs text-[var(--text-secondary)]">Подходящих объектов нет</p><p className="mt-1 text-[10px] text-[var(--muted)]">Измените запрос или выберите другую вкладку.</p></div></div> : null}
+                {!filtered.length && !searchPending && !searchError ? <div className="grid min-h-44 place-items-center rounded-[14px] border border-dashed border-[var(--line)] text-center"><div><Search className="mx-auto size-5 text-[var(--muted)]" /><p className="mt-3 text-xs text-[var(--text-secondary)]">Подходящих объектов нет</p><p className="mt-1 text-[10px] text-[var(--muted)]">Измените запрос или выберите другую вкладку.</p></div></div> : null}
                 {remoteSearch && filtered.length === 20 ? <p className="py-2 text-center text-[10px] text-[var(--muted)]">Показаны первые 20 совпадений. Уточните запрос, чтобы найти остальные.</p> : null}
               </div>
             </>
