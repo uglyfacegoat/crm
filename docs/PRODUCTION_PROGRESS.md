@@ -8,12 +8,13 @@ The overall goal remains active; this document is not a declaration of productio
 ## Current evidence
 
 - **2026-09-23, SEC-04 test isolation candidate:** the transfer, cutover,
-  packaged S3 backup, full-staging-volume and main PostgreSQL integration npm
+  local/packaged backup restore, packaged S3 backup, full-staging-volume and main PostgreSQL integration npm
   commands now provision their own PostgreSQL 17 container with random credentials and a temporary data
   filesystem. They pass only its URLs to the test process and remove it on
   completion. The transfer and cutover commands also passed with deliberately
   invalid inherited admin URLs, proving their temporary URLs take precedence.
-  Migration, drain, recovery, quarantine, S3 export/quarantine, request-limit,
+  The packaged `test:backup-restore` path passed all 20 tests even with an
+  invalid inherited admin URL. Migration, drain, recovery, quarantine, S3 export/quarantine, request-limit,
   chat-access, finance-receipt, local/S3 audit and S3 upload-browser commands
   passed without using the CRM PostgreSQL server. Direct script invocation,
   remaining flow commands and dev/staging/production secret separation remain open.

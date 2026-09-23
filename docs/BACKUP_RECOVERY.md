@@ -116,9 +116,10 @@ gain a shared recovery-point guarantee retroactively.
 ## Automated checks
 
 `npm test` includes archive/file integrity unit tests. `npm run test:backup-restore`
-requires `BACKUP_TEST_ADMIN_URL` pointing to an isolated test PostgreSQL instance and
-PostgreSQL 17 client tools. Run the integration suite as the non-root runtime user:
-it also injects a permission failure into retention cleanup.
+starts and removes its own PostgreSQL 17 container. Set `BACKUP_RESTORE_TEST_IMAGE`
+to a built CRM runtime image to run the integration in Docker; without an image,
+the host needs `pg_dump`, `pg_restore` and `tar`. The packaged path runs as the
+non-root runtime user and also injects a permission failure into retention cleanup.
 
 The CI `backup-recovery` job builds the runtime image and tests its packaged scripts,
 not replacements mounted over the implementation. Only the test script is mounted.

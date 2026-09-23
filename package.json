@@ -15,7 +15,7 @@
     "test:file-s3-quarantine": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-s3-quarantine.integration.mjs",
     "test:storage-transfer": "node scripts/storage-transfer-check.mjs",
     "test:storage-cutover": "node scripts/storage-cutover-check.mjs",
-    "test:backup-restore": "node --test scripts/backup-restore.integration.mjs",
+    "test:backup-restore": "node scripts/backup-restore-test-check.mjs",
     "test:request-limits": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/request-limits.integration.mjs",
     "test:startup": "node --test scripts/startup.integration.mjs",
     "test:perimeter": "node scripts/perimeter-check.mjs",
