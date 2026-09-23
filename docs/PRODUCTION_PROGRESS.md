@@ -7,6 +7,14 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, FS-11 failure checks (source candidate):** S3 reads now have
+  explicit disposable-server tests for an unavailable endpoint and a response
+  interrupted after one byte; neither returns a file. Backup snapshot staging
+  removes a partial object file after a simulated `ENOSPC` write. The isolated
+  PostgreSQL test proves no dump begins, snapshot sessions close and a clean
+  retry copies all five references. `test:s3-storage` and the Docker-run
+  `backup-restore.integration.mjs` pass. A real full-volume test, packaged
+  worker run and chosen-provider acceptance remain open.
 - **2026-09-23, transfer follow-up acceptance:** the independent storage
   audit found no issues after forward copy (five references verified in both
   local and S3) or reverse copy (six in both). On a fresh standalone build,

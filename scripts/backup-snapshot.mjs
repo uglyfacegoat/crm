@@ -1,10 +1,10 @@
 import { constants } from "node:fs";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import postgres from "postgres";
 import { BACKUP_FILE_TABLES, validateFileReference, verifyRestoredFile } from "./backup-integrity.mjs";
 
-export async function withStorageSnapshot({ databaseUrl, storageRoot, objectStorage, stagingDirectory, copyTimeoutMs }, operation) {
+export async function withStorageSnapshot({ databaseUrl, storageRoot, objectStorage, stagingDirectory, copyTimeoutMs, stageObject = writeFile }, operation) {
   if (!Number.isSafeInteger(copyTimeoutMs) || copyTimeoutMs < 1000 || copyTimeoutMs > 120_000) {
     throw new Error("Backup snapshot copy timeout must be between 1000 and 120000 ms.");
   }
@@ -45,7 +45,14 @@ export async function withStorageSnapshot({ databaseUrl, storageRoot, objectStor
             await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
             if (objectStorage) {
               const bytes = await objectStorage.readVerified(expected.storageKey, expected, 15 * 1024 * 1024);
-              await writeFile(destination, bytes, { flag: "wx", mode: 0o600 });
+              try {
+                await stageObject(destination, bytes, { flag: "wx", mode: 0o600 });
+              } catch (error) {
+                // A full staging volume may leave a truncated file behind. Never let a
+                // later attempt mistake that file for a verified backup member.
+                if (error?.code !== "EEXIST") await rm(destination, { force: true });
+                throw error;
+              }
             } else {
               await verifyRestoredFile(storageRoot, reference);
               await copyFile(join(storageRoot, reference.storage_key), destination, constants.COPYFILE_EXCL);

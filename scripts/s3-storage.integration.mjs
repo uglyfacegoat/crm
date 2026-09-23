@@ -84,6 +84,30 @@ test("S3 preserves exclusive writes, private access and bounded verified reads",
       await new Promise(resolve => server.close(resolve));
     }
   });
+  await t.test("a truncated response never returns an empty or partial document", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-length": bytes.length });
+      response.write(bytes.subarray(0, 1), () => response.socket.end());
+    });
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const partial = createS3Storage({ ...fixture.environment, DOCUMENT_S3_ENDPOINT: `http://127.0.0.1:${server.address().port}` });
+    try {
+      await assert.rejects(partial.readVerified(storedKey, expected, 1024), { code: "ESTORAGE" });
+    } finally {
+      partial.close();
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+  await t.test("an unavailable endpoint fails explicitly without a local fallback", async () => {
+    const server = createServer();
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const endpoint = `http://127.0.0.1:${server.address().port}`;
+    await new Promise(resolve => server.close(resolve));
+    const offline = createS3Storage({ ...fixture.environment, DOCUMENT_S3_ENDPOINT: endpoint, DOCUMENT_S3_TIMEOUT_MS: "1000" });
+    try {
+      await assert.rejects(offline.readVerified(storedKey, expected, 1024), { code: "ESTORAGE" });
+    } finally { offline.close(); }
+  });
   await t.test("an unacknowledged write is not retried or cleaned up automatically", async () => {
     const operations = [];
     const server = createServer(async (request) => {

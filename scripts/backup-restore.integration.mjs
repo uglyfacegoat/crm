@@ -234,6 +234,36 @@ test("backup restores the full application schema and validates every retained f
       await writeFile(reference.path, reference.content);
     }
   });
+  await t.test("full S3 staging disk leaves no partial file and a later snapshot succeeds", async () => {
+    const stagingDirectory = join(root, "full-s3-staging");
+    const objectStorage = {
+      async readVerified(key) { return readFile(join(storage, key)); },
+    };
+    let dumped = false;
+    let partialPath;
+    await assert.rejects(withStorageSnapshot({
+      databaseUrl, storageRoot: join(root, "absent-local-source"), objectStorage,
+      stagingDirectory, copyTimeoutMs: 30_000,
+      async stageObject(path, bytes, options) {
+        partialPath = path;
+        await writeFile(path, bytes.subarray(0, 1), options);
+        const error = new Error("Injected staging disk full");
+        error.code = "ENOSPC";
+        throw error;
+      },
+    }, async () => { dumped = true; }), { code: "ENOSPC" });
+    assert.equal(dumped, false, "A failed staging copy must not start pg_dump");
+    await assert.rejects(readFile(partialPath), { code: "ENOENT" });
+    assert.equal((await admin`SELECT count(*)::integer AS count FROM pg_stat_activity WHERE datname = ${databaseName} AND application_name = 'crm_backup_snapshot'`)[0].count, 0);
+    await rm(stagingDirectory, { recursive: true, force: true });
+    const result = await withStorageSnapshot({
+      databaseUrl, storageRoot: join(root, "absent-local-source"), objectStorage,
+      stagingDirectory, copyTimeoutMs: 30_000,
+    }, async (snapshot) => snapshot);
+    assert.deepEqual(result.snapshotFileCounts, { document_versions: 2, document_template_versions: 1, chat_message_attachments: 1, chat_channel_avatars: 1 });
+    assert.equal(result.snapshotFileBytes, references.reduce((total, reference) => total + reference.content.length, 0));
+    assert.deepEqual(await readFile(partialPath), references.find(reference => reference.path === join(storage, partialPath.slice(stagingDirectory.length + 1))).content);
+  });
   await t.test("contended file table fails within the lock budget without leaving a snapshot session", async () => {
     const writer = postgres(databaseUrl, { max: 1, onnotice: () => {} });
     try {
