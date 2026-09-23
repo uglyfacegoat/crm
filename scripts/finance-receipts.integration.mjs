@@ -40,6 +40,7 @@ const templateActions = await import("../src/app/(workspace)/settings/template-a
 const chatActions = await import("../src/app/(workspace)/chat/actions.ts");
 const { AuthorizationError } = await import("../src/server/auth/permissions.ts");
 const storage = await import("../src/server/documents/storage.ts");
+const { closeFileWriteGate } = await import("../src/server/file-writes/gate.mjs");
 const previous = { status: "idle", message: null, fieldErrors: {} };
 const content = Buffer.from("%PDF-1.4\nFinance receipt evidence\n");
 
@@ -48,6 +49,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
   const name = `crm_receipts_test_${randomUUID().replaceAll("-", "")}`;
   const directory = await mkdtemp(join(tmpdir(), "crm-receipts-test-"));
   const originalStorageRoot = process.env.DOCUMENT_STORAGE_ROOT;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
   process.env.DOCUMENT_STORAGE_ROOT = directory;
   let databaseCreated = false;
   t.after(async () => {
@@ -55,6 +57,9 @@ test("uploads retain committed bytes and finance retries preserve file ownership
     hooks.deregister();
     if (originalStorageRoot === undefined) delete process.env.DOCUMENT_STORAGE_ROOT;
     else process.env.DOCUMENT_STORAGE_ROOT = originalStorageRoot;
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await closeFileWriteGate();
     await sql?.end();
     try { if (databaseCreated) await admin`DROP DATABASE ${admin(name)}`; }
     finally { await admin.end(); await rm(directory, { recursive: true, force: true }); }
@@ -63,6 +68,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
   databaseCreated = true;
   const url = new URL(adminUrl);
   url.pathname = `/${name}`;
+  process.env.DATABASE_URL = url.toString();
   sql = postgres(url.toString(), { max: 4, onnotice: () => {} });
   await runMigrations({ databaseUrl: url.toString(), onApplied: () => {} });
   const log = mock.method(console, "error", () => {});

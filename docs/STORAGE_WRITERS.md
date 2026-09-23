@@ -31,8 +31,7 @@ an isolated temporary directory for verification. Read-only
 `scripts/storage-audit.mjs` reports references and orphans without deleting.
 
 The filesystem/S3 adapter's `removeDocumentFile` is reached from the nine
-interactive flows above. Current code has no global writer lease or durable
-drain state. FS-02 must reject new work at every entry point, let acquired
-operations finish file I/O and database outcome, and coordinate cleanup.
-FS-03 must test concurrent actions, lost COMMIT acknowledgement, process
-crash, and restart before any live storage switch.
+interactive flows above. A [global writer lease and durable drain candidate](FILE_WRITE_DRAIN.md)
+now wraps those flows and the local example seed in source, but it is not installed or fully accepted.
+FS-02/03 require the remaining
+operator reconciliation and runtime/browser tests before any live storage switch.

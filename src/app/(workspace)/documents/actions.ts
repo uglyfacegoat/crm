@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -72,7 +73,7 @@ function logUnexpected(operation: string, memberId: string, error: unknown) {
   );
 }
 
-export async function uploadDocumentAction(
+async function uploadDocumentActionImpl(
   _previous: DocumentUploadState,
   formData: FormData,
 ): Promise<DocumentUploadState> {
@@ -210,7 +211,7 @@ export async function uploadDocumentAction(
   }
 }
 
-export async function uploadDocumentVersionAction(
+async function uploadDocumentVersionActionImpl(
   _previous: DocumentUploadState,
   formData: FormData,
 ): Promise<DocumentUploadState> {
@@ -380,6 +381,30 @@ export async function uploadDocumentVersionAction(
       }
     }
   }
+}
+
+async function guardedDocumentUpload(operation: () => Promise<DocumentUploadState>): Promise<DocumentUploadState> {
+  if (getAuthMode() === "preview") return operation();
+  await requireSession();
+  try {
+    return await withFileWriteLease(operation);
+  } catch (error) {
+    if (error instanceof FileWritesPausedError) {
+      return { status: "error", message: "Загрузка файлов временно остановлена. Повторите позже; выбранный файл не сохранялся.", fieldErrors: {} };
+    }
+    if (error instanceof FileWriteLeaseLostError) {
+      return { status: "error", message: "Не удалось подтвердить состояние загрузки. Обновите историю документов перед повторной отправкой.", fieldErrors: {} };
+    }
+    throw error;
+  }
+}
+
+export async function uploadDocumentAction(previous: DocumentUploadState, formData: FormData): Promise<DocumentUploadState> {
+  return guardedDocumentUpload(() => uploadDocumentActionImpl(previous, formData));
+}
+
+export async function uploadDocumentVersionAction(previous: DocumentUploadState, formData: FormData): Promise<DocumentUploadState> {
+  return guardedDocumentUpload(() => uploadDocumentVersionActionImpl(previous, formData));
 }
 
 export async function favoriteDocumentAction(formData: FormData) {

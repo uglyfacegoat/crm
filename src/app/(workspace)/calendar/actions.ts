@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -86,7 +87,7 @@ export async function createVisitAction(_previous: CreateVisitState, formData: F
   }
 }
 
-export async function completeVisitAction(_previous: CompleteVisitState, formData: FormData): Promise<CompleteVisitState> {
+async function completeVisitActionImpl(_previous: CompleteVisitState, formData: FormData): Promise<CompleteVisitState> {
   if (getAuthMode() === "preview") return { status: "error", message: previewMessage, fieldErrors: {}, documentId: null };
   const member = await requireSession();
   const parsed = completeVisitSchema.safeParse({
@@ -172,7 +173,7 @@ export async function startAssignedVisitAction(_previous: StartVisitState, formD
   }
 }
 
-export async function uploadAssignedVisitEvidenceAction(
+async function uploadAssignedVisitEvidenceActionImpl(
   _previous: VisitEvidenceState,
   formData: FormData,
 ): Promise<VisitEvidenceState> {
@@ -340,4 +341,30 @@ export async function rescheduleVisitAction(visitId: string, expectedVersion: nu
     logUnexpected("service_visits.reschedule", member.memberId, error);
     return { status: "error", message: "Не удалось перенести выезд. Расписание не изменено.", version: null, scheduledStartAt: null, scheduledEndAt: null };
   }
+}
+
+async function guardedVisitFileAction<T>(operation: () => Promise<T>, pausedState: T): Promise<T> {
+  if (getAuthMode() === "preview") return operation();
+  await requireSession();
+  try {
+    return await withFileWriteLease(operation);
+  } catch (error) {
+    if (error instanceof FileWritesPausedError) return pausedState;
+    if (error instanceof FileWriteLeaseLostError) return { ...pausedState, message: "Не удалось подтвердить состояние загрузки. Проверьте выезд и документы перед повторной отправкой." };
+    throw error;
+  }
+}
+
+export async function completeVisitAction(previous: CompleteVisitState, formData: FormData): Promise<CompleteVisitState> {
+  return guardedVisitFileAction(
+    () => completeVisitActionImpl(previous, formData),
+    { status: "error", message: "Загрузка файлов временно остановлена. Завершите выезд позже; акт не сохранялся.", fieldErrors: {}, documentId: null },
+  );
+}
+
+export async function uploadAssignedVisitEvidenceAction(previous: VisitEvidenceState, formData: FormData): Promise<VisitEvidenceState> {
+  return guardedVisitFileAction(
+    () => uploadAssignedVisitEvidenceActionImpl(previous, formData),
+    { status: "error", message: "Загрузка файлов временно остановлена. Повторите позже; фото не сохранялось.", fieldErrors: {} },
+  );
 }

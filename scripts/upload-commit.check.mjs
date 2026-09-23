@@ -36,9 +36,15 @@ const financeErrors = Object.fromEntries([
 const revalidatePath = mock.fn();
 const writeDocumentFile = mock.fn();
 const removeDocumentFile = mock.fn();
+const FileWritesPausedError = class extends Error {};
+const FileWriteLeaseLostError = class extends Error {};
+const withFileWriteLease = mock.fn(async (operation) => operation());
 mock.module("next/cache.js", { namedExports: { revalidatePath } });
 mock.module(new URL("server/auth/config.ts", sourceRoot), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", sourceRoot), { namedExports: { requireSession: async () => ({ organizationId: "test-organization", memberId: "test-member" }) } });
+mock.module(new URL("server/file-writes/gate.mjs", sourceRoot), { namedExports: {
+  FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease,
+} });
 mock.module(new URL("server/documents/repository.ts", sourceRoot), { namedExports: { ...documentFunctions, ...documentErrors } });
 mock.module(new URL("server/finance/repository.ts", sourceRoot), { namedExports: { ...financeFunctions, ...financeErrors } });
 mock.module(new URL("server/documents/storage.ts", sourceRoot), { namedExports: {
@@ -71,12 +77,13 @@ test("file mutations distinguish persistence from post-commit cache failures", a
   t.after(async () => { await rm(directory, { recursive: true, force: true }); mock.restoreAll(); hooks.deregister(); });
   t.beforeEach(async () => {
     await rm(path, { force: true });
-    for (const fn of [...Object.values(documentFunctions), ...Object.values(financeFunctions), revalidatePath, writeDocumentFile, removeDocumentFile, log]) {
+    for (const fn of [...Object.values(documentFunctions), ...Object.values(financeFunctions), revalidatePath, writeDocumentFile, removeDocumentFile, withFileWriteLease, log]) {
       fn.mock.resetCalls();
       fn.mock.mockImplementation(async () => undefined);
     }
     revalidatePath.mock.mockImplementation(() => undefined);
     log.mock.mockImplementation(() => {});
+    withFileWriteLease.mock.mockImplementation(async (operation) => operation());
     documentFunctions.documentUploadExists.mock.mockImplementation(async () => false);
     documentFunctions.documentVersionUploadExists.mock.mockImplementation(async () => false);
     financeFunctions.financeMutationExists.mock.mockImplementation(async () => false);
@@ -201,6 +208,18 @@ test("file mutations distinguish persistence from post-commit cache failures", a
       assert.equal((await owner).status, "error");
       assert.equal(removeDocumentFile.mock.callCount(), 1);
       await assert.rejects(readFile(path), { code: "ENOENT" });
+    });
+  }
+  for (const [name, action] of [
+    ["document", uploadDocumentAction], ["document version", uploadDocumentVersionAction],
+    ["payment receipt", createPaymentAction], ["payout receipt", createPayoutAction],
+  ]) {
+    await t.test(`${name}: paused file writes reject before touching storage`, async () => {
+      withFileWriteLease.mock.mockImplementation(async () => { throw new FileWritesPausedError(); });
+      const result = await action(previous, form());
+      assert.equal(result.status, "error");
+      assert.match(result.message, /временно остановлена/);
+      assert.equal(writeDocumentFile.mock.callCount(), 0);
     });
   }
 });

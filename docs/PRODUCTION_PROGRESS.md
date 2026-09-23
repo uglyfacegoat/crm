@@ -7,6 +7,13 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- Work in progress, **2026-09-23 19:30 MSK**: FS-02/03 source candidate adds
+  a persisted pause flag, durable in-flight rows and shared/exclusive leases
+  across nine interactive upload paths. PostgreSQL tests cover normal drain,
+  process crash and loss of the advisory-lock connection; an unresolved row
+  prevents resume. Existing upload action and receipt integration tests pass.
+  The candidate is not installed and migration 056 has not touched the working
+  database. See `docs/FILE_WRITE_DRAIN.md`; assessment stays **6.7/10**.
 - Latest checkpoint: **2026-09-23 19:12 MSK**. Removed the canceled legacy CRM
   import flow and its three empty tables; migration 055 is applied in the
   working database. The missing FS-01 writer inventory is restored in

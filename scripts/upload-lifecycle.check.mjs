@@ -34,9 +34,15 @@ for (const domain of ["visits", "document-templates", "chat"]) {
 const revalidatePath = mock.fn();
 const writeDocumentFile = mock.fn();
 const removeDocumentFile = mock.fn();
+const FileWritesPausedError = class extends Error {};
+const FileWriteLeaseLostError = class extends Error {};
+const withFileWriteLease = mock.fn(async (operation) => operation());
 mock.module("next/cache.js", { namedExports: { revalidatePath } });
 mock.module(new URL("server/auth/config.ts", root), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", root), { namedExports: { requireSession: async () => ({ organizationId: "test", memberId: "test" }) } });
+mock.module(new URL("server/file-writes/gate.mjs", root), { namedExports: {
+  FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease,
+} });
 mock.module(new URL("server/request-limits/repository.ts", root), { namedExports: { consumeRequestLimit: async () => ({ allowed: true }) } });
 mock.module(new URL("server/documents/storage.ts", root), { namedExports: {
   writeDocumentFile, removeDocumentFile,
@@ -60,11 +66,12 @@ test("remaining upload actions preserve committed and uncertain files", async (t
   t.beforeEach(async () => {
     await rm(path, { force: true });
     await writeFile(oldPath, png);
-    for (const fn of [...Object.values(functions), revalidatePath, writeDocumentFile, removeDocumentFile, log]) {
+    for (const fn of [...Object.values(functions), revalidatePath, writeDocumentFile, removeDocumentFile, withFileWriteLease, log]) {
       fn.mock.resetCalls();
       fn.mock.mockImplementation(async () => undefined);
     }
     revalidatePath.mock.mockImplementation(() => {});
+    withFileWriteLease.mock.mockImplementation(async (operation) => operation());
     functions.completeVisitWithClosingDocument.mock.mockImplementation(async () => ({ orderId: id, documentId: id }));
     functions.createAssignedVisitEvidence.mock.mockImplementation(async () => ({ orderId: id }));
     functions.sendChatMessage.mock.mockImplementation(async () => id);
@@ -130,6 +137,23 @@ test("remaining upload actions preserve committed and uncertain files", async (t
       assert.equal(persist.mock.callCount(), 0);
       assert.equal(removeDocumentFile.mock.callCount(), 0);
       assert.equal(await readFile(path, "utf8"), "Other request owns these bytes");
+    });
+  }
+  for (const [name, action, fileField, image] of [
+    ["closing act", visits.completeVisitAction, "file", false],
+    ["visit photo", visits.uploadAssignedVisitEvidenceAction, "file", true],
+    ["template", templates.uploadDocumentTemplateAction, "file", false],
+    ["chat attachment", chat.sendChatMessageAction, "file", false],
+    ["chat avatar", chat.updateChatChannelSettingsAction, "avatar", true],
+  ]) {
+    await t.test(`${name}: paused writes reject before storage`, async () => {
+      withFileWriteLease.mock.mockImplementation(async () => { throw new FileWritesPausedError(); });
+      const payload = new FormData();
+      payload.set(fileField, new File([image ? png : pdf], image ? "image.png" : "file.pdf", { type: image ? "image/png" : "application/pdf" }));
+      const result = await action(previous, payload);
+      assert.equal(result.status, "error");
+      assert.match(result.message, /временно остановлена/);
+      assert.equal(writeDocumentFile.mock.callCount(), 0);
     });
   }
 });

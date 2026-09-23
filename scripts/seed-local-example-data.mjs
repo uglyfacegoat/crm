@@ -3,6 +3,8 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import postgres from "postgres";
 import { z } from "zod";
+import { closeFileWriteGate, withFileWriteLease } from "../src/server/file-writes/gate.mjs";
+import { storageBackend } from "../src/server/storage/s3-config.mjs";
 
 const requiredConfirmation = "CONFIRM_LOCAL_CRM_EXAMPLE_DATA";
 
@@ -32,6 +34,10 @@ if (!allowedDatabaseHosts.has(databaseUrl.hostname)) {
 
 if (!isAbsolute(environment.DOCUMENT_STORAGE_ROOT)) {
   throw new Error("DOCUMENT_STORAGE_ROOT must be an absolute path.");
+}
+
+if (storageBackend(process.env) !== "local") {
+  throw new Error("Local example data may only be seeded into local document storage.");
 }
 
 const companySeeds = [
@@ -183,12 +189,13 @@ const inserted = {
 
 const createdStoragePaths = [];
 
-const sql = postgres(environment.DATABASE_URL, {
-  max: 1,
-  onnotice: () => undefined,
-});
-
 try {
+await withFileWriteLease(async () => {
+  const sql = postgres(environment.DATABASE_URL, {
+    max: 1,
+    onnotice: () => undefined,
+  });
+  try {
   await sql.begin(async (transaction) => {
     await transaction.unsafe("SET LOCAL lock_timeout = '5s'");
     await transaction.unsafe("SET LOCAL statement_timeout = '30s'");
@@ -664,4 +671,8 @@ try {
   throw error;
 } finally {
   await sql.end();
+}
+});
+} finally {
+  await closeFileWriteGate();
 }

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -30,7 +31,7 @@ function unexpected(operation: string, memberId: string, error: unknown) {
   console.error(JSON.stringify({ operation, category: "unexpected", memberId, error: error instanceof Error ? error.message : "Unknown error" }));
 }
 
-export async function uploadDocumentTemplateAction(
+async function uploadDocumentTemplateActionImpl(
   _previous: DocumentTemplateMutationState,
   formData: FormData,
 ): Promise<DocumentTemplateMutationState> {
@@ -81,6 +82,18 @@ export async function uploadDocumentTemplateAction(
     if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для публикации шаблона.", fieldErrors: {} };
     unexpected("document_templates.upload", member.memberId, error);
     return { status: "error", message: "Не удалось подтвердить публикацию шаблона. Обновите список и проверьте результат перед повторной загрузкой.", fieldErrors: {} };
+  }
+}
+
+export async function uploadDocumentTemplateAction(previous: DocumentTemplateMutationState, formData: FormData): Promise<DocumentTemplateMutationState> {
+  if (getAuthMode() === "preview") return uploadDocumentTemplateActionImpl(previous, formData);
+  await requireSession();
+  try {
+    return await withFileWriteLease(() => uploadDocumentTemplateActionImpl(previous, formData));
+  } catch (error) {
+    if (error instanceof FileWritesPausedError) return { status: "error", message: "Загрузка файлов временно остановлена. Повторите позже; шаблон не сохранялся.", fieldErrors: {} };
+    if (error instanceof FileWriteLeaseLostError) return { status: "error", message: "Не удалось подтвердить состояние загрузки. Проверьте шаблоны перед повторной отправкой.", fieldErrors: {} };
+    throw error;
   }
 }
 

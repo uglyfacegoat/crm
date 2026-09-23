@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
@@ -138,7 +139,7 @@ export async function createInvoiceAction(_previous: FinanceActionState, formDat
   }
 }
 
-export async function createPaymentAction(_previous: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
+async function createPaymentActionImpl(_previous: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
   if (getAuthMode() === "preview") return { ...emptyState, status: "error", message: "Предпросмотр не записывает финансовые операции." };
   const member = await requireSession();
   const parsed = createPaymentSchema.safeParse({
@@ -174,7 +175,7 @@ export async function createPaymentAction(_previous: FinanceActionState, formDat
   }
 }
 
-export async function createPayoutAction(_previous: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
+async function createPayoutActionImpl(_previous: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
   if (getAuthMode() === "preview") return { ...emptyState, status: "error", message: "Предпросмотр не записывает финансовые операции." };
   const member = await requireSession();
   const parsed = createPayoutSchema.safeParse({
@@ -208,6 +209,29 @@ export async function createPayoutAction(_previous: FinanceActionState, formData
     logUnexpected("finance.payout.create", member.memberId, error);
     return { ...emptyState, status: "error", message: "Не удалось подтвердить выплату. Обновите историю выплат и проверьте результат перед повторной отправкой." };
   }
+}
+
+async function guardedFinanceReceipt(operation: () => Promise<FinanceActionState>): Promise<FinanceActionState> {
+  await requireSession();
+  try {
+    return await withFileWriteLease(operation);
+  } catch (error) {
+    if (error instanceof FileWritesPausedError) return { ...emptyState, status: "error", message: "Загрузка файлов временно остановлена. Повторите операцию позже; оплата или выплата не проводилась." };
+    if (error instanceof FileWriteLeaseLostError) return { ...emptyState, status: "error", message: "Не удалось подтвердить результат. Проверьте историю операций перед повторной отправкой." };
+    throw error;
+  }
+}
+
+export async function createPaymentAction(previous: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
+  const receipt = formData.get("receipt");
+  if (getAuthMode() === "preview" || !(receipt instanceof File) || receipt.size === 0) return createPaymentActionImpl(previous, formData);
+  return guardedFinanceReceipt(() => createPaymentActionImpl(previous, formData));
+}
+
+export async function createPayoutAction(previous: FinanceActionState, formData: FormData): Promise<FinanceActionState> {
+  const receipt = formData.get("receipt");
+  if (getAuthMode() === "preview" || !(receipt instanceof File) || receipt.size === 0) return createPayoutActionImpl(previous, formData);
+  return guardedFinanceReceipt(() => createPayoutActionImpl(previous, formData));
 }
 
 async function reverseEntry(formData: FormData, kind: "payment" | "payout"): Promise<FinanceActionState> {

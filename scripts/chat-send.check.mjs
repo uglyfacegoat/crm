@@ -32,6 +32,11 @@ const removeDocumentFile = mock.fn();
 mock.module("next/cache.js", { namedExports: { revalidatePath: mock.fn() } });
 mock.module(new URL("server/auth/config.ts", sourceRoot), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", sourceRoot), { namedExports: { requireSession: async () => member } });
+mock.module(new URL("server/file-writes/gate.mjs", sourceRoot), { namedExports: {
+  FileWriteLeaseLostError: class extends Error {},
+  FileWritesPausedError: class extends Error {},
+  withFileWriteLease: async (operation) => operation(),
+} });
 mock.module(new URL("server/chat/repository.ts", sourceRoot), { namedExports: { ...functions, ...errors } });
 mock.module(new URL("server/request-limits/repository.ts", sourceRoot), { namedExports: { consumeRequestLimit } });
 mock.module(new URL("server/documents/storage.ts", sourceRoot), { namedExports: {

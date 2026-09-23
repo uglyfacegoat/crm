@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { FileWriteLeaseLostError, FileWritesPausedError, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/permissions";
@@ -91,7 +92,7 @@ export async function createDirectChatAction(_previous: ChatMutationState, formD
   }
 }
 
-export async function sendChatMessageAction(_previous: ChatMutationState, formData: FormData): Promise<ChatMutationState> {
+async function sendChatMessageActionImpl(_previous: ChatMutationState, formData: FormData): Promise<ChatMutationState> {
   if (getAuthMode() === "preview") return previewState;
   const member = await requireSession();
   const uploadedFile = formData.get("file");
@@ -153,7 +154,7 @@ export async function sendChatMessageAction(_previous: ChatMutationState, formDa
   }
 }
 
-export async function updateChatChannelSettingsAction(_previous: ChatMutationState, formData: FormData): Promise<ChatMutationState> {
+async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState, formData: FormData): Promise<ChatMutationState> {
   if (getAuthMode() === "preview") return previewState;
   const member = await requireSession();
   const parsed = updateChatChannelSettingsSchema.safeParse({
@@ -255,4 +256,27 @@ export async function markChatChannelReadAction(channelId: string) {
   if (!parsed.success) throw new Error("Invalid channel identifier.");
   await markChatChannelRead(member, parsed.data);
   revalidatePath("/chat");
+}
+
+async function guardedChatFileAction(operation: () => Promise<ChatMutationState>): Promise<ChatMutationState> {
+  await requireSession();
+  try {
+    return await withFileWriteLease(operation);
+  } catch (error) {
+    if (error instanceof FileWritesPausedError) return { status: "error", message: "Загрузка файлов временно остановлена. Повторите позже; файл не сохранялся.", fieldErrors: {}, entityId: null };
+    if (error instanceof FileWriteLeaseLostError) return { status: "error", message: "Не удалось подтвердить отправку файла. Проверьте переписку перед повторной отправкой.", fieldErrors: {}, entityId: null };
+    throw error;
+  }
+}
+
+export async function sendChatMessageAction(previous: ChatMutationState, formData: FormData): Promise<ChatMutationState> {
+  const file = formData.get("file");
+  if (getAuthMode() === "preview" || !(file instanceof File) || file.size === 0) return sendChatMessageActionImpl(previous, formData);
+  return guardedChatFileAction(() => sendChatMessageActionImpl(previous, formData));
+}
+
+export async function updateChatChannelSettingsAction(previous: ChatMutationState, formData: FormData): Promise<ChatMutationState> {
+  const avatar = formData.get("avatar");
+  if (getAuthMode() === "preview" || !(avatar instanceof File) || avatar.size === 0) return updateChatChannelSettingsActionImpl(previous, formData);
+  return guardedChatFileAction(() => updateChatChannelSettingsActionImpl(previous, formData));
 }
