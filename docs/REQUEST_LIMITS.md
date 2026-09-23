@@ -35,10 +35,10 @@ and login/webhook counters are unchanged. Do not edit already-applied migrations
 
 ## Verification
 
-Only use a disposable test database:
+The npm command starts and removes its own disposable PostgreSQL container:
 
 ```sh
-MIGRATION_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:TEST_PORT/postgres npm run test:request-limits
+npm run test:request-limits
 ```
 
 Eight integration scenarios run the real limiter through two PostgreSQL connection

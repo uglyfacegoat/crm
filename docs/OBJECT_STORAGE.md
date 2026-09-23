@@ -62,9 +62,9 @@ production service. Repeat conditional-write, anonymous-access and timeout tests
 the selected supported service before migration. Passing one provider is not a universal
 compatibility guarantee.
 
-For complete application acceptance, run the upload browser harness with
-`UPLOAD_CHECK_STORAGE=s3`, an isolated `MIGRATION_TEST_ADMIN_URL`, a built
-`UPLOAD_CHECK_RUNTIME` and `CHROME_PATH`. It provisions its own bucket/company, exercises
+For complete application acceptance, run `npm run test:uploads-browser` with
+`UPLOAD_CHECK_STORAGE=s3`, a built `UPLOAD_CHECK_RUNTIME` and `CHROME_PATH`.
+It provisions its own PostgreSQL container, bucket and company, exercises
 all upload families, downloads, ZIP and verified backup staging, then removes its test
 resources. Never point that harness at the working company.
 

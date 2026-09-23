@@ -8,14 +8,15 @@ The overall goal remains active; this document is not a declaration of productio
 ## Current evidence
 
 - **2026-09-23, SEC-04 test isolation candidate:** the transfer, cutover,
-  packaged S3 backup and full-staging-volume npm commands now provision their
-  own PostgreSQL 17 container with random credentials and a temporary data
+  packaged S3 backup, full-staging-volume and main PostgreSQL integration npm
+  commands now provision their own PostgreSQL 17 container with random credentials and a temporary data
   filesystem. They pass only its URLs to the test process and remove it on
   completion. The transfer and cutover commands also passed with deliberately
   invalid inherited admin URLs, proving their temporary URLs take precedence.
-  All four commands passed without using the CRM PostgreSQL
-  server. This does not yet separate all dev/staging/production secrets or
-  protect every other test entry point.
+  Migration, drain, recovery, quarantine, S3 export/quarantine, request-limit,
+  chat-access, finance-receipt, local/S3 audit and S3 upload-browser commands
+  passed without using the CRM PostgreSQL server. Direct script invocation,
+  remaining flow commands and dev/staging/production secret separation remain open.
 - **2026-09-23, FS-09 disposable cutover rehearsal:** after the forward
   five-file transfer and independent local/S3 audits, a built standalone web
   served both historical document versions, the current version and ZIP over
@@ -345,8 +346,9 @@ Historical source gate; installation and browser acceptance are recorded below.
 - Added `scripts/uploads-browser-check.mjs` / `npm run test:uploads-browser`. It
   creates a disposable database and storage root, starts the supplied standalone
   build with generated test credentials, and tears down its resources on exit.
-  Requires `MIGRATION_TEST_ADMIN_URL` and `UPLOAD_CHECK_RUNTIME` (server.js); optional
-  `CHROME_PATH` and `UPLOAD_CHECK_ARTIFACTS`. It uses local port 3100. CI runs it after
+  The npm command now provisions its own PostgreSQL container; it requires
+  `UPLOAD_CHECK_RUNTIME` (server.js), with `CHROME_PATH` and `UPLOAD_CHECK_ARTIFACTS`
+  available for browser selection and artifacts. It uses local port 3100. CI runs it after
   the existing HTTP stand exits; remote CI execution remains unverified.
 - Passed against the extracted production image `76ceb8dc1d04`: login/home/browser
   startup and the complete existing production HTTP smoke, then eight real form
@@ -929,11 +931,11 @@ npm run lint
 npm test
 npm run build
 npm audit --audit-level=high
-MIGRATION_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:TEST_PORT/postgres npm run test:migrations
-MIGRATION_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:TEST_PORT/postgres npm run test:request-limits
+npm run test:migrations
+npm run test:request-limits
 ```
 
-Use only an isolated disposable PostgreSQL instance for integration tests. The migration suite
-creates randomly named `crm_migration_test_*` databases and drops only databases it created.
+These npm commands provision an isolated disposable PostgreSQL container. The migration suite
+creates randomly named `crm_migration_test_*` databases inside it and drops only databases it created.
 The runtime smoke suite expects a fresh company and explicit test credentials; do not point
 it at a user's working company. CI generates temporary credentials and uses a disposable service.
