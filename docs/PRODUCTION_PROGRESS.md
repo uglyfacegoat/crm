@@ -22,8 +22,10 @@ The overall goal remains active; this document is not a declaration of productio
   override now requires an explicit candidate image for web and both workers.
   The resolved configuration keeps app and database ports private and sets
   secure-cookie/proxy mode; the CI HTTPS job checks these properties before
-  exercising the isolated gateway. The resolved configuration passed locally;
-  the new CI assertion awaits its remote run.
+  exercising the isolated gateway. The first remote assertion found that a
+  clean checkout lacks local `.env.docker-*` files; the CI step now creates
+  empty temporary files solely for Compose parsing. The same check passes
+  against a clean temporary checkout locally; a repeat remote run is pending.
 - **2026-09-23, REL-01 local build:** nine empty, generated `.next` directories
   with anomalous link counts were removed. Two consecutive host `npm run build`
   commands completed in about five and three seconds without recreating them.

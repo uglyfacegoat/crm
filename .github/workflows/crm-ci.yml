@@ -79,6 +79,7 @@ jobs:
           CRM_HTTP_PORT: '8080'
           CRM_HTTPS_PORT: '8443'
         run: |
+          touch .env.docker-crm .env.docker-database .env.docker-reminder-worker .env.docker-backup-worker
           docker compose --env-file /dev/null -f compose.yaml -f compose.https.yaml config --no-env-resolution --format json > /tmp/crm-https-compose.json
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
