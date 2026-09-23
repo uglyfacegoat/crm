@@ -1,6 +1,7 @@
 import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
+import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
 import { DocumentTemplateNotFoundError, getDocumentTemplateDownload } from "@/server/document-templates/repository";
 import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 
@@ -16,6 +17,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   try {
     const { id } = await context.params;
     const template = await getDocumentTemplateDownload(member, id);
+    const limited = await rejectLimitedFileRead(member, "document_download");
+    if (limited) return limited;
     const file = await readVerifiedDocumentFile(template.storageKey, template, MAX_DOCUMENT_SIZE_BYTES);
     return new Response(file, {
       headers: {

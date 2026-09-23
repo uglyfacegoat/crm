@@ -100,6 +100,26 @@ test("chat file authorization uses current tenant, membership, channel and permi
       ORDER BY created_at`).map((row) => row.action);
     assert.deepEqual(auditActions, ["chat.entity.shared", "chat.entity.shared"]);
   });
+  await t.test("picker search finds older records without exposing another company or forbidden type", async () => {
+    const own = await fixture();
+    const other = await fixture();
+    let olderId;
+    for (let index = 0; index < 15; index += 1) {
+      const [client] = await sql`INSERT INTO clients (organization_id, legal_name)
+        VALUES (${own.member.organizationId}, ${index === 0 ? "Needle customer" : `Other customer ${index}`}) RETURNING id`;
+      if (index === 0) olderId = client.id;
+    }
+    await sql`UPDATE clients SET updated_at = now() - interval '1 day' WHERE id = ${olderId}`;
+    const recent = await chat.searchChatEntityOptions(own.member, "client", "Other");
+    assert.equal(recent.length, 14);
+    const older = await chat.searchChatEntityOptions(own.member, "client", "Needle");
+    assert.deepEqual(older.map((item) => item.id), [olderId]);
+    assert.deepEqual(await chat.searchChatEntityOptions(other.member, "client", "Needle"), []);
+    await assert.rejects(chat.searchChatEntityOptions({ ...own.member, permissionOverrides: { "clients.read": false } }, "client", "Needle"), AuthorizationError);
+    for (const type of ["order", "object", "visit", "contract", "document", "task", "master", "website"]) {
+      assert.deepEqual(await chat.searchChatEntityOptions(own.member, type, "never-matches-anything"), []);
+    }
+  });
   await t.test("cross-company channels and nonmembers are rejected", async () => {
     const own = await fixture();
     const other = await fixture();

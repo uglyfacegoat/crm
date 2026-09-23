@@ -1,6 +1,7 @@
 import { safeErrorCode } from "@/server/observability/safe-error";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
+import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
 import { createDocumentDownloadResponse } from "@/server/documents/download-response";
 import { DocumentNotFoundError, getDocumentVersionDownload } from "@/server/documents/repository";
 
@@ -12,6 +13,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   try {
     const { id, versionId } = await context.params;
     const document = await getDocumentVersionDownload(member, id, versionId);
+    const limited = await rejectLimitedFileRead(member, "document_download");
+    if (limited) return limited;
     return createDocumentDownloadResponse(document, "documents.version_download");
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: "forbidden" }, { status: 403 });

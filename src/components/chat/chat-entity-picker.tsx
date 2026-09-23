@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Search, Share2 } from "lucide-react";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChatEntityIcon } from "@/components/chat/chat-shared-entity-card";
 import { Dialog } from "@/components/ui/dialog";
 import { matchesSearchText } from "@/lib/search-normalization";
@@ -18,10 +18,39 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
   const [open, setOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<ChatEntityType | null>(null);
   const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
+  const [searchResponse, setSearchResponse] = useState<{ type: ChatEntityType; query: string; data: ChatSharedEntity[] } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const activeType = selectedType && availableTypes.includes(selectedType) ? selectedType : availableTypes[0] ?? null;
-  const filtered = options.filter((option) => option.type === activeType && matchesSearchText(deferredQuery, [option.title, option.subtitle, option.statusLabel, ...option.meta]));
+  const searchTerm = query.trim();
+  const remoteSearch = searchTerm.length >= 2;
+  const filtered = remoteSearch
+    ? searchResponse?.type === activeType && searchResponse.query === searchTerm ? searchResponse.data : []
+    : options.filter((option) => option.type === activeType && matchesSearchText(searchTerm, [option.title, option.subtitle, option.statusLabel, ...option.meta]));
+
+  useEffect(() => {
+    if (!open || !activeType || !remoteSearch) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const params = new URLSearchParams({ type: activeType, q: searchTerm });
+        const response = await fetch(`/api/v1/chat/entities?${params}`, { signal: controller.signal });
+        if (response.status === 429) throw new Error("Слишком много поисковых запросов. Подождите минуту.");
+        if (!response.ok) throw new Error("Поиск временно недоступен. Повторите попытку.");
+        const payload = await response.json();
+        if (!Array.isArray(payload.data)) throw new Error("Поиск временно недоступен. Повторите попытку.");
+        setSearchResponse({ type: activeType, query: searchTerm, data: payload.data as ChatSharedEntity[] });
+      } catch (error) {
+        if (!controller.signal.aborted) setSearchError(error instanceof Error ? error.message : "Поиск временно недоступен.");
+      } finally {
+        if (!controller.signal.aborted) setSearching(false);
+      }
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [activeType, open, remoteSearch, searchTerm]);
 
   function choose(entity: ChatSharedEntity) {
     onSelect(entity);
@@ -64,16 +93,18 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
                     >
                       <ChatEntityIcon type={type} className="size-3.5" />
                       {sample.typeLabel}
-                      <span className="opacity-65">{options.filter((option) => option.type === type).length}</span>
                     </button>
                   );
                 })}
               </div>
               <label className="mt-4 flex h-11 shrink-0 items-center gap-2 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3">
                 <Search className="size-4 text-[var(--muted)]" />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по доступным объектам" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-secondary)]" />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по всем доступным объектам" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-secondary)]" />
               </label>
+              <p className="mt-2 text-[10px] text-[var(--muted)]">Сначала показаны последние объекты. Введите минимум 2 символа для поиска по всему реестру.</p>
               <div role="tabpanel" className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                {remoteSearch && searching ? <p role="status" className="py-3 text-xs text-[var(--muted)]">Ищу объекты…</p> : null}
+                {remoteSearch && searchError ? <p role="alert" className="py-3 text-xs text-[var(--danger-ink)]">{searchError}</p> : null}
                 {filtered.map((entity) => {
                   const active = selected?.type === entity.type && selected.id === entity.id;
                   return (
@@ -93,7 +124,8 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
                     </button>
                   );
                 })}
-                {!filtered.length ? <div className="grid min-h-44 place-items-center rounded-[14px] border border-dashed border-[var(--line)] text-center"><div><Search className="mx-auto size-5 text-[var(--muted)]" /><p className="mt-3 text-xs text-[var(--text-secondary)]">Подходящих объектов нет</p><p className="mt-1 text-[10px] text-[var(--muted)]">Измените запрос или выберите другую вкладку.</p></div></div> : null}
+                {!filtered.length && !searching && !searchError ? <div className="grid min-h-44 place-items-center rounded-[14px] border border-dashed border-[var(--line)] text-center"><div><Search className="mx-auto size-5 text-[var(--muted)]" /><p className="mt-3 text-xs text-[var(--text-secondary)]">Подходящих объектов нет</p><p className="mt-1 text-[10px] text-[var(--muted)]">Измените запрос или выберите другую вкладку.</p></div></div> : null}
+                {remoteSearch && filtered.length === 20 ? <p className="py-2 text-center text-[10px] text-[var(--muted)]">Показаны первые 20 совпадений. Уточните запрос, чтобы найти остальные.</p> : null}
               </div>
             </>
           ) : (

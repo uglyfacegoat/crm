@@ -1,6 +1,7 @@
 import { safeErrorCode } from "@/server/observability/safe-error";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
+import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
 import { createDocumentDownloadResponse } from "@/server/documents/download-response";
 import { DocumentNotFoundError, getDocumentDownload } from "@/server/documents/repository";
 
@@ -12,6 +13,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     const { id } = await context.params;
     const document = await getDocumentDownload(member, id);
+    const limited = await rejectLimitedFileRead(member, "document_download");
+    if (limited) return limited;
     const requestedInline = new URL(request.url).searchParams.get("disposition") === "inline";
     const previewable = document.mimeType === "application/pdf" || document.mimeType.startsWith("image/");
     return createDocumentDownloadResponse(document, "documents.download", requestedInline && previewable ? "inline" : "attachment");

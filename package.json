@@ -25,6 +25,7 @@
     "test:backup-retention": "node --test scripts/backup-retention.test.mjs",
     "test:request-limits": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/request-limits.integration.mjs",
     "test:website-webhook-limits": "node --experimental-test-module-mocks --test scripts/website-webhook-limits.check.mjs",
+    "test:chat-picker-route": "node --experimental-test-module-mocks --test scripts/chat-picker-route.check.mjs",
     "test:startup": "node --test scripts/startup.integration.mjs",
     "test:perimeter": "node scripts/perimeter-check.mjs",
     "test:tls": "node scripts/tls-ingress-check.mjs",

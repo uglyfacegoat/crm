@@ -22,6 +22,7 @@ const storage = await import(storageUrl.href);
 const readStoredFile = mock.fn(storage.readVerifiedDocumentFile);
 mock.module(storageUrl, { namedExports: { readVerifiedDocumentFile: readStoredFile, StoredFileIntegrityError: storage.StoredFileIntegrityError } });
 const getCurrentSession = mock.fn();
+const consumeRequestLimit = mock.fn(async () => ({ allowed: true, retryAfterSeconds: 60 }));
 const getDocumentDownload = mock.fn();
 const getDocumentVersionDownload = mock.fn();
 const getDocumentTemplateDownload = mock.fn();
@@ -32,6 +33,7 @@ class DocumentNotFoundError extends Error {}
 class DocumentTemplateNotFoundError extends Error {}
 class ChatChannelNotFoundError extends Error {}
 mock.module(new URL("server/auth/session.ts", root), { namedExports: { getCurrentSession } });
+mock.module(new URL("server/request-limits/repository.ts", root), { namedExports: { consumeRequestLimit } });
 mock.module(new URL("server/documents/repository.ts", root), { namedExports: { getDocumentDownload, getDocumentVersionDownload, getDocumentBatchExport, recordDocumentBatchExport, DocumentNotFoundError } });
 mock.module(new URL("server/document-templates/repository.ts", root), { namedExports: { getDocumentTemplateDownload, DocumentTemplateNotFoundError } });
 mock.module(new URL("server/chat/repository.ts", root), { namedExports: { getChatChannelAvatarDownload, ChatChannelNotFoundError } });
@@ -79,14 +81,25 @@ test("all document readers bound file allocation and preserve access checks", as
   }));
   const docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   t.beforeEach(() => {
-    for (const fn of [getCurrentSession, getDocumentDownload, getDocumentVersionDownload, getDocumentTemplateDownload, getChatChannelAvatarDownload, getDocumentBatchExport, recordDocumentBatchExport, readStoredFile, log]) fn.mock.resetCalls();
+    for (const fn of [getCurrentSession, consumeRequestLimit, getDocumentDownload, getDocumentVersionDownload, getDocumentTemplateDownload, getChatChannelAvatarDownload, getDocumentBatchExport, recordDocumentBatchExport, readStoredFile, log]) fn.mock.resetCalls();
     getCurrentSession.mock.mockImplementation(async () => member);
+    consumeRequestLimit.mock.mockImplementation(async () => ({ allowed: true, retryAfterSeconds: 60 }));
     for (const [, , lookup] of endpoints) lookup.mock.mockImplementation(async () => file);
     getDocumentBatchExport.mock.mockImplementation(async () => [file]);
     recordDocumentBatchExport.mock.mockImplementation(async () => {});
     readStoredFile.mock.mockImplementation(storage.readVerifiedDocumentFile);
   });
   for (const [name, handler, lookup, NotFound, limit] of endpoints) {
+    await t.test(`${name}: rate limit prevents file access after authorization`, async () => {
+      const metadata = name === "preview" ? { ...file, mimeType: docxMime } : file;
+      lookup.mock.mockImplementation(async () => metadata);
+      consumeRequestLimit.mock.mockImplementation(async () => ({ allowed: false, retryAfterSeconds: 17 }));
+      const response = await send(handler);
+      assert.equal(response.status, 429);
+      assert.equal(response.headers.get("retry-after"), "17");
+      assert.equal(readStoredFile.mock.callCount(), 0);
+      assert.equal(consumeRequestLimit.mock.calls[0].arguments[1], name === "avatar" ? "chat_download" : "document_download");
+    });
     await t.test(`${name}: authorization precedes file access`, async () => {
       getCurrentSession.mock.mockImplementation(async () => null);
       assert.equal((await send(handler)).status, 401);

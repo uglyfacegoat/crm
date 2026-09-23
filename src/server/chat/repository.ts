@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { hasPermission, requirePermission, type Permission } from "@/server/auth/permissions";
+import { AuthorizationError, hasPermission, requirePermission, type Permission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { organizationRoles } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
@@ -239,10 +239,10 @@ async function ensureAccessibleChatChannels(member: AuthenticatedMember) {
   return ensureGeneralChannel(member);
 }
 
-async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEntityType, entityId: string | null = null) {
+async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEntityType, entityId: string | null = null, searchTerm = "") {
   if (!canReadChatEntity(member, type)) return [];
   const sql = getDatabase();
-  const limit = entityId ? 1 : 12;
+  const limit = entityId ? 1 : searchTerm ? 20 : 12;
 
   switch (type) {
     case "order":
@@ -258,6 +258,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         LEFT JOIN masters ON masters.organization_id = orders.organization_id AND masters.id = orders.assigned_master_id
         WHERE orders.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR orders.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', orders.order_number, clients.legal_name, objects.name))) > 0)
         ORDER BY orders.updated_at DESC LIMIT ${limit}`;
     case "client":
       return sql`SELECT clients.id,
@@ -270,6 +271,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         FROM clients
         WHERE clients.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR clients.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', clients.legal_name, clients.primary_phone, clients.primary_email, clients.tax_id))) > 0)
         ORDER BY clients.updated_at DESC LIMIT ${limit}`;
     case "object":
       return sql`SELECT objects.id,
@@ -282,6 +284,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         JOIN clients ON clients.organization_id = objects.organization_id AND clients.id = objects.client_id
         WHERE objects.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR objects.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', objects.name, objects.address, clients.legal_name))) > 0)
         ORDER BY objects.updated_at DESC LIMIT ${limit}`;
     case "visit":
       return sql`SELECT visits.id,
@@ -297,6 +300,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         LEFT JOIN contracts ON contracts.organization_id = visits.organization_id AND contracts.id = visits.contract_id
         WHERE visits.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR visits.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', orders.order_number, contracts.contract_number, clients.legal_name, objects.name))) > 0)
         ORDER BY visits.updated_at DESC LIMIT ${limit}`;
     case "contract":
       return sql`SELECT contracts.id,
@@ -310,6 +314,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         JOIN client_objects objects ON objects.organization_id = contracts.organization_id AND objects.id = contracts.object_id
         WHERE contracts.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR contracts.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', contracts.contract_number, clients.legal_name, objects.name))) > 0)
         ORDER BY contracts.updated_at DESC LIMIT ${limit}`;
     case "document":
       return sql`SELECT documents.id,
@@ -325,6 +330,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         LEFT JOIN document_versions versions ON versions.organization_id = documents.organization_id AND versions.id = documents.current_version_id
         WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
           AND (${entityId}::uuid IS NULL OR documents.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', documents.title, clients.legal_name, orders.order_number))) > 0)
         ORDER BY documents.updated_at DESC LIMIT ${limit}`;
     case "task":
       return sql`SELECT tasks.id,
@@ -338,6 +344,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         LEFT JOIN organization_members members ON members.organization_id = tasks.organization_id AND members.id = tasks.assigned_member_id
         WHERE tasks.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR tasks.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', tasks.title, members.display_name))) > 0)
         ORDER BY tasks.updated_at DESC LIMIT ${limit}`;
     case "master":
       return sql`SELECT masters.id,
@@ -349,6 +356,7 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         FROM masters
         WHERE masters.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR masters.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', masters.full_name, masters.phone, masters.service_region))) > 0)
         ORDER BY masters.updated_at DESC LIMIT ${limit}`;
     case "website":
       return sql`SELECT websites.id,
@@ -360,8 +368,16 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
         FROM websites
         WHERE websites.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR websites.id = ${entityId}::uuid)
+          AND (${searchTerm} = '' OR position(lower(${searchTerm}) in lower(concat_ws(' ', websites.name, websites.domain))) > 0)
         ORDER BY websites.updated_at DESC LIMIT ${limit}`;
   }
+}
+
+export async function searchChatEntityOptions(member: AuthenticatedMember, type: ChatEntityType, query: string) {
+  requirePermission(member, "chat.read");
+  if (!canReadChatEntity(member, type)) throw new AuthorizationError();
+  const rows = await queryChatEntitySource(member, type, null, query);
+  return rows.map((row) => mapSharedEntity(type, row));
 }
 
 async function listChatEntityOptions(member: AuthenticatedMember) {
