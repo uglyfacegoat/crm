@@ -7,6 +7,18 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 19:42 MSK:** packaged FS-02/03 candidate started against a disposable
+  database, applied 56 migrations, passed health and pause/status/resume smoke;
+  the database was removed. Added a paused-only, read-only `inspect` command
+  for unresolved operation IDs/timestamps/intended storage keys and tested its
+  refusal while writes are accepted. Keys are recorded before bytes are written.
+  The recovery checklist now requires stopping writers and checking each
+  interrupted outcome; safe audited resolution and installation remain open.
+  The working CRM was not changed. After adding key tracking, 200 unit tests,
+  five migration scenarios, file-drain and upload action suites, typecheck,
+  lint and a new production Docker build pass. The keyed image also passed
+  HTTP health and status/pause/inspect/resume on its own disposable database;
+  that database and container were removed.
 - Work in progress, **2026-09-23 19:30 MSK**: FS-02/03 source candidate adds
   a persisted pause flag, durable in-flight rows and shared/exclusive leases
   across nine interactive upload paths. PostgreSQL tests cover normal drain,

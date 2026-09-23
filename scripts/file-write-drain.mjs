@@ -3,7 +3,7 @@ import { FILE_WRITE_LOCK_CLASS, FILE_WRITE_LOCK_ID } from "../src/server/file-wr
 
 export async function setFileWriteMode({ databaseUrl, mode, onWaiting = () => {} }) {
   if (!databaseUrl) throw new Error("DATABASE_URL is required.");
-  if (mode !== "pause" && mode !== "resume" && mode !== "status") throw new Error("Mode must be pause, resume, or status.");
+  if (!["pause", "resume", "status", "inspect"].includes(mode)) throw new Error("Mode must be pause, resume, status, or inspect.");
   const sql = postgres(databaseUrl, { max: 1, connect_timeout: 10 });
   try {
     const connection = await sql.reserve();
@@ -18,6 +18,20 @@ export async function setFileWriteMode({ databaseUrl, mode, onWaiting = () => {}
           return { accepting: state?.accepting === true, changedAt: state?.changed_at ?? null, pending, drained: current?.accepting === false && state?.accepting === false && pending === 0 };
         } finally {
           if (current?.accepting === false) await connection`SELECT pg_advisory_unlock(${FILE_WRITE_LOCK_CLASS}, ${FILE_WRITE_LOCK_ID})`;
+        }
+      }
+      if (mode === "inspect") {
+        await connection`SELECT pg_advisory_lock(${FILE_WRITE_LOCK_CLASS}, ${FILE_WRITE_LOCK_ID})`;
+        try {
+          const [state] = await connection`SELECT accepting, changed_at FROM file_write_control WHERE id = true`;
+          if (state?.accepting !== false) throw new Error("Pause file writes before inspecting unresolved operations.");
+          const [{ pending }] = await connection`SELECT count(*)::integer AS pending FROM file_write_operations`;
+          const operations = await connection`SELECT id, started_at, storage_keys FROM file_write_operations ORDER BY started_at, id LIMIT 100`;
+          return { accepting: false, changedAt: state.changed_at, pending, drained: pending === 0,
+            operations: operations.map(({ id, started_at, storage_keys }) => ({ id, startedAt: started_at, storageKeys: storage_keys })),
+            truncated: pending > operations.length };
+        } finally {
+          await connection`SELECT pg_advisory_unlock(${FILE_WRITE_LOCK_CLASS}, ${FILE_WRITE_LOCK_ID})`;
         }
       }
       if (mode === "pause") {

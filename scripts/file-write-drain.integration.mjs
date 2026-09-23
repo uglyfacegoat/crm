@@ -19,7 +19,7 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
   const sql = postgres(databaseUrl, { max: 1 });
   const previousUrl = process.env.DATABASE_URL;
   process.env.DATABASE_URL = databaseUrl;
-  const { withFileWriteLease, FileWritesPausedError, closeFileWriteGate } = await import("../src/server/file-writes/gate.mjs");
+  const { withFileWriteLease, recordFileWriteKey, FileWritesPausedError, closeFileWriteGate } = await import("../src/server/file-writes/gate.mjs");
   t.after(async () => {
     if (previousUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previousUrl;
@@ -29,12 +29,19 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
     finally { await admin.end(); }
   });
   await runMigrations({ databaseUrl, onApplied: () => {} });
+  await assert.rejects(setFileWriteMode({ databaseUrl, mode: "inspect" }), /Pause file writes/);
+  await assert.rejects(recordFileWriteKey("outside-lease"), /active file write lease/);
   let started;
   let release;
   const entered = new Promise((resolve) => { started = resolve; });
   const proceed = new Promise((resolve) => { release = resolve; });
-  const inFlight = withFileWriteLease(async () => { started(); await proceed; return "committed"; });
+  const inFlight = withFileWriteLease(async () => {
+    await recordFileWriteKey("tenant/document/v1.pdf");
+    await recordFileWriteKey("tenant/document/v1.pdf");
+    started(); await proceed; return "committed";
+  });
   await entered;
+  assert.deepEqual((await sql`SELECT storage_keys FROM file_write_operations`)[0].storage_keys, ["tenant/document/v1.pdf"]);
   let secondStarted;
   let releaseSecond;
   const secondEntered = new Promise((resolve) => { secondStarted = resolve; });
@@ -93,10 +100,19 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
     assert.equal(crashed.accepting, false);
     assert.equal(crashed.pending, 1, "A crashed process leaves a durable unresolved operation");
     assert.equal(crashed.drained, false);
+    const inspection = await setFileWriteMode({ databaseUrl, mode: "inspect" });
+    assert.equal(inspection.accepting, false);
+    assert.equal(inspection.pending, 1);
+    assert.equal(inspection.drained, false);
+    assert.equal(inspection.truncated, false);
+    assert.match(inspection.operations[0].id, /^[0-9a-f-]{36}$/);
+    assert.ok(inspection.operations[0].startedAt instanceof Date);
+    assert.deepEqual(inspection.operations[0].storageKeys, ["tenant/interrupted/v1.pdf"]);
     await assert.rejects(setFileWriteMode({ databaseUrl, mode: "resume" }), /unresolved file write/);
     // In the isolated fixture only: simulate an operator who stopped all writers
     // and reconciled the file before clearing the unresolved operation.
     await sql`DELETE FROM file_write_operations`;
+    assert.equal((await setFileWriteMode({ databaseUrl, mode: "inspect" })).drained, true);
     await setFileWriteMode({ databaseUrl, mode: "resume" });
   } finally {
     holder.kill("SIGKILL");

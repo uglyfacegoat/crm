@@ -3,7 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import postgres from "postgres";
 import { z } from "zod";
-import { closeFileWriteGate, withFileWriteLease } from "../src/server/file-writes/gate.mjs";
+import { closeFileWriteGate, recordFileWriteKey, withFileWriteLease } from "../src/server/file-writes/gate.mjs";
 import { storageBackend } from "../src/server/storage/s3-config.mjs";
 
 const requiredConfirmation = "CONFIRM_LOCAL_CRM_EXAMPLE_DATA";
@@ -480,6 +480,7 @@ await withFileWriteLease(async () => {
       ]);
       const sha256 = createHash("sha256").update(pdf).digest("hex");
       const storagePath = join(environment.DOCUMENT_STORAGE_ROOT, storageKey);
+      await recordFileWriteKey(storageKey);
       await mkdir(join(environment.DOCUMENT_STORAGE_ROOT, center.id, documentId), { recursive: true });
       try {
         await writeFile(storagePath, pdf, { flag: "wx", mode: 0o600 });

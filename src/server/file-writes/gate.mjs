@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import postgres from "postgres";
 import { FILE_WRITE_LOCK_CLASS, FILE_WRITE_LOCK_ID } from "./lock-key.mjs";
 
@@ -11,6 +12,16 @@ export class FileWriteLeaseLostError extends Error {
 }
 
 let gatePool;
+const activeOperation = new AsyncLocalStorage();
+
+export async function recordFileWriteKey(storageKey) {
+  const operation = activeOperation.getStore();
+  if (!operation) throw new Error("Business file write requires an active file write lease.");
+  const rows = await operation.connection`UPDATE file_write_operations
+    SET storage_keys = CASE WHEN ${storageKey} = ANY(storage_keys) THEN storage_keys ELSE array_append(storage_keys, ${storageKey}) END
+    WHERE id = ${operation.id} RETURNING id`;
+  if (rows.length !== 1) throw new FileWriteLeaseLostError();
+}
 function pool() {
   if (!gatePool) {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for file write leases.");
@@ -36,7 +47,7 @@ export async function withFileWriteLease(work) {
     if (state?.accepting !== true) throw new FileWritesPausedError();
     await connection`INSERT INTO file_write_operations (id) VALUES (${operationId})`;
     registered = true;
-    return await work();
+    return await activeOperation.run({ connection, id: operationId }, work);
   } catch (error) {
     failure = error;
     throw error;

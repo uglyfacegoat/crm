@@ -5,6 +5,7 @@ import { mkdir, open, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { storageRootSchema } from "@/server/config/environment";
 import { storageBackend } from "../storage/s3-config.mjs";
+import { recordFileWriteKey } from "../file-writes/gate.mjs";
 import { createS3Storage } from "../storage/s3-store.mjs";
 import { StoredFileIntegrityError, validateFileExpectation, validateStorageKey } from "../storage/file-integrity.mjs";
 
@@ -56,6 +57,7 @@ export function createChatChannelAvatarStorageKey(organizationId: string, channe
 }
 
 export async function writeDocumentFile(storageKey: string, buffer: Buffer) {
+  await recordFileWriteKey(storageKey);
   if (storageBackend(process.env) === "s3") return objectStorage().write(storageKey, buffer);
   const absolutePath = resolveStorageKey(storageKey);
   await mkdir(dirname(absolutePath), { recursive: true, mode: 0o700 });
