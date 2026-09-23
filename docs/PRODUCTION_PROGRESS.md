@@ -7,6 +7,24 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 20:08 MSK, source candidate:** migration 057 and a local-only
+  manual recovery command now review each unresolved key against all four
+  reference families and actual bytes. Resolution requires an unchanged review
+  hash, a private evidence file, case ID and operator, and writes an append-only
+  database record in the same transaction that removes the pending row.
+  Disposable PostgreSQL tests cover paused-only access, absent keys, an
+  unreferenced present file, a valid reference, damaged bytes, changed review,
+  repeated identical resolution and rejection of changed evidence. S3 mode
+  rejects this command. The packaged runtime then applied 57 migrations on
+  its own disposable database and passed HTTP health plus
+  pause/review/resolve/retry/resume; it was removed afterward. Quarantine and
+  installed acceptance are pending; the working CRM still has 55 migrations.
+  A follow-up fixture verifies two keys in one operation: one valid reference
+  cannot mask another unreferenced file. Five migration scenarios, 200 unit
+  tests, typecheck, lint, production Docker build, file-drain and recovery
+  tests pass. The existing storage-audit suite passes 13 TAP when its admin URL
+  targets the empty `postgres` database as required; the first run mistakenly
+  used the schema-bearing working app database for its negative-schema case.
 - **2026-09-23 20:00 MSK:** fixed a drain gap: a handled unknown COMMIT outcome
   or failed owned-file cleanup now retains its keyed operation row after the
   lease ends. PostgreSQL lease test confirms `pause` stays undrained and

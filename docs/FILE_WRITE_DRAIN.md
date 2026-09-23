@@ -1,4 +1,4 @@
-# File write drain — source candidate
+# File write drain and local recovery — source candidate
 
 The implementation added on 2026-09-23 is **not installed in the working CRM**.
 FS-02/03 remain open. Do not switch storage or clear unresolved operations on the
@@ -32,7 +32,7 @@ until `nextCursor` is null. It refuses inspection while writes are accepted.
 An empty key list can mean interruption before the first file attempt; a key
 does not prove a file exists or is safe to remove.
 The command must use the target environment's `DATABASE_URL`; its pause mode
-returns exit code 2 when unresolved operations remain. No command automatically
+returns exit code 2 when unresolved operations remain. No drain command automatically
 deletes those rows.
 
 On an isolated PostgreSQL 17 database, `npm run test:file-drain` verifies that
@@ -48,10 +48,14 @@ covers actual database commits and lost COMMIT acknowledgements; all nine
 file-action paths now assert a durable unresolved key after a lost COMMIT.
 Source action tests also cover failed rollback cleanup. The new test
 is included in CI configuration; remote CI execution has not been observed.
-The keyed production image was started with all 56 migrations on a disposable
+The earlier keyed production image was started with all 56 migrations on a disposable
 PostgreSQL database. Its HTTP health endpoint and packaged
 `status`/`pause`/`inspect`/`resume` commands passed. The disposable database was
-removed; the working CRM database still has 55 migrations.
+removed; the working CRM database still has 55 migrations. The newer candidate
+image applied all 57 migrations on another disposable database, passed HTTP
+health, and ran packaged pause/review/resolve/retry/resume against a zero-key
+interrupted operation. It verified one immutable resolution record. That
+database and container were removed; the working CRM was not upgraded.
 The standalone browser suite passed against disposable local and S3 storage:
 18 real submissions and nine injected warning states in each mode. It also
 paused writes and confirmed the document dialog showed the pause message
@@ -75,20 +79,55 @@ production Dockerfile. This is not an installed working-CRM browser check.
    each recorded key with the inventory and committed references; neither a
    matching key nor a clean audit alone establishes the interrupted outcome.
 4. Establish the outcome of **each** interrupted request from application and
-   database evidence. Preserve unknown files and backup material. Any manual
-   row resolution needs an operator-approved, per-ID record of the verified
-   outcome and a separate recovery test; there is deliberately no bulk-clear
-   command. If ownership/outcome is uncertain, leave the row and pause in place.
+   database evidence. Preserve unknown files and backup material. For local
+   storage, the command below can resolve only a key whose current bytes match
+   a committed reference, or one absent from both storage and references.
+   If ownership/outcome is uncertain, leave the row and pause in place.
 5. Only after all rows are accounted for, rerun the audit and `inspect`. Resume
    only when `pending=0` and the operator has confirmed the storage state.
 
-No quarantine/removal automation is available yet. This procedure is a
-diagnostic checklist, **not** acceptance of an unresolved-row recovery path.
+## Audited local resolution candidate
 
-Before deployment and FS-02 acceptance, verify the recorded keys and outcome
-per unresolved operation, preserve unknown files in a recoverable quarantine,
-and implement/test an audited manual resolution. Confirm no other non-interactive
-business-file writer bypasses the gate, rehearse interruption/restart and failure of
+Only use this with the local backend, after every writer process has been
+stopped and a complete private `storage-audit.mjs --check` report retained.
+The tool cannot itself prove an external process has stopped or that storage
+is frozen. S3 resolution is rejected explicitly. Work under a restricted
+operator account with `umask 077`; keep reports and evidence outside the
+document-storage tree.
+
+1. Run `node scripts/file-write-recovery.mjs review <operation-id>`. It takes
+   the exclusive file-write lock, requires the persistent pause, checks all
+   four reference tables, verifies referenced local bytes, and reports whether
+   each recorded key is `referenced_verified`, `absent_unreferenced`,
+   `unreferenced_present`, `reference_invalid`, or `unexpected_path`. Retain
+   the complete JSON report and its `reviewSha256`. Review exits 2 if a key
+   cannot be resolved by this command.
+2. Independently document the writer stop, application outcome, storage audit,
+   matching references and any backup/quarantine decision in a private regular
+   evidence file. Obtain the case ID and operator review. The tool hashes the
+   file but does not validate the truth of its contents.
+3. For a fully reviewed operation only, run
+   `node scripts/file-write-recovery.mjs resolve <operation-id> <reviewSha256> <case-id> <absolute-evidence-file> <operator-name>`.
+   It repeats the same checks under the exclusive lock and a database snapshot.
+   If the state changed, the hash differs and it refuses. A successful command
+   atomically removes only that operation row and inserts an append-only log
+   with the full review, evidence hash, case ID, stated operator and database
+   role. Retrying identical arguments after a lost response reports
+   `alreadyResolved: true`; different evidence is rejected.
+
+An unreferenced file, invalid reference or unexpected path blocks resolution.
+Preserve such files in a recoverable quarantine with its own verified manifest
+before attempting a fresh review. This command neither moves nor deletes bytes
+and does not validate a quarantine manifest; that acceptance remains open.
+After all per-ID resolutions, rerun the full storage audit and `inspect` before
+`resume`. The evidence file and raw review contain internal keys; do not place
+them in public logs or the repository. A self-reported operator name does not
+replace access control on the operator shell and database credentials.
+
+Before deployment and FS-02 acceptance, implement and verify recoverable
+quarantine for unreferenced files, and add
+S3 recovery before any S3 switch. Confirm no other non-interactive business-file
+writer bypasses the gate, rehearse interruption/restart and failure of
 the lease connection, and verify browser messages in the installed build.
 FS-03 additionally requires competitive uploads, process crash, connection
 loss and restart acceptance. Never interpret `accepting=true` with zero active

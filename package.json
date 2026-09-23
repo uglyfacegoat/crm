@@ -9,6 +9,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test:migrations": "node --test scripts/migrations.integration.mjs",
     "test:file-drain": "node --test scripts/file-write-drain.integration.mjs",
+    "test:file-recovery": "node --test scripts/file-write-recovery.integration.mjs",
     "test:backup-restore": "node --test scripts/backup-restore.integration.mjs",
     "test:request-limits": "node --experimental-test-module-mocks --test scripts/request-limits.integration.mjs",
     "test:startup": "node --test scripts/startup.integration.mjs",
