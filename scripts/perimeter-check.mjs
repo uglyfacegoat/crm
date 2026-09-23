@@ -16,7 +16,10 @@ for (const path of ["/login", "/api/v1/auth/session", "/api/v1/system/health", "
   assert.equal(response.headers.get("x-powered-by"), null);
 }
 
-for (const path of ["/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/notifications/read-all", "/api/v1/documents/export", "/login", "/sites"]) {
+// Every upload is a Server Action on one of these pages; the proxy must reject
+// unsafe cross-origin requests before Next parses a multipart body or runs an action.
+const uploadActionPages = ["/documents", "/calendar", "/finance", "/chat", "/settings"];
+for (const path of ["/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/notifications/read-all", "/api/v1/documents/export", "/login", "/sites", ...uploadActionPages]) {
   for (const headers of [
     {},
     { origin: "null" },
@@ -30,19 +33,23 @@ for (const path of ["/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/notifi
 }
 
 // Node fetch replaces a supplied Host, so use the HTTP client to exercise a forged one.
-const forgedHostStatus = await new Promise((resolve, reject) => {
-  const request = (origin.startsWith("https:") ? httpsRequest : httpRequest)(new URL("/login", origin), {
-    headers: { host: "untrusted.invalid", "x-forwarded-host": new URL(origin).host },
-    timeout: 15_000,
-  }, (response) => {
-    response.resume();
-    resolve(response.statusCode);
+async function forgedHostStatus(path) {
+  return new Promise((resolve, reject) => {
+    const request = (origin.startsWith("https:") ? httpsRequest : httpRequest)(new URL(path, origin), {
+      headers: { host: "untrusted.invalid", "x-forwarded-host": new URL(origin).host },
+      timeout: 15_000,
+    }, (response) => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    request.on("error", reject);
+    request.on("timeout", () => request.destroy(new Error("Forged-host check timed out")));
+    request.end();
   });
-  request.on("error", reject);
-  request.on("timeout", () => request.destroy(new Error("Forged-host check timed out")));
-  request.end();
-});
-assert.equal(forgedHostStatus, 421, "Forwarded Host must not admit an unconfigured public host");
+}
+for (const path of ["/login", ...uploadActionPages, "/api/v1/webhooks/website-leads"]) {
+  assert.equal(await forgedHostStatus(path), 421, `${path}: Forwarded Host must not admit an unconfigured public host`);
+}
 const webhook = await send("/api/v1/webhooks/website-leads", { method: "POST" });
 assert.ok([401, 503].includes(webhook.status), "Bearer-authenticated integrations must not require browser Origin");
 

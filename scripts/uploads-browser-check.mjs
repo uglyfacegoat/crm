@@ -282,6 +282,21 @@ try {
     assert.deepEqual(await avatarDownload.body(), imageBytes);
     console.log(`${suffix}: template, chat attachment and avatar persisted; template/avatar downloads and warning states verified.`);
   }
+  // A file at the accepted 15 MiB boundary used to be truncated by Next's
+  // default 10 MiB proxy buffer before the upload action could validate it.
+  const boundaryBytes = Buffer.alloc(15 * 1024 * 1024, 0x20);
+  boundaryBytes.write("%PDF-1.4\n", 0, "ascii");
+  await page.goto(`${baseUrl}/documents`);
+  await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const boundaryDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+  await boundaryDialog.locator('summary[aria-label="Заказ"]').click();
+  await boundaryDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+  await boundaryDialog.locator('input[name="title"]').fill("PDF на границе лимита");
+  await boundaryDialog.locator('input[name="file"]').setInputFiles({ name: "boundary.pdf", mimeType: "application/pdf", buffer: boundaryBytes });
+  const boundaryDocumentId = await boundaryDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await submit(boundaryDialog, "Загрузить документ", null, "boundary-upload.png");
+  await verifyVersion(boundaryDocumentId, 1, boundaryBytes);
+  console.log("boundary: 15 MiB document crossed the proxy and Server Action without truncation.");
   const [{ count: versionsBeforePause }] = await sql`SELECT count(*)::integer AS count FROM document_versions`;
   const localEntriesBeforePause = objectStorage ? null : (await readdir(directory, { recursive: true })).sort();
   assert.equal((await setFileWriteMode({ databaseUrl: environment.DATABASE_URL, mode: "pause" })).drained, true);

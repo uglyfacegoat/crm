@@ -9,6 +9,7 @@ import { requireSession } from "@/server/auth/session";
 import { consumeRequestLimit } from "@/server/request-limits/repository";
 import {
   DocumentFileValidationError,
+  assertDocumentFileSize,
   validateDocumentFile,
 } from "@/server/documents/file-validation";
 import {
@@ -93,6 +94,7 @@ async function storeReceipt(
 ): Promise<FinanceReceiptFile | null> {
   const uploadedFile = formData.get("receipt");
   if (!(uploadedFile instanceof File) || uploadedFile.size === 0) return null;
+  assertDocumentFileSize(uploadedFile.size);
   const buffer = Buffer.from(await uploadedFile.arrayBuffer());
   const validated = validateDocumentFile({
     filename: uploadedFile.name,

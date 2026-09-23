@@ -9,6 +9,7 @@ import { requireSession } from "@/server/auth/session";
 import { consumeRequestLimit } from "@/server/request-limits/repository";
 import {
   DocumentFileValidationError,
+  assertDocumentFileSize,
   validateDocumentFile,
 } from "@/server/documents/file-validation";
 import {
@@ -117,12 +118,7 @@ async function uploadDocumentActionImpl(
   let committed = false;
   let outcomeUnknown = false;
   try {
-    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    const file = validateDocumentFile({
-      filename: uploadedFile.name,
-      declaredMimeType: uploadedFile.type,
-      buffer,
-    });
+    assertDocumentFileSize(uploadedFile.size);
     if (await documentUploadExists(member, parsed.data.idempotencyKey))
       return {
         status: "success",
@@ -131,6 +127,12 @@ async function uploadDocumentActionImpl(
       };
     const budget = await consumeRequestLimit(member, "document_upload");
     if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const file = validateDocumentFile({
+      filename: uploadedFile.name,
+      declaredMimeType: uploadedFile.type,
+      buffer,
+    });
     storageKey = createDocumentStorageKey(
       member.organizationId,
       parsed.data.idempotencyKey,
@@ -256,12 +258,7 @@ async function uploadDocumentVersionActionImpl(
   let committed = false;
   let outcomeUnknown = false;
   try {
-    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    const file = validateDocumentFile({
-      filename: uploadedFile.name,
-      declaredMimeType: uploadedFile.type,
-      buffer,
-    });
+    assertDocumentFileSize(uploadedFile.size);
     if (
       await documentVersionUploadExists(
         member,
@@ -277,6 +274,12 @@ async function uploadDocumentVersionActionImpl(
     }
     const budget = await consumeRequestLimit(member, "document_upload");
     if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const file = validateDocumentFile({
+      filename: uploadedFile.name,
+      declaredMimeType: uploadedFile.type,
+      buffer,
+    });
     const target = await getDocumentVersionUploadTarget(
       member,
       parsed.data.documentId,

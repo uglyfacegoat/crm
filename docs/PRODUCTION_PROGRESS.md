@@ -11,6 +11,19 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-24, UP-06 upload and webhook perimeter:** [The full entry matrix](UPLOAD_PERIMETER_MATRIX.md)
+  covers document/version, visit act/photo, payment/payout receipt, template,
+  chat attachment/avatar and website lead webhook. The packaged runtime was
+  truncating bodies at Next Proxy's default 10 MiB although the product allows
+  15 MiB files. Proxy buffering is now 17 MiB, while a streamed 16 MiB action
+  limit returns HTTP 413 with or without `Content-Length`. On an isolated
+  production runtime, a real 15 MiB PDF crossed the browser/action boundary
+  intact and matched stored bytes and SHA-256. Missing/foreign Origin and
+  forged Host were rejected for every upload page; the Bearer webhook kept
+  its deliberate Origin exception and bounded JSON reader. Request-budget
+  tests passed for member/company and public-IP scopes. Unit tests (205),
+  lint, build and the upload browser suite passed. These are local changes;
+  concurrency/memory limits remain in UP-05 and production deployment is open.
 - **2026-09-24, SEC-08 and OPS-03 acceptance:**
   `npm run test:session-revocation` used an isolated PostgreSQL database and
   production standalone server. A real settings action changed an employee's

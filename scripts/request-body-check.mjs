@@ -58,8 +58,24 @@ try {
     assert.equal((await postChunks(path, ["{"], headers)).status, 400);
     assert.equal((await postChunks(path, [Buffer.from([0x22, 0xff, 0x22])], headers)).status, 400);
   }
+  // Server Actions use a separate multipart body limit. Check the shared proxy
+  // guard with both declared and chunked bodies, including a form POST without
+  // the next-action header (progressive enhancement).
+  const oversizedAction = [Buffer.alloc(8 * 1024 * 1024), Buffer.alloc(8 * 1024 * 1024 + 1)];
+  for (const [path, actionHeaders] of [
+    ["/documents", { "next-action": "invalid-action-for-size-check" }],
+    ["/calendar", {}],
+  ]) {
+    for (const sizeHeaders of [{}, { "content-length": String(16 * 1024 * 1024 + 1) }]) {
+      const result = await postChunks(path, oversizedAction, {
+        cookie, "content-type": "multipart/form-data; boundary=crm-test", ...actionHeaders, ...sizeHeaders,
+      });
+      assert.equal(result.status, 413, `${path} must reject an oversized Server Action body with or without Content-Length`);
+      assert.equal(result.body.error.code, "payload_too_large");
+    }
+  }
   assert.equal((await postChunks("/api/v1/webhooks/website-leads", ["{}"], {})).status, 401);
-  console.log("Request-body checks passed for login, document export and website webhook: exact/chunked/declared limits, malformed JSON, invalid UTF-8 and authentication boundary.");
+  console.log("Request-body checks passed for JSON routes and Server Actions: exact/chunked/declared limits, malformed JSON, invalid UTF-8 and authentication boundary.");
 } finally {
   const logout = await fetch(`${origin}/api/v1/auth/logout`, {
     method: "POST", headers: { origin, cookie }, signal: AbortSignal.timeout(15_000),

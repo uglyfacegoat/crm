@@ -3,8 +3,27 @@ import { getAllowedRequestOrigins } from "@/server/auth/request";
 import { matchesRequestOrigin } from "@/server/auth/same-origin";
 
 const SESSION_COOKIE_NAME = "crm_session";
+const MAX_SERVER_ACTION_BODY_BYTES = 16 * 1024 * 1024;
 
-export function proxy(request: NextRequest) {
+async function actionBodyTooLarge(request: NextRequest) {
+  const declared = request.headers.get("content-length");
+  if (declared && /^\d+$/.test(declared) && Number(declared) > MAX_SERVER_ACTION_BODY_BYTES) return true;
+  if (!request.body) return false;
+  const reader = request.body.getReader();
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return false;
+      size += value.byteLength;
+      if (size > MAX_SERVER_ACTION_BODY_BYTES) { await reader.cancel(); return true; }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function proxy(request: NextRequest) {
   const allowedOrigins = getAllowedRequestOrigins(request);
   const path = request.nextUrl.pathname;
   const host = request.headers.get("host");
@@ -17,13 +36,18 @@ export function proxy(request: NextRequest) {
   if (!safeMethod && !bearerWebhook && !matchesRequestOrigin(request.headers.get("origin"), allowedOrigins)) {
     return NextResponse.json({ error: { code: "invalid_origin", message: "Недопустимый источник запроса." } }, { status: 403 });
   }
+  const isPage = !path.startsWith("/api/");
+  if (isPage && !safeMethod && (request.headers.has("next-action") || request.headers.get("content-type")?.startsWith("multipart/form-data"))) {
+    if (await actionBodyTooLarge(request)) {
+      return NextResponse.json({ error: { code: "payload_too_large", message: "Размер запроса не должен превышать 16 МБ." } }, { status: 413 });
+    }
+  }
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-forwarded-host", host ?? "");
   if (process.env.CRM_TRUST_PROXY !== "true") {
     for (const name of ["forwarded", "x-real-ip", "x-forwarded-for", "x-forwarded-proto"]) requestHeaders.delete(name);
   }
-  const isPage = !path.startsWith("/api/");
   let contentSecurityPolicy: string | undefined;
   if (isPage) {
     const nonce = Buffer.from(crypto.randomUUID()).toString("base64");

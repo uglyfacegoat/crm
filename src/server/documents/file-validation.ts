@@ -26,6 +26,10 @@ export class DocumentFileValidationError extends Error {
   }
 }
 
+export function assertDocumentFileSize(sizeBytes: number) {
+  if (sizeBytes > MAX_DOCUMENT_SIZE_BYTES) throw new DocumentFileValidationError("Размер файла не должен превышать 15 МБ.");
+}
+
 function startsWith(buffer: Buffer, signature: number[]) {
   return signature.every((byte, index) => buffer[index] === byte);
 }
@@ -49,7 +53,7 @@ function safeOriginalFilename(filename: string) {
 export function validateDocumentFile(input: { filename: string; declaredMimeType: string; buffer: Buffer }) {
   const filename = safeOriginalFilename(input.filename);
   if (!input.buffer.length) throw new DocumentFileValidationError("Файл пуст.");
-  if (input.buffer.length > MAX_DOCUMENT_SIZE_BYTES) throw new DocumentFileValidationError("Размер файла не должен превышать 15 МБ.");
+  assertDocumentFileSize(input.buffer.length);
   const rawExtension = extname(filename).slice(1).toLowerCase();
   const allowed = allowedFiles[rawExtension];
   if (!allowed) throw new DocumentFileValidationError("Разрешены PDF, JPG, PNG, WebP, DOCX и XLSX.");

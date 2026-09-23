@@ -15,7 +15,7 @@ import {
   updateDocumentTemplateStatus,
 } from "@/server/document-templates/repository";
 import { createDocumentTemplateSchema, updateDocumentTemplateStatusSchema } from "@/server/document-templates/schemas";
-import { DocumentFileValidationError, validateDocumentFile } from "@/server/documents/file-validation";
+import { DocumentFileValidationError, assertDocumentFileSize, validateDocumentFile } from "@/server/documents/file-validation";
 import { createDocumentTemplateStorageKey, removeDocumentFile, writeDocumentFile } from "@/server/documents/storage";
 
 export type DocumentTemplateMutationState = {
@@ -53,15 +53,16 @@ async function uploadDocumentTemplateActionImpl(
   let fileWritten = false;
   let committed = false;
   try {
+    assertDocumentFileSize(uploadedFile.size);
+    if (await documentTemplateExists(member, parsed.data.idempotencyKey)) return { status: "success", message: "Шаблон уже загружен.", fieldErrors: {} };
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
     if (file.extension !== "pdf" && file.extension !== "docx") {
       return { status: "error", message: "Для шаблона акта разрешены только PDF и DOCX.", fieldErrors: { file: ["Выберите PDF или DOCX"] } };
     }
     const extension: "pdf" | "docx" = file.extension;
-    if (await documentTemplateExists(member, parsed.data.idempotencyKey)) return { status: "success", message: "Шаблон уже загружен.", fieldErrors: {} };
-    const budget = await consumeRequestLimit(member, "document_upload");
-    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
     storageKey = createDocumentTemplateStorageKey(member.organizationId, parsed.data.idempotencyKey, extension);
     await writeDocumentFile(storageKey, buffer);
     fileWritten = true;

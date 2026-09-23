@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
     ] }];
   },
   experimental: {
+    // Proxy buffers the body before Server Actions see it. Keep this above the
+    // 16 MiB action limit so valid 15 MiB files are not silently truncated.
+    proxyClientMaxBodySize: "17mb",
     serverActions: {
       bodySizeLimit: "16mb",
     },

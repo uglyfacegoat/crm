@@ -7,7 +7,7 @@ import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
 import { consumeRequestLimit } from "@/server/request-limits/repository";
-import { DocumentFileValidationError, validateDocumentFile } from "@/server/documents/file-validation";
+import { DocumentFileValidationError, assertDocumentFileSize, validateDocumentFile } from "@/server/documents/file-validation";
 import { createDocumentStorageKey, removeDocumentFile, writeDocumentFile } from "@/server/documents/storage";
 import {
   completeVisitWithClosingDocument,
@@ -114,6 +114,7 @@ async function completeVisitActionImpl(_previous: CompleteVisitState, formData: 
     }
     const budget = await consumeRequestLimit(member, "document_upload");
     if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {}, documentId: null };
+    assertDocumentFileSize(uploadedFile.size);
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
     if (file.extension === "docx" || file.extension === "xlsx") {
@@ -209,6 +210,7 @@ async function uploadAssignedVisitEvidenceActionImpl(
     }
     const budget = await consumeRequestLimit(member, "document_upload");
     if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
+    assertDocumentFileSize(uploadedFile.size);
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
     if (file.extension !== "jpg" && file.extension !== "png" && file.extension !== "webp") {
