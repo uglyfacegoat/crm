@@ -38,6 +38,7 @@ jobs:
       - run: npm run test:chat-download
       - run: npm run test:document-download
       - run: npm run test:s3-storage
+      - run: npm run test:backup-export
       - run: npm run build
       - run: npm run test:startup
 

@@ -132,6 +132,13 @@ reference successfully. They check pre-snapshot writes are included, later write
 are excluded, reads/unrelated writes continue, no orphan/new file enters staging,
 and dump/staging/lock failures release the snapshot sessions.
 
+Before publishing a host export, the worker now checks the exact
+four-member archive, verifies each copied file against `manifest.sha256`, and
+confirms the copied manifest matches the source. A failed copy stays in a
+temporary directory and is removed; the export timestamp is recorded only
+after the verified directory is renamed into place. This does not yet prove
+delivery to an independent offsite destination.
+
 ## Remaining production requirements
 
 - Representative-volume acceptance of the coordinated snapshot: staging disk space,

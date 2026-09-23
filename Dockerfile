@@ -45,6 +45,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts/seed-local-example-data.m
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/reminder-worker.mjs /app/scripts/reminder-worker-config.mjs /app/scripts/worker-runtime-config.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-worker.mjs /app/scripts/backup-worker-config.mjs /app/scripts/backup-process.mjs /app/scripts/backup-restore.mjs /app/scripts/backup-restore-check.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-integrity.mjs ./scripts/
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-export.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/storage-audit.mjs /app/scripts/s3-audit-storage.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-snapshot.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/db/migrations ./db/migrations

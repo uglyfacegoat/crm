@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import {
-  cp,
   mkdir,
   readdir,
   rename,
@@ -15,6 +14,7 @@ import {
   databaseProcessEnvironment,
 } from "./backup-worker-config.mjs";
 import { runProcess, sha256File } from "./backup-process.mjs";
+import { exportArchive } from "./backup-export.mjs";
 import { verifyBackupRestore } from "./backup-restore.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
 import { validateBackupWorkerEnvironment } from "./worker-runtime-config.mjs";
@@ -72,21 +72,6 @@ async function removeExpiredArchives(root, now) {
     const archivePath = resolve(root, entry.name);
     if (!isPathInside(root, archivePath)) throw new Error("Refusing to remove a backup outside the configured root.");
     await rm(archivePath, { recursive: true });
-  }
-}
-
-async function exportArchive(archiveName, archiveDirectory) {
-  if (!backupExportRoot) return null;
-  const partialDirectory = join(backupExportRoot, `.partial-${archiveName}`);
-  const exportedDirectory = join(backupExportRoot, archiveName);
-  await rm(partialDirectory, { recursive: true, force: true });
-  try {
-    await cp(archiveDirectory, partialDirectory, { recursive: true, force: false, errorOnExist: true });
-    await rename(partialDirectory, exportedDirectory);
-    return new Date().toISOString();
-  } catch (error) {
-    await rm(partialDirectory, { recursive: true, force: true });
-    throw error;
   }
 }
 
@@ -195,7 +180,8 @@ async function executeBackup() {
     `;
     const archive = await createArchive(run.id);
     const restoreResult = await verifyBackupRestore({ archiveDirectory: archive.archiveDirectory, databaseUrl });
-    const hostExportedAt = await exportArchive(archive.archiveName, archive.archiveDirectory);
+    const hostExportedAt = await exportArchive({ backupExportRoot, archiveName: archive.archiveName,
+      archiveDirectory: archive.archiveDirectory });
     const result = {
       archiveName: archive.archiveName,
       databaseBytes: archive.databaseBytes,

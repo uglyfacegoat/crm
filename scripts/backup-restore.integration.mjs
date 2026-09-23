@@ -10,6 +10,7 @@ import { runMigrations } from "./migrate.mjs";
 import { databaseProcessEnvironment } from "./backup-worker-config.mjs";
 import { captureProcess, runProcess, sha256File } from "./backup-process.mjs";
 import { verifyBackupRestore } from "./backup-restore.mjs";
+import { verifyBackupManifest } from "./backup-integrity.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 
@@ -376,6 +377,10 @@ test("backup restores the full application schema and validates every retained f
     assert.ok(run.restore_verified_at);
     const exportedBefore = await readdir(exportRoot);
     assert.deepEqual(exportedBefore, [success.last_result.archiveName]);
+    const exportedDirectory = join(exportRoot, success.last_result.archiveName);
+    await verifyBackupManifest(exportedDirectory);
+    assert.deepEqual(await readFile(join(exportedDirectory, "manifest.sha256")),
+      await readFile(join(backupRoot, success.last_result.archiveName, "manifest.sha256")));
     await sql`UPDATE background_job_status SET status = 'failed', last_started_at = now() - interval '1 hour' WHERE job_name = 'system.backup'`;
     try {
       await rm(references[0].path);

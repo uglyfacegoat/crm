@@ -7,6 +7,13 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, BK-03 host-export verification:** the backup worker now checks
+  the exact exported member set, every copied SHA-256 and the source manifest
+  hash before publishing the host copy. An isolated test corrupts a copied
+  member, forges a matching copied manifest, and adds an extra member; none
+  becomes a published backup. The new production image passed both packaged
+  local and S3 backup/restore suites, including checks on the exported copy.
+  Independent offsite delivery and acknowledgement remain open.
 - **2026-09-23, SEC-04 test isolation candidate:** the transfer, cutover,
   local/packaged backup restore, packaged S3 backup, full-staging-volume and main PostgreSQL integration npm
   commands now provision their own PostgreSQL 17 container with random credentials and a temporary data
