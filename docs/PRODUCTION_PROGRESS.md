@@ -12,8 +12,13 @@ The overall goal remains active; this document is not a declaration of productio
   category or allowlisted system/SQL code; arbitrary exception messages and
   provider-defined codes are excluded. Backup and reminder workers apply the
   same rule to persisted failure codes. The helper is copied into the runtime
-  image. 203 unit tests, isolated storage-audit integration, lint, typecheck
-  and local production build pass. Other log sources still need audit.
+  image. Startup connection failures in migration and both workers are also
+  caught without a Node stack trace; a process test checks that a database
+  password is absent.
+  204 unit tests, five isolated migration checks and lint pass; isolated
+  storage-audit integration, typecheck and local production build passed
+  before the startup-catch addition. Other
+  log sources still need audit.
 - **2026-09-23, OBS-02 HTTP log redaction candidate:** 32 action/route files
   now record an allowlisted error code instead of serializing arbitrary
   exception messages, which may contain database details or user data. A unit

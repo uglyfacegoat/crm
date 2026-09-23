@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -67,5 +68,11 @@ export async function runMigrations({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  await runMigrations({ databaseUrl: process.env.DATABASE_URL });
+  try {
+    await runMigrations({ databaseUrl: process.env.DATABASE_URL });
+  } catch (error) {
+    console.error(JSON.stringify({ operation: "database.migrate", status: "failed",
+      errorCode: safeCliErrorCode(error, "MIGRATION_FAILED") }));
+    process.exitCode = 1;
+  }
 }

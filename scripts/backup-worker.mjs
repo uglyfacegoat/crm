@@ -304,4 +304,10 @@ async function main() {
   await sql.end({ timeout: 5 });
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  console.error(JSON.stringify({ operation: "backup_worker.main", status: "failed", errorCode: safeCliErrorCode(error, "BACKUP_WORKER_FAILED") }));
+  process.exitCode = 1;
+  try { await sql.end({ timeout: 5 }); } catch { /* Preserve the original failure category. */ }
+}
