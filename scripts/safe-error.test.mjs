@@ -29,13 +29,14 @@ test("CLI and worker error categories cannot contain provider secrets", () => {
 });
 
 
-test("migration and workers redact startup connection failures", () => {
+test("operator commands and workers redact startup failures", () => {
   const root = mkdtempSync(join(tmpdir(), "crm-worker-redaction-"));
   const storageRoot = join(root, "storage");
   mkdirSync(storageRoot);
   try {
-    for (const script of ["migrate.mjs", "reminder-worker.mjs", "backup-worker.mjs"]) {
-      const result = spawnSync(process.execPath, [join(import.meta.dirname, script), "--healthcheck"], {
+    for (const script of ["migrate.mjs", "file-write-drain.mjs", "backup-restore-check.mjs",
+      "reminder-worker.mjs", "backup-worker.mjs"]) {
+      const result = spawnSync(process.execPath, [join(import.meta.dirname, script), script === "file-write-drain.mjs" ? "status" : "--healthcheck"], {
         encoding: "utf8", timeout: 15_000,
         env: { PATH: process.env.PATH, DATABASE_URL: "postgresql://probe:probe-secret@127.0.0.1:1/probe",
           DOCUMENT_STORAGE_ROOT: storageRoot, BACKUP_ROOT: join(root, "backups") },
@@ -44,7 +45,7 @@ test("migration and workers redact startup connection failures", () => {
       assert.doesNotMatch(`${result.stdout}${result.stderr}`, /probe-secret|postgresql:|at .*\.mjs/);
       const line = JSON.parse(result.stderr.trim());
       assert.equal(line.status, "failed");
-      assert.match(line.errorCode, /^(ECONNREFUSED|MIGRATION_FAILED|BACKUP_WORKER_FAILED|REMINDER_WORKER_FAILED)$/);
+      assert.match(line.errorCode, /^(ECONNREFUSED|MIGRATION_FAILED|FILE_WRITE_DRAIN_FAILED|BACKUP_RESTORE_CHECK_FAILED|BACKUP_WORKER_FAILED|REMINDER_WORKER_FAILED)$/);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

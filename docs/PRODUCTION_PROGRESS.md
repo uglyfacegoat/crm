@@ -7,6 +7,12 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, OBS-02 operator CLI startup redaction candidate:**
+  `file-write-drain` and `backup-restore-check` now catch top-level failures
+  and emit safe categories rather than Node exception stacks. The process
+  check covers both commands with a secret-bearing database URL. 204 unit
+  tests, isolated file-drain integration and lint pass. This is source-only
+  until the candidate image is accepted.
 - **2026-09-23, OBS-02 CLI/worker log redaction candidate:** eight recovery,
   quarantine, transfer and audit commands now emit only a fixed failure
   category or allowlisted system/SQL code; arbitrary exception messages and
@@ -17,8 +23,9 @@ The overall goal remains active; this document is not a declaration of productio
   password is absent.
   204 unit tests, five isolated migration checks and lint pass; isolated
   storage-audit integration, typecheck and local production build passed
-  before the startup-catch addition. Other
-  log sources still need audit.
+  before the startup-catch addition. All five jobs passed for the startup
+  patch in [GitHub run 35913931910](https://github.com/uglyfacegoat/crm/actions/runs/35913931910).
+  Other log sources still need audit.
 - **2026-09-23, OBS-02 HTTP log redaction candidate:** 32 action/route files
   now record an allowlisted error code instead of serializing arbitrary
   exception messages, which may contain database details or user data. A unit

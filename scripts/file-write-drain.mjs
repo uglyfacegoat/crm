@@ -1,3 +1,4 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import postgres from "postgres";
 import { FILE_WRITE_LOCK_CLASS, FILE_WRITE_LOCK_ID } from "../src/server/file-writes/lock-key.mjs";
 
@@ -73,7 +74,13 @@ export async function setFileWriteMode({ databaseUrl, mode, afterId, onWaiting =
 }
 
 if (process.argv[1]?.endsWith("/file-write-drain.mjs")) {
-  const result = await setFileWriteMode({ databaseUrl: process.env.DATABASE_URL, mode: process.argv[2], afterId: process.argv[3] });
-  console.log(JSON.stringify(result));
-  if (process.argv[2] === "pause" && !result.drained) process.exitCode = 2;
+  try {
+    const result = await setFileWriteMode({ databaseUrl: process.env.DATABASE_URL, mode: process.argv[2], afterId: process.argv[3] });
+    console.log(JSON.stringify(result));
+    if (process.argv[2] === "pause" && !result.drained) process.exitCode = 2;
+  } catch (error) {
+    console.error(JSON.stringify({ operation: "file_write.drain", status: "failed",
+      errorCode: safeCliErrorCode(error, "FILE_WRITE_DRAIN_FAILED") }));
+    process.exitCode = 1;
+  }
 }
