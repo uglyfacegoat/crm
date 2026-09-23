@@ -33,6 +33,7 @@
     "test:document-download": "node --experimental-test-module-mocks --test scripts/document-download.check.mjs",
     "test:s3-storage": "node --test scripts/s3-storage.integration.mjs",
     "test:s3-backup": "node scripts/s3-backup-check.mjs",
+    "test:backup-full-stage": "node scripts/backup-full-stage-check.mjs",
     "test:production-smoke": "node scripts/production-smoke-check.mjs",
     "test:sites-production": "node scripts/sites-production-check.mjs",
     "auth:create-admin": "node --experimental-strip-types --env-file-if-exists=.env.local scripts/create-admin.ts",

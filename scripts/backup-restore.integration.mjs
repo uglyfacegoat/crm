@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, readdir, rm, statfs, symlink, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -263,6 +263,43 @@ test("backup restores the full application schema and validates every retained f
     assert.deepEqual(result.snapshotFileCounts, { document_versions: 2, document_template_versions: 1, chat_message_attachments: 1, chat_channel_avatars: 1 });
     assert.equal(result.snapshotFileBytes, references.reduce((total, reference) => total + reference.content.length, 0));
     assert.deepEqual(await readFile(partialPath), references.find(reference => reference.path === join(storage, partialPath.slice(stagingDirectory.length + 1))).content);
+  });
+  if (process.env.BACKUP_TEST_FULL_STAGE_ROOT) await t.test("real full staging volume rejects backup and recovers after space is freed", async () => {
+    const stageRoot = process.env.BACKUP_TEST_FULL_STAGE_ROOT;
+    const stagingDirectory = join(stageRoot, `snapshot-${randomUUID()}`);
+    const filler = join(stageRoot, `filler-${randomUUID()}`);
+    let attemptedPath;
+    let dumped = false;
+    const objectStorage = {
+      async readVerified(key) {
+        attemptedPath = join(stagingDirectory, key);
+        const { bavail, bsize } = await statfs(stageRoot);
+        assert.ok(bavail * bsize > 0 && bavail * bsize < 4 * 1024 * 1024, "Use an isolated small tmpfs for this test");
+        try { await writeFile(filler, Buffer.alloc(bavail * bsize)); }
+        catch (error) { if (error.code !== "ENOSPC") throw error; }
+        assert.equal((await statfs(stageRoot)).bavail, 0, "The staging volume must actually be full");
+        return readFile(join(storage, key));
+      },
+    };
+    try {
+      await assert.rejects(withStorageSnapshot({
+        databaseUrl, storageRoot: join(root, "absent-local-source"), objectStorage,
+        stagingDirectory, copyTimeoutMs: 30_000,
+      }, async () => { dumped = true; }), { code: "ENOSPC" });
+      assert.equal(dumped, false);
+      await assert.rejects(readFile(attemptedPath), { code: "ENOENT" });
+      assert.equal((await admin`SELECT count(*)::integer AS count FROM pg_stat_activity WHERE datname = ${databaseName} AND application_name = 'crm_backup_snapshot'`)[0].count, 0);
+    } finally {
+      await rm(filler, { force: true });
+      await rm(stagingDirectory, { recursive: true, force: true });
+    }
+    const recovered = await withStorageSnapshot({
+      databaseUrl, storageRoot: join(root, "absent-local-source"),
+      objectStorage: { readVerified: key => readFile(join(storage, key)) },
+      stagingDirectory, copyTimeoutMs: 30_000,
+    }, async snapshot => snapshot);
+    assert.equal(recovered.snapshotFileBytes, references.reduce((total, reference) => total + reference.content.length, 0));
+    await rm(stagingDirectory, { recursive: true, force: true });
   });
   await t.test("contended file table fails within the lock budget without leaving a snapshot session", async () => {
     const writer = postgres(databaseUrl, { max: 1, onnotice: () => {} });

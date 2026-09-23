@@ -76,6 +76,14 @@ and isolated PostgreSQL address reachable from Docker. The Docker hostname
 `host.docker.internal` is mapped to the host gateway in the fixture; select the test
 database port, never the working database.
 
+`npm run test:backup-full-stage` with `BACKUP_FULL_STAGE_TEST_IMAGE`,
+`BACKUP_FULL_STAGE_TEST_NETWORK` and `BACKUP_TEST_ADMIN_URL` set runs the packaged
+backup integration on a separate 1 MiB tmpfs. It fills the staging volume
+during an object read, requires an explicit `ENOSPC` failure without a staged
+file or PostgreSQL snapshot session, frees the volume, then checks a complete
+retry. The test provisions and drops its own database; use only an isolated
+test PostgreSQL service/network.
+
 ## Migration and rollback gates — still open
 
 1. Provision a supported private service, least-privilege credentials, TLS, public-access

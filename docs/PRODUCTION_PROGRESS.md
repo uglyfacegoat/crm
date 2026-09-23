@@ -16,8 +16,11 @@ The overall goal remains active; this document is not a declaration of productio
   `backup-restore.integration.mjs` pass. The built
   `crm-app:fs11-candidate-20260923` also passed the full packaged S3 backup/
   restore suite (21 tests) on a disposable database and MinIO bucket, including
-  missing-object failure despite valid local bytes. A real full-volume test
-  and chosen-provider acceptance remain open.
+  missing-object failure despite valid local bytes. A separate packaged run
+  on a 1 MiB tmpfs reproduced actual `ENOSPC`, confirmed no partial staged
+  object or leaked snapshot session, then copied all references after the
+  volume was freed. Chosen-provider and application-level disaster recovery
+  acceptance remain open.
 - **2026-09-23, transfer follow-up acceptance:** the independent storage
   audit found no issues after forward copy (five references verified in both
   local and S3) or reverse copy (six in both). On a fresh standalone build,
