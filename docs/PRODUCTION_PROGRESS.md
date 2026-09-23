@@ -4,8 +4,9 @@ For a plain-language explanation of what changed, why the checklist stays open,
 and what is installed in the working CRM, see [PRODUCTION_STATUS_SIMPLE.md](PRODUCTION_STATUS_SIMPLE.md).
 
 Authoritative scope: `PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md`, sections 4–15.
-Started 2026-09-20. The user excludes purchasing a domain and server for now.
-That exclusion does not waive application security, configuration, recovery, or local verification.
+Started 2026-09-20. As of 2026-09-24 the owner expects to obtain a server in about
+a week for private testing; a domain and public launch have not been agreed.
+This does not waive application security, configuration, recovery, or local verification.
 The overall goal remains active; this document is not a declaration of production readiness.
 
 ## Current evidence
