@@ -18,7 +18,11 @@ export async function setFileWriteMode({ databaseUrl, mode, afterId, onWaiting =
         try {
           const [state] = await connection`SELECT accepting, changed_at FROM file_write_control WHERE id = true`;
           const [{ pending }] = await connection`SELECT count(*)::integer AS pending FROM file_write_operations`;
-          return { accepting: state?.accepting === true, changedAt: state?.changed_at ?? null, pending, drained: current?.accepting === false && state?.accepting === false && pending === 0 };
+          const [{ transfersPending }] = await connection`SELECT count(*)::integer AS "transfersPending"
+            FROM file_storage_transfers WHERE state = 'prepared'`;
+          return { accepting: state?.accepting === true, changedAt: state?.changed_at ?? null,
+            pending, transfersPending, drained: current?.accepting === false && state?.accepting === false
+              && pending === 0 && transfersPending === 0 };
         } finally {
           if (current?.accepting === false) await connection`SELECT pg_advisory_unlock(${FILE_WRITE_LOCK_CLASS}, ${FILE_WRITE_LOCK_ID})`;
         }
@@ -29,10 +33,13 @@ export async function setFileWriteMode({ databaseUrl, mode, afterId, onWaiting =
           const [state] = await connection`SELECT accepting, changed_at FROM file_write_control WHERE id = true`;
           if (state?.accepting !== false) throw new Error("Pause file writes before inspecting unresolved operations.");
           const [{ pending }] = await connection`SELECT count(*)::integer AS pending FROM file_write_operations`;
+          const [{ transfersPending }] = await connection`SELECT count(*)::integer AS "transfersPending"
+            FROM file_storage_transfers WHERE state = 'prepared'`;
           const rows = await connection`SELECT id, started_at, storage_keys FROM file_write_operations
             WHERE ${afterId ?? null}::uuid IS NULL OR id > ${afterId ?? null}::uuid ORDER BY id LIMIT 101`;
           const operations = rows.slice(0, 100);
-          return { accepting: false, changedAt: state.changed_at, pending, drained: pending === 0,
+          return { accepting: false, changedAt: state.changed_at, pending, transfersPending,
+            drained: pending === 0 && transfersPending === 0,
             operations: operations.map(({ id, started_at, storage_keys }) => ({ id, startedAt: started_at, storageKeys: storage_keys })),
             nextCursor: rows.length > 100 ? operations.at(-1).id : null };
         } finally {
@@ -46,10 +53,14 @@ export async function setFileWriteMode({ databaseUrl, mode, afterId, onWaiting =
       await connection`SELECT pg_advisory_lock(${FILE_WRITE_LOCK_CLASS}, ${FILE_WRITE_LOCK_ID})`;
       try {
         const [{ pending }] = await connection`SELECT count(*)::integer AS pending FROM file_write_operations`;
+        const [{ transfersPending }] = await connection`SELECT count(*)::integer AS "transfersPending"
+          FROM file_storage_transfers WHERE state = 'prepared'`;
         if (mode === "resume" && pending > 0) throw new Error(`Cannot resume: ${pending} unresolved file write operation(s).`);
+        if (mode === "resume" && transfersPending > 0) throw new Error(`Cannot resume: ${transfersPending} unfinished file storage transfer(s).`);
         if (mode === "resume") await connection`UPDATE file_write_control SET accepting = true, changed_at = now() WHERE id = true`;
         const [state] = await connection`SELECT accepting, changed_at FROM file_write_control WHERE id = true`;
-        return { accepting: state?.accepting === true, changedAt: state?.changed_at ?? null, pending, drained: state?.accepting === false && pending === 0 };
+        return { accepting: state?.accepting === true, changedAt: state?.changed_at ?? null,
+          pending, transfersPending, drained: state?.accepting === false && pending === 0 && transfersPending === 0 };
       } finally {
         await connection`SELECT pg_advisory_unlock(${FILE_WRITE_LOCK_CLASS}, ${FILE_WRITE_LOCK_ID})`;
       }

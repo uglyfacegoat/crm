@@ -80,9 +80,10 @@ database port, never the working database.
 
 1. Provision a supported private service, least-privilege credentials, TLS, public-access
    denial, at-rest encryption and an independent recovery destination. Validate them.
-2. Implement/rehearse a writer-drained migration command: copy every retained reference,
-   including history/deleted-message files, with exclusive writes and checksum verification.
-   Do not delete or mutate the source. A DB table lock alone does not drain pending uploads.
+2. Accept the [writer-drained transfer candidate](STORAGE_TRANSFER.md): copy every retained
+   reference, including history/deleted-message files, with exclusive writes and checksum
+   verification. Do not delete or mutate the source. A DB table lock alone does not drain
+   pending uploads.
 3. Verify DB/file counts, every hash, authorized and anonymous requests, a full coordinated
    backup/restore, and application behavior while object storage is unavailable.
 4. Switch web and backup together only after successful verification. Keep the old image

@@ -7,6 +7,18 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, storage transfer source candidate:** migration 062 adds a
+  per-key, append-only journal and blocks writer `resume` while a session is
+  unfinished. The command copies the complete four-family reference snapshot
+  local → S3 and S3 → local, verifies size/hash, rejects unexpected S3 history
+  and never overwrites a conflicting destination. A disposable PostgreSQL/
+  MinIO test covers five retained files including archived/old/inactive/deleted
+  cases, interrupted forward transfer, changed-reference refusal, six-file reverse transfer after a new
+  S3-only version, conflict refusal and restart before the complete marker.
+  The packaged image applied 62 migrations on a disposable database and passed
+  local → S3, a new S3-only file, S3 → local, journal inspection and resume;
+  local bytes survived app-container removal. Working-volume, chosen-provider
+  and coordinated cutover acceptance remain open.
 - **2026-09-23, S3 archive restore drill candidate:** migration 061 adds an
   append-only report. A dedicated restore command verifies the completed
   quarantine archive, conditionally writes each historical object into a

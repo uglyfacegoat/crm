@@ -84,6 +84,19 @@ test("file write drain waits for in-flight work, rejects new work, and survives 
     assert.match(seed.stderr, expected);
     assert.doesNotMatch(seed.stderr, /do-not-log-this/);
   }
+  const transferId = randomUUID();
+  await sql`INSERT INTO file_storage_transfers
+    (id, direction, case_id, actor, database_role, reference_sha256,
+      reference_counts, file_count, total_bytes, state)
+    VALUES (${transferId}, 'local_to_s3', 'DRAIN-TRANSFER', 'Test operator', current_user,
+      ${"0".repeat(64)}, ${sql.json({})}, 0, 0, 'prepared')`;
+  const transferStatus = await setFileWriteMode({ databaseUrl, mode: "status" });
+  assert.equal(transferStatus.transfersPending, 1);
+  assert.equal(transferStatus.drained, false);
+  await assert.rejects(setFileWriteMode({ databaseUrl, mode: "resume" }), /unfinished file storage transfer/);
+  await sql`UPDATE file_storage_transfers SET state = 'complete', completed_at = now() WHERE id = ${transferId}`;
+  await assert.rejects(sql`DELETE FROM file_storage_transfers WHERE id = ${transferId}`, /append-only/);
+  assert.equal((await setFileWriteMode({ databaseUrl, mode: "status" })).drained, true);
   assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
   assert.equal(await withFileWriteLease(async () => "accepted"), "accepted");
 
