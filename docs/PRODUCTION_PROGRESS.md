@@ -15,6 +15,8 @@ The overall goal remains active; this document is not a declaration of productio
   counts for all four reference families and produced an archive on a private
   Docker volume. A separate container restored and checked that archive.
   A browser then uploaded a new document while S3 writes were enabled. The
+  production web image, running as a separate disposable container, served
+  both historical versions, the new file and its ZIP from S3. The packaged
   worker backup included that sixth reference. After writer pause and the
   verified S3 → local transfer, the local web served the new file and its ZIP
   byte-for-byte. This is a candidate rehearsal, not the installed web/worker

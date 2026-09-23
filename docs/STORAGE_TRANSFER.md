@@ -62,6 +62,8 @@ each backend, including the paused-upload message; S3 backup staging verified
 the same four reference families. The coordinated rehearsal also uploaded a
 new file through the S3 web, included it in a packaged backup, transferred it
 back to local and verified its download and ZIP bytes from the local web.
+An additional production-image web container served the old versions and the
+new file/ZIP from S3 while the packaged backup worker used the same bucket.
 These runs used disposable databases.
 Working-volume, chosen-provider and coordinated cutover/rollback acceptance
 remain open.
@@ -76,7 +78,8 @@ Then run `npm run test:storage-cutover`. It creates and removes its own
 database, MinIO fixture and private backup volume. It verifies authenticated
 historical/current downloads and ZIP before and after the web backend switch,
 uploads a new file through the S3 web, then runs the packaged S3 backup worker
-and checks the archive from a separate container. After the reverse transfer,
+and checks the archive from a separate container. It also checks authenticated
+downloads and ZIP from a disposable production-image web container. After the reverse transfer,
 the local web must serve that new file and its ZIP with identical bytes. This
 does not switch the installed CRM or substitute for acceptance against the
 selected provider.

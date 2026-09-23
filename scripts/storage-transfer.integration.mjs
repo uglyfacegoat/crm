@@ -26,7 +26,7 @@ test("storage transfer resumes all retained references in both directions withou
   const admin = postgres(adminUrl, { max: 1 });
   const name = `crm_storage_transfer_test_${randomUUID().replaceAll("-", "")}`;
   const storageRoot = await mkdtemp(join(tmpdir(), "crm-transfer-local-"));
-  const fixture = await startS3Fixture();
+  const fixture = await startS3Fixture({ publishAppPort: Boolean(process.env.STORAGE_CUTOVER_TEST_IMAGE) });
   const objectStorage = createS3Storage(fixture.environment);
   const auditStorage = createS3AuditStorage(fixture.environment);
   await admin`CREATE DATABASE ${admin(name)}`;
@@ -202,26 +202,26 @@ test("storage transfer resumes all retained references in both directions withou
         }
         web = undefined;
       };
-      const verifyHttpFiles = async () => {
-        const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
-          method: "POST", headers: { origin: baseUrl, "content-type": "application/json" },
+      const verifyHttpFiles = async (httpBase = baseUrl) => {
+        const login = await fetch(`${httpBase}/api/v1/auth/login`, {
+          method: "POST", headers: { origin: httpBase, "content-type": "application/json" },
           body: JSON.stringify({ identity: loginEmail, password: loginPassword }),
         });
         assert.equal(login.status, 200);
         const cookie = login.headers.get("set-cookie")?.split(";", 1)[0];
         assert.ok(cookie);
-        const headers = { cookie, origin: baseUrl };
+        const headers = { cookie, origin: httpBase };
         const versions = await sql`SELECT id, version_number FROM document_versions WHERE document_id = ${documentId} ORDER BY version_number`;
         for (const version of versions) {
-          const response = await fetch(`${baseUrl}/api/v1/documents/${documentId}/versions/${version.id}/download`, { headers });
+          const response = await fetch(`${httpBase}/api/v1/documents/${documentId}/versions/${version.id}/download`, { headers });
           assert.equal(response.status, 200);
           assert.deepEqual(Buffer.from(await response.arrayBuffer()), original.find(item => item.fields.document_id === documentId && item.fields.version_number === version.version_number).bytes);
         }
         const latest = original.find(item => item.fields.document_id === documentId && item.fields.version_number === 2).bytes;
-        const current = await fetch(`${baseUrl}/api/v1/documents/${documentId}/download`, { headers });
+        const current = await fetch(`${httpBase}/api/v1/documents/${documentId}/download`, { headers });
         assert.equal(current.status, 200);
         assert.deepEqual(Buffer.from(await current.arrayBuffer()), latest);
-        const exported = await fetch(`${baseUrl}/api/v1/documents/export`, {
+        const exported = await fetch(`${httpBase}/api/v1/documents/export`, {
           method: "POST", headers: { ...headers, "content-type": "application/json" },
           body: JSON.stringify({ documentIds: [documentId] }),
         });
@@ -232,6 +232,7 @@ test("storage transfer resumes all retained references in both directions withou
         return headers;
       };
       const volume = `crm-cutover-backup-${randomUUID()}`;
+      const packagedWebName = `crm-cutover-web-${randomUUID()}`;
       try {
         const [latestVersion] = await sql`SELECT id FROM document_versions WHERE document_id = ${documentId} AND version_number = 2`;
         await sql`UPDATE documents SET archived_at = NULL, current_version_id = ${latestVersion.id} WHERE id = ${documentId}`;
@@ -272,6 +273,38 @@ test("storage transfer resumes all retained references in both directions withou
         const s3AuditAfterWrite = await auditFiles({ sql, objectStorage: auditStorage, onRecord: async () => {} });
         assert.equal(s3AuditAfterWrite.verifiedReferences, 6);
         assert.equal(s3AuditAfterWrite.hasFindings, false);
+        const packagedEnvironment = {
+          ...webEnvironment, DATABASE_URL: dockerDatabaseUrl.toString(), ...fixture.environment,
+          DOCUMENT_S3_ENDPOINT: "http://127.0.0.1:9000", DOCUMENT_STORAGE_ROOT: "/app/storage",
+          CRM_ALLOWED_ORIGINS: fixture.appEndpoint, HOSTNAME: "0.0.0.0", PORT: "3000",
+        };
+        const packagedKeys = ["DATABASE_URL", "AUTH_MODE", "AUTH_THROTTLE_SECRET", "CRM_ALLOWED_ORIGINS",
+          "AUTH_COOKIE_SECURE", "CRM_TRUST_PROXY", "CRM_WEBSITE_WEBHOOK_SECRET", "DOCUMENT_STORAGE_ROOT",
+          "HOSTNAME", "PORT", ...Object.keys(fixture.environment)];
+        const packagedWeb = spawnSync("docker", ["run", "--detach", "--name", packagedWebName,
+          "--network", `container:${fixture.containerName}`,
+          ...packagedKeys.flatMap(key => ["--env", key]), process.env.STORAGE_CUTOVER_TEST_IMAGE],
+        { env: packagedEnvironment, encoding: "utf8", timeout: 30_000 });
+        assert.equal(packagedWeb.status, 0, packagedWeb.stderr);
+        let packagedReady = false;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          try {
+            packagedReady = (await fetch(`${fixture.appEndpoint}/api/v1/system/health`, { signal: AbortSignal.timeout(1000) })).ok;
+          } catch { /* Wait for packaged web startup. */ }
+          if (packagedReady) break;
+          await new Promise(done => setTimeout(done, 100));
+        }
+        assert.ok(packagedReady, "Packaged S3 web did not become healthy");
+        const packagedHeaders = await verifyHttpFiles(fixture.appEndpoint);
+        const packagedDownload = await fetch(`${fixture.appEndpoint}/api/v1/documents/${uploadedDocumentId}/download`, { headers: packagedHeaders });
+        assert.equal(packagedDownload.status, 200);
+        assert.deepEqual(Buffer.from(await packagedDownload.arrayBuffer()), newBytes);
+        const packagedZip = await fetch(`${fixture.appEndpoint}/api/v1/documents/export`, {
+          method: "POST", headers: { ...packagedHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ documentIds: [uploadedDocumentId] }),
+        });
+        assert.equal(packagedZip.status, 200);
+        assert.deepEqual(Object.values(unzipSync(new Uint8Array(await packagedZip.arrayBuffer()))).map(bytes => Buffer.from(bytes)), [newBytes]);
         const createdVolume = spawnSync("docker", ["volume", "create", volume], { encoding: "utf8" });
         assert.equal(createdVolume.status, 0, createdVolume.stderr);
         const ownership = spawnSync("docker", ["run", "--rm", "--mount", `type=volume,source=${volume},target=/app/backups`,
@@ -320,6 +353,7 @@ test("storage transfer resumes all retained references in both directions withou
       } finally {
         await browser?.close();
         await stopWeb();
+        spawnSync("docker", ["rm", "--force", packagedWebName], { stdio: "ignore" });
         await sql`UPDATE documents SET archived_at = now() WHERE id = ${documentId}`;
         spawnSync("docker", ["volume", "rm", "--force", volume], { stdio: "ignore" });
       }
