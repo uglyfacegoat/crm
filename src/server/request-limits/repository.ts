@@ -8,6 +8,11 @@ export const requestLimitPolicies = {
   chat_message: { member: 60, organization: 600, windowSeconds: 60 },
   chat_upload: { member: 10, organization: 100, windowSeconds: 60 },
   chat_download: { member: 300, organization: 3000, windowSeconds: 60 },
+  chat_action: { member: 120, organization: 1200, windowSeconds: 60 },
+  chat_read: { member: 180, organization: 1800, windowSeconds: 60 },
+  analytics_export: { member: 12, organization: 120, windowSeconds: 60 },
+  document_export: { member: 6, organization: 60, windowSeconds: 60 },
+  document_upload: { member: 20, organization: 200, windowSeconds: 60 },
 } as const;
 
 const budgetResultSchema = z.object({

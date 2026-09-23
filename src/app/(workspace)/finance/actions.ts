@@ -6,6 +6,7 @@ import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain,
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import {
   DocumentFileValidationError,
   validateDocumentFile,
@@ -154,6 +155,11 @@ async function createPaymentActionImpl(_previous: FinanceActionState, formData: 
   try {
     committed = await financeMutationExists(member, parsed.data.idempotencyKey, "finance.payment.create");
     if (!committed) {
+      const receiptFile = formData.get("receipt");
+      if (receiptFile instanceof File && receiptFile.size > 0) {
+        const budget = await consumeRequestLimit(member, "document_upload");
+        if (!budget.allowed) return { ...emptyState, status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.` };
+      }
       receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
       const result = await createPayment(member, parsed.data, receipt);
       committed = true;
@@ -191,6 +197,11 @@ async function createPayoutActionImpl(_previous: FinanceActionState, formData: F
   try {
     committed = await financeMutationExists(member, parsed.data.idempotencyKey, "finance.payout.create");
     if (!committed) {
+      const receiptFile = formData.get("receipt");
+      if (receiptFile instanceof File && receiptFile.size > 0) {
+        const budget = await consumeRequestLimit(member, "document_upload");
+        if (!budget.allowed) return { ...emptyState, status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.` };
+      }
       receipt = await storeReceipt(formData, member.organizationId, parsed.data.receiptDocumentId);
       const result = await createMasterPayout(member, parsed.data, receipt);
       committed = true;

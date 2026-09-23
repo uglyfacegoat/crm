@@ -43,6 +43,7 @@ const markFileWriteUncertain = mock.fn();
 mock.module("next/cache.js", { namedExports: { revalidatePath } });
 mock.module(new URL("server/auth/config.ts", sourceRoot), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", sourceRoot), { namedExports: { requireSession: async () => ({ organizationId: "test-organization", memberId: "test-member" }) } });
+mock.module(new URL("server/request-limits/repository.ts", sourceRoot), { namedExports: { consumeRequestLimit: async () => ({ allowed: true, retryAfterSeconds: 60 }) } });
 mock.module(new URL("server/file-writes/gate.mjs", sourceRoot), { namedExports: {
   FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease,
 } });

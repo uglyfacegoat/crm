@@ -93,7 +93,7 @@ test("request budgets use shared PostgreSQL state without crossing tenant bounda
     assert.ok(rows.every((row) => row.request_count === 1));
   });
 
-  for (const operation of ["chat_message", "chat_upload", "chat_download"]) {
+  for (const operation of Object.keys(requestLimitPolicies).filter((name) => name !== "global_search")) {
     await t.test(`${operation} budgets are concurrent and do not consume search capacity`, async () => {
       const member = await company();
       const limits = requestLimitPolicies[operation];

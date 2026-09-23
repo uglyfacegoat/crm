@@ -54,6 +54,11 @@ function errorCode(error: unknown) {
   return error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : null;
 }
 
+async function chatActionLimitError(member: Awaited<ReturnType<typeof requireSession>>) {
+  const budget = await consumeRequestLimit(member, "chat_action");
+  return budget.allowed ? null : `Слишком много действий в чате. Повторите через ${budget.retryAfterSeconds} сек.`;
+}
+
 export async function createChatChannelAction(_previous: ChatMutationState, formData: FormData): Promise<ChatMutationState> {
   if (getAuthMode() === "preview") return previewState;
   const member = await requireSession();
@@ -65,6 +70,8 @@ export async function createChatChannelAction(_previous: ChatMutationState, form
   });
   if (!parsed.success) return { status: "error", message: "Проверьте название и состав группы.", fieldErrors: fieldErrors(parsed.error), entityId: null };
   try {
+    const limited = await chatActionLimitError(member);
+    if (limited) return { status: "error", message: limited, fieldErrors: {}, entityId: null };
     const channelId = await createChatChannel(member, parsed.data);
     revalidatePath("/chat");
     return { status: "success", message: "Группа создана.", fieldErrors: {}, entityId: channelId };
@@ -82,6 +89,8 @@ export async function createDirectChatAction(_previous: ChatMutationState, formD
   const parsed = createDirectChatSchema.safeParse({ idempotencyKey: formData.get("idempotencyKey"), targetMemberId: formData.get("targetMemberId") });
   if (!parsed.success) return { status: "error", message: "Выберите сотрудника для личного диалога.", fieldErrors: fieldErrors(parsed.error), entityId: null };
   try {
+    const limited = await chatActionLimitError(member);
+    if (limited) return { status: "error", message: limited, fieldErrors: {}, entityId: null };
     const channelId = await createDirectChat(member, parsed.data);
     revalidatePath("/chat");
     return { status: "success", message: "Личный диалог открыт.", fieldErrors: {}, entityId: channelId };
@@ -170,9 +179,11 @@ async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState,
   let fileWritten = false;
   let persisted = false;
   try {
+    if (hasAvatar) await assertChatAvatarAccess(member, parsed.data.channelId, parsed.data.expectedVersion);
+    const limited = await chatActionLimitError(member);
+    if (limited) return { status: "error", message: limited, fieldErrors: {}, entityId: null };
     let avatar = null;
     if (hasAvatar) {
-      await assertChatAvatarAccess(member, parsed.data.channelId, parsed.data.expectedVersion);
       if (uploadedFile.size > MAX_CHAT_AVATAR_BYTES) throw new DocumentFileValidationError("Фото группы не должно превышать 3 МБ.");
       const uploadBudget = await consumeRequestLimit(member, "chat_upload");
       if (!uploadBudget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${uploadBudget.retryAfterSeconds} сек.`, fieldErrors: {}, entityId: null };
@@ -217,6 +228,7 @@ export async function toggleChatReactionAction(messageId: string, emoji: string)
   if (getAuthMode() === "preview") return;
   const member = await requireSession();
   const parsed = toggleChatReactionSchema.parse({ messageId, emoji });
+  if (await chatActionLimitError(member)) return;
   await toggleChatReaction(member, parsed);
   revalidatePath("/chat");
 }
@@ -225,6 +237,7 @@ export async function toggleChatChannelPinAction(channelId: string) {
   if (getAuthMode() === "preview") return;
   const member = await requireSession();
   const parsed = chatChannelIdSchema.parse(channelId);
+  if (await chatActionLimitError(member)) return;
   await toggleChatChannelPin(member, parsed);
   revalidatePath("/chat");
 }
@@ -239,6 +252,8 @@ export async function updateChatChannelMembersAction(_previous: ChatMutationStat
   });
   if (!parsed.success) return { status: "error", message: "Проверьте состав группы.", fieldErrors: fieldErrors(parsed.error), entityId: null };
   try {
+    const limited = await chatActionLimitError(member);
+    if (limited) return { status: "error", message: limited, fieldErrors: {}, entityId: null };
     await updateChatChannelMembers(member, parsed.data);
     revalidatePath("/chat");
     return { status: "success", message: "Состав группы обновлён.", fieldErrors: {}, entityId: parsed.data.channelId };
@@ -257,6 +272,8 @@ export async function markChatChannelReadAction(channelId: string) {
   const member = await requireSession();
   const parsed = chatChannelIdSchema.safeParse(channelId);
   if (!parsed.success) throw new Error("Invalid channel identifier.");
+  const budget = await consumeRequestLimit(member, "chat_read");
+  if (!budget.allowed) return;
   await markChatChannelRead(member, parsed.data);
   revalidatePath("/chat");
 }

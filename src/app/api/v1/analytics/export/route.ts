@@ -2,6 +2,7 @@ import { safeErrorCode } from "@/server/observability/safe-error";
 import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import { getAuthMode } from "@/server/auth/config";
 import { getCurrentSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import { createAnalyticsCsv } from "@/server/analytics/export";
 import { getPreviewAnalytics } from "@/server/analytics/preview";
 import { getAnalyticsSnapshot, recordAnalyticsExport } from "@/server/analytics/repository";
@@ -20,6 +21,10 @@ export async function GET(request: Request) {
     if (!member) return Response.json({ error: { code: "unauthenticated", message: "Требуется вход." } }, { status: 401 });
     requirePermission(member, "analytics.read");
     const preview = getAuthMode() === "preview";
+    if (!preview) {
+      const budget = await consumeRequestLimit(member, "analytics_export");
+      if (!budget.allowed) return Response.json({ error: { code: "rate_limited", message: "Слишком много выгрузок. Повторите позже." } }, { status: 429, headers: { "Cache-Control": "private, no-store", "Retry-After": String(budget.retryAfterSeconds) } });
+    }
     const snapshot = preview ? getPreviewAnalytics(range) : await getAnalyticsSnapshot(member, range);
     if (!preview) await recordAnalyticsExport(member, range);
     const filename = `crm-analytics-${snapshot.range.endDate}-${range}d.csv`;

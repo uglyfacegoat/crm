@@ -33,6 +33,7 @@ jobs:
       - run: npm test
       - run: npm run test:auth-service
       - run: npm run test:chat-send
+      - run: npm run test:website-webhook-limits
       - run: npm run test:upload-commit
       - run: npm run test:upload-lifecycle
       - run: npm run test:chat-download

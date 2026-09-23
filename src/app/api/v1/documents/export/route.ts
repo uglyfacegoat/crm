@@ -2,6 +2,7 @@ import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { isSameOriginRequest } from "@/server/auth/request";
 import { getCurrentSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import { createDocumentExportArchive, DocumentExportIntegrityError, DocumentExportLimitError, MAX_DOCUMENT_EXPORT_BYTES } from "@/server/documents/export-archive";
 import { DocumentNotFoundError, getDocumentBatchExport, recordDocumentBatchExport } from "@/server/documents/repository";
 import { documentBatchExportSchema } from "@/server/documents/schemas";
@@ -34,6 +35,8 @@ export async function POST(request: Request) {
 
   try {
     const files = await getDocumentBatchExport(member, parsed.data.documentIds);
+    const budget = await consumeRequestLimit(member, "document_export");
+    if (!budget.allowed) return Response.json({ error: { code: "rate_limited", message: "Слишком много выгрузок. Повторите позже." } }, { status: 429, headers: { "Cache-Control": "private, no-store", "Retry-After": String(budget.retryAfterSeconds) } });
     const hydratedFiles: Array<DocumentExportFile & { content: Buffer }> = [];
     let selectedSizeBytes = 0;
     for (const file of files) {

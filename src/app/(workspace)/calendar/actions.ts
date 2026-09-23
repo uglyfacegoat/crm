@@ -6,6 +6,7 @@ import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain,
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import { DocumentFileValidationError, validateDocumentFile } from "@/server/documents/file-validation";
 import { createDocumentStorageKey, removeDocumentFile, writeDocumentFile } from "@/server/documents/storage";
 import {
@@ -111,6 +112,8 @@ async function completeVisitActionImpl(_previous: CompleteVisitState, formData: 
     if (await visitCompletionExists(member, parsed.data.visitId, parsed.data.idempotencyKey)) {
       return { status: "success", message: "Выезд уже завершён, акт сохранён.", fieldErrors: {}, documentId: parsed.data.idempotencyKey };
     }
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {}, documentId: null };
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
     if (file.extension === "docx" || file.extension === "xlsx") {
@@ -204,6 +207,8 @@ async function uploadAssignedVisitEvidenceActionImpl(
     if (await visitEvidenceExists(member, parsed.data.idempotencyKey)) {
       return { status: "success", message: "Этот материал уже сохранён.", fieldErrors: {} };
     }
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
     const buffer = Buffer.from(await uploadedFile.arrayBuffer());
     const file = validateDocumentFile({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
     if (file.extension !== "jpg" && file.extension !== "png" && file.extension !== "webp") {

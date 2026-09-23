@@ -6,6 +6,7 @@ import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain,
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import {
   createDocumentTemplate,
   documentTemplateExists,
@@ -59,6 +60,8 @@ async function uploadDocumentTemplateActionImpl(
     }
     const extension: "pdf" | "docx" = file.extension;
     if (await documentTemplateExists(member, parsed.data.idempotencyKey)) return { status: "success", message: "Шаблон уже загружен.", fieldErrors: {} };
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
     storageKey = createDocumentTemplateStorageKey(member.organizationId, parsed.data.idempotencyKey, extension);
     await writeDocumentFile(storageKey, buffer);
     fileWritten = true;

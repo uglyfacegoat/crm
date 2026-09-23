@@ -6,6 +6,7 @@ import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain,
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import {
   DocumentFileValidationError,
   validateDocumentFile,
@@ -128,6 +129,8 @@ async function uploadDocumentActionImpl(
         message: "Документ уже загружен.",
         fieldErrors: {},
       };
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
     storageKey = createDocumentStorageKey(
       member.organizationId,
       parsed.data.idempotencyKey,
@@ -272,6 +275,8 @@ async function uploadDocumentVersionActionImpl(
         fieldErrors: {},
       };
     }
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
     const target = await getDocumentVersionUploadTarget(
       member,
       parsed.data.documentId,
