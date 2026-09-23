@@ -10,6 +10,17 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, REL-04 real-data upgrade rehearsal:** a read-only `pg_dump`
+  streamed the 55-migration working database into disposable PostgreSQL on
+  `tmpfs`; no raw dump file was stored. The copy was anonymized before
+  business-data inspection: 145 text/JSON/array columns were masked, 97 of
+  them populated. The rehearsal applied migrations 056–062, kept row counts in
+  all 62 pre-existing non-history tables and preserved the 55 historic migration
+  names, checksums and timestamps. A second migration run was a no-op. The
+  temporary database was removed; the working CRM and its schema were not
+  changed. `npm run test:working-upgrade` and all five isolated migration
+  checks pass. This covers database upgrade compatibility, not full
+  application/file rollback or the working deployment.
 - **2026-09-23, OBS-07 storage readiness candidate:** `/ready` and `/health`
   now check both PostgreSQL and the selected document storage. Local mode
   requires an accessible real directory; S3 mode makes one bounded,
