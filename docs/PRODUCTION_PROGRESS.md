@@ -7,6 +7,10 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, REL-02 CI visibility:** the workflow now triggers on pushes
+  to `recovery/**` as well as main/master, so work on the current branch can
+  exercise the real GitHub pipeline. Remote job results are not yet verified;
+  this machine's `gh` CLI is unauthenticated and the repository is not public.
 - **2026-09-23, BK-04 retention guard:** age-based cleanup now excludes both
   the most recent accepted, restore-verified archive and the new verified
   archive awaiting its success record, in protected and host-export roots.

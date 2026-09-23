@@ -393,7 +393,7 @@ CI/выпуск → права и устойчивость → производ�
 ### 0.6. CI, сборка, миграции и безопасный выпуск — P0.5
 
 - [ ] **REL-01.** Исправить зависание локальной очистки/сборки `.next`; не подменять эту задачу только успешной Docker-сборкой.
-- [ ] **REL-02.** Прогнать настоящий CI: typecheck, lint, unit, integration/flow, production build, clean migrations, upgrade и dependency/security scan.
+- [ ] **REL-02.** Прогнать настоящий CI: typecheck, lint, unit, integration/flow, production build, clean migrations, upgrade и dependency/security scan. **23 сентября:** push-trigger добавлен для рабочей ветки `recovery/**`; удалённый результат ещё не получен.
 - [ ] **REL-03.** Включить обязательные checks перед merge и проверить запрет merge при красном gate. **Нужен доступ/полномочия в репозитории.**
 - [ ] **REL-04.** Проверить upgrade с предыдущей принятой схемы и реальной обезличенной резервной копии; сохранять старую историю/checksum миграций.
 - [ ] **REL-05.** Проверить reproducible install/build, runtime-зависимости, non-root контейнер, конфигурацию и health startup.
