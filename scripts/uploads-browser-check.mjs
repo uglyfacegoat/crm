@@ -357,6 +357,12 @@ try {
     assert.equal(verified.verifiedFileBytes, snapshot.snapshotFileBytes);
     for (const count of Object.values(snapshot.snapshotFileCounts)) assert.ok(count > 0);
     console.log("S3 backup staging matches all four reference families and historical checksums; no local upload fallback.");
+    await s3Fixture.close();
+    const unavailable = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
+    assert.equal(unavailable.status, 503, "S3 outage must make readiness fail while PostgreSQL remains available");
+    assert.deepEqual(await unavailable.json(), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable" });
+    assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
+    console.log("S3 outage makes readiness fail while liveness remains available.");
   }
   console.log("Upload browser check passed: 18 real submissions, 9 injected warning states, no browser errors.");
 } catch (error) {

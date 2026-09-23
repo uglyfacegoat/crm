@@ -15,6 +15,9 @@ test("S3 preserves exclusive writes, private access and bounded verified reads",
   const bytes = Buffer.from("private S3 document bytes");
   const expected = { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
   const storedKey = key();
+  await t.test("bucket readiness uses authenticated access without writing an object", async () => {
+    await store.checkAvailability();
+  });
   await t.test("round trip is private and byte-exact", async () => {
     await store.write(storedKey, bytes);
     assert.deepEqual(await store.readVerified(storedKey, expected, 1024), bytes);
@@ -44,6 +47,7 @@ test("S3 preserves exclusive writes, private access and bounded verified reads",
     await assert.rejects(store.readVerified(key(), expected, 1024), { code: "ENOENT" });
     const unauthorized = createS3Storage({ ...fixture.environment, DOCUMENT_S3_SECRET_ACCESS_KEY: "invalid-secret-for-fixture" });
     try {
+      await assert.rejects(unauthorized.checkAvailability(), { code: "EACCES" });
       await assert.rejects(unauthorized.readVerified(storedKey, expected, 1024), (error) => {
         assert.equal(error.code, "EACCES");
         assert.doesNotMatch(error.message, /invalid-secret|127\.0\.0\.1|private S3/);
@@ -105,6 +109,7 @@ test("S3 preserves exclusive writes, private access and bounded verified reads",
     await new Promise(resolve => server.close(resolve));
     const offline = createS3Storage({ ...fixture.environment, DOCUMENT_S3_ENDPOINT: endpoint, DOCUMENT_S3_TIMEOUT_MS: "1000" });
     try {
+      await assert.rejects(offline.checkAvailability(), { code: "ESTORAGE" });
       await assert.rejects(offline.readVerified(storedKey, expected, 1024), { code: "ESTORAGE" });
     } finally { offline.close(); }
   });

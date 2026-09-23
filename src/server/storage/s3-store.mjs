@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand } from "@aws-sdk/client-s3";
 import { parseS3Config } from "./s3-config.mjs";
 import { StoredFileIntegrityError, validateFileExpectation, validateStorageKey } from "./file-integrity.mjs";
 
@@ -36,6 +36,12 @@ export function createS3Storage(environment) {
   }
 
   return {
+    async checkAvailability() {
+      const signal = AbortSignal.timeout(Math.min(config.timeoutMs, 5000));
+      try {
+        await client.send(new HeadBucketCommand({ Bucket: config.bucket }), { abortSignal: signal });
+      } catch (error) { throw failure("readiness", error, signal); }
+    },
     /** @param {string} key @param {Buffer} bytes */
     async write(key, bytes) {
       validateStorageKey(key);

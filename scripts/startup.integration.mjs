@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { resolve } from "node:path";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import test from "node:test";
+import test, { after } from "node:test";
+
+const storageRoot = mkdtempSync(join(tmpdir(), "crm-startup-test-"));
+after(() => rmSync(storageRoot, { recursive: true, force: true }));
 
 const runtimeEnvironment = {
   ...process.env,
@@ -15,7 +19,7 @@ const runtimeEnvironment = {
   AUTH_COOKIE_SECURE: "true",
   AUTH_THROTTLE_SECRET: "test-only-startup-validation-secret-32-characters",
   DATABASE_URL: "postgresql://crm:do-not-log-this@127.0.0.1:1/crm",
-  DOCUMENT_STORAGE_ROOT: resolve(tmpdir(), "crm-startup-test"),
+  DOCUMENT_STORAGE_ROOT: storageRoot,
   CRM_WEBSITE_WEBHOOK_SECRET: "",
   HOSTNAME: "127.0.0.1",
 };
@@ -76,7 +80,7 @@ test("liveness survives a database outage while readiness fails without exposing
     for (const path of ["ready", "health"]) {
       const response = await fetch(`${origin}/api/v1/system/${path}`, { signal: AbortSignal.timeout(15_000) });
       assert.equal(response.status, 503);
-      assert.deepEqual(await response.json(), { status: "unavailable", service: "crm-web", database: "unavailable" });
+      assert.deepEqual(await response.json(), { status: "unavailable", service: "crm-web", database: "unavailable", storage: "available" });
       assert.equal(response.headers.get("cache-control"), "no-store");
     }
     assert.doesNotMatch(output, /do-not-log-this/);

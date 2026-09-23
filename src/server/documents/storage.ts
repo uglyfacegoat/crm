@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, open, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { storageRootSchema } from "@/server/config/environment";
 import { storageBackend } from "../storage/s3-config.mjs";
@@ -32,6 +32,14 @@ function resolveStorageKey(storageKey: string) {
     throw new Error("Document storage key escapes the configured root.");
   }
   return absolutePath;
+}
+
+export async function checkDocumentStorageAvailability() {
+  if (storageBackend(process.env) === "s3") return objectStorage().checkAvailability();
+  const root = getStorageRoot();
+  const stat = await lstat(root);
+  if (!stat.isDirectory()) throw new Error("Document storage root is not a directory.");
+  await access(root, constants.R_OK | constants.W_OK);
 }
 
 export function createDocumentStorageKey(organizationId: string, documentId: string, extension: string) {

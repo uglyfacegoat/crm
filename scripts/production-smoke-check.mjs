@@ -22,11 +22,15 @@ async function request(path, { cookie, ...options } = {}) {
 
 const health = await request("/api/v1/system/health");
 assert.equal(health.status, 200, "Production app must reach PostgreSQL");
-assert.equal((await health.json()).database, "available");
+const healthState = await health.json();
+assert.equal(healthState.database, "available");
+assert.equal(healthState.storage, "available");
 assert.equal((await request("/api/v1/system/live")).status, 200);
 const readiness = await request("/api/v1/system/ready");
 assert.equal(readiness.status, 200);
-assert.equal((await readiness.json()).database, "available");
+const readinessState = await readiness.json();
+assert.equal(readinessState.database, "available");
+assert.equal(readinessState.storage, "available");
 for (const path of ["/api/v1/auth/session", "/api/v1/search?q=customer", "/api/v1/notifications"]) {
   assert.equal((await request(path)).status, 401, `${path} must require authentication`);
 }

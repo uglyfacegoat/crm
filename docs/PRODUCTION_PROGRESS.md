@@ -1,5 +1,8 @@
 # Production: evidence and remaining work
 
+For a plain-language explanation of what changed, why the checklist stays open,
+and what is installed in the working CRM, see [PRODUCTION_STATUS_SIMPLE.md](PRODUCTION_STATUS_SIMPLE.md).
+
 Authoritative scope: `PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md`, sections 4–15.
 Started 2026-09-20. The user excludes purchasing a domain and server for now.
 That exclusion does not waive application security, configuration, recovery, or local verification.
@@ -7,6 +10,16 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23, OBS-07 storage readiness candidate:** `/ready` and `/health`
+  now check both PostgreSQL and the selected document storage. Local mode
+  requires an accessible real directory; S3 mode makes one bounded,
+  authenticated HeadBucket call without creating an object. An isolated
+  packaged HTTPS test denied local-volume writes, observed 503 with database
+  still available, restored permission and observed 200, then stopped its
+  disposable database and observed live 200 / ready 503. S3 fixture checks
+  access, bad credentials and offline endpoint. Local build, six startup
+  tests, 12 S3 checks, lint and packaged TLS acceptance passed. Real provider
+  acceptance and writeability/recovery checks remain open.
 - **2026-09-23, OBS-07 packaged HTTPS acceptance:** the freshly built runtime
   image passed the isolated TLS ingress suite. After stopping only its disposable
   PostgreSQL container, `/live` remained 200 while `/ready` and `/health`

@@ -101,7 +101,10 @@ try {
     const response = await send(`/api/v1/system/${path}`);
     assert.equal(response.status, 200, `${path} must succeed with the test database available`);
     assert.equal(response.headers["cache-control"], "no-store");
-    if (path !== "live") assert.equal(JSON.parse(response.body).database, "available");
+    if (path !== "live") {
+      assert.equal(JSON.parse(response.body).database, "available");
+      assert.equal(JSON.parse(response.body).storage, "available");
+    }
   }
   for (const version of ["TLSv1.2", "TLSv1.3"]) {
     const login = await send("/login", { minVersion: version, maxVersion: version });
@@ -153,6 +156,16 @@ try {
   }).then((response) => response.status)));
   assert.ok(statuses.includes(429), "Changing a client-supplied IP must not bypass the gateway limit");
   assert.ok(statuses.every((status) => [415, 429].includes(status)));
+  await compose(["exec", "-T", "--user", "root", "crm", "chmod", "0500", "/app/storage"]);
+  try {
+    const storageFailure = await send("/api/v1/system/ready");
+    assert.equal(storageFailure.status, 503, "Readiness must fail when the document volume is not writable");
+    assert.deepEqual(JSON.parse(storageFailure.body), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable" });
+    assert.equal((await send("/api/v1/system/live")).status, 200);
+  } finally {
+    await compose(["exec", "-T", "--user", "root", "crm", "chmod", "0700", "/app/storage"]);
+  }
+  assert.equal((await send("/api/v1/system/ready")).status, 200);
   await compose(["stop", "database"]);
   const liveWithoutDatabase = await send("/api/v1/system/live");
   assert.equal(liveWithoutDatabase.status, 200, "The packaged web process must remain live during a database outage");
@@ -161,7 +174,7 @@ try {
     const response = await send(`/api/v1/system/${path}`);
     assert.equal(response.status, 503, `${path} must fail when PostgreSQL is unavailable`);
     assert.equal(response.headers["cache-control"], "no-store");
-    assert.deepEqual(JSON.parse(response.body), { status: "unavailable", service: "crm-web", database: "unavailable" });
+    assert.deepEqual(JSON.parse(response.body), { status: "unavailable", service: "crm-web", database: "unavailable", storage: "available" });
     assert.doesNotMatch(response.body, new RegExp(environment.CRM_DB_PASSWORD));
   }
   const webLogs = await compose(["logs", "--no-color", "crm"], { quiet: true });

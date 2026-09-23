@@ -18,7 +18,8 @@ backend for backward compatibility, not an error fallback. In S3 mode these are 
 Compose passes the same configuration to web and backup worker. Secrets must not use
 `NEXT_PUBLIC_`, appear in source control, images, command arguments or logs. Provision
 separate least-privilege credentials for environments. The app needs GetObject,
-PutObject and DeleteObject on its private bucket's generated object keys; the backup
+PutObject and DeleteObject on its private bucket's generated object keys, plus
+HeadBucket/ListBucket permission for the read-only readiness probe; the backup
 worker can use a separate read-only identity in a deployment-specific override.
 Do not grant anonymous access or bucket administration to the application identity.
 Enable the provider's public-access block and encryption at rest; verify their actual
@@ -44,6 +45,9 @@ is not exposed by the production Compose definition. Do not bypass TLS checks.
   a DB reference and must not be silently adopted or deleted on retry.
 - S3 failures never fall back to local disk. A missing bucket/permission failure is
   not treated as a missing object. Public error messages omit endpoint/credentials.
+  Readiness checks bucket access with one bounded HeadBucket request, without
+  creating an object. This proves reachability/permission, not writeability or
+  provider-side encryption; the selected provider still needs acceptance.
 - The backup worker locks the same four reference tables and stages verified S3
   bytes under the existing PostgreSQL snapshot. It then dumps that snapshot and
   archives the private local staging directory, retaining the format-2 restore path.

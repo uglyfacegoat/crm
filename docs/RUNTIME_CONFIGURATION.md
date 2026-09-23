@@ -38,15 +38,18 @@ on invalid configuration. A log line is not a readiness check. Require a running
 process and a successful health check after deployment.
 
 `/api/v1/system/live` reports that the web process can answer HTTP without
-touching PostgreSQL. `/api/v1/system/ready` checks PostgreSQL and reports 503
-when it is unavailable. The existing `/api/v1/system/health` remains a
+touching PostgreSQL. `/api/v1/system/ready` checks PostgreSQL and the selected document storage
+and reports 503 when either is unavailable. Local storage must be a readable
+and writable real directory; S3 readiness makes one bounded authenticated
+HeadBucket request without writing an object. The existing `/api/v1/system/health` remains a
 compatibility alias for readiness, including the current worker heartbeat
 summary. All three responses use `Cache-Control: no-store`; readiness errors
 are logged by category without raw database error text. The Docker healthcheck
 still uses `/health`. The isolated packaged HTTPS suite verifies 200/503 after
 stopping its disposable PostgreSQL container and checks that test credentials
-do not appear in responses or web logs. Storage/S3 access and backup freshness
-are not yet readiness dependencies and need separate acceptance/monitoring.
+do not appear in responses or web logs. Backup freshness is not yet a readiness dependency and needs separate
+monitoring. The S3 check does not prove writeability, encryption or recovery;
+the chosen provider still needs separate acceptance.
 
 Verification:
 
