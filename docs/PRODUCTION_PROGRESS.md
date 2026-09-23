@@ -7,6 +7,16 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 20:17 MSK, source only:** the recovery review now handles S3
+  via the read-only version inventory. Referenced current bytes must verify;
+  an unreferenced key with any historical version or delete marker remains
+  ineligible. The review hash includes backend/versioning/version metadata.
+  A disposable S3 fixture covers a valid reference, an unreferenced object,
+  enabled versioning with a delete marker, and CLI invocation from the source
+  checkout. A newly built image then applied 57 migrations on a disposable
+  database and rejected an unreferenced object from a disposable S3 bucket
+  through its packaged CLI. Both temporary containers and the database were
+  removed. Full S3 recovery and quarantine acceptance remain open.
 - **2026-09-23 20:08 MSK, source candidate:** migration 057 and a local-only
   manual recovery command now review each unresolved key against all four
   reference families and actual bytes. Resolution requires an unchanged review
@@ -14,8 +24,8 @@ The overall goal remains active; this document is not a declaration of productio
   database record in the same transaction that removes the pending row.
   Disposable PostgreSQL tests cover paused-only access, absent keys, an
   unreferenced present file, a valid reference, damaged bytes, changed review,
-  repeated identical resolution and rejection of changed evidence. S3 mode
-  rejects this command. The packaged runtime then applied 57 migrations on
+  repeated identical resolution and rejection of changed evidence. The
+  local packaged runtime then applied 57 migrations on
   its own disposable database and passed HTTP health plus
   pause/review/resolve/retry/resume; it was removed afterward. Quarantine and
   installed acceptance are pending; the working CRM still has 55 migrations.

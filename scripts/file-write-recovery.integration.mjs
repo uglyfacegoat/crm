@@ -14,7 +14,7 @@ const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
 const evidenceSha256 = createHash("sha256").update("private operator evidence").digest("hex");
 
-test("local file-write recovery reviews bytes and records only audited, paused resolutions", { timeout: 20_000 }, async (t) => {
+test("local and S3 file-write recovery review bytes and record only audited, paused resolutions", { timeout: 20_000 }, async (t) => {
   const admin = postgres(adminUrl, { max: 1 });
   const name = `crm_file_recovery_test_${randomUUID().replaceAll("-", "")}`;
   const storageRoot = await mkdtemp(join(tmpdir(), "crm-file-recovery-"));
@@ -59,7 +59,8 @@ test("local file-write recovery reviews bytes and records only audited, paused r
   assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations`)[0].count, 0);
   const [logged] = await sql`SELECT review, review_sha256, evidence_sha256, case_id, actor, database_role
     FROM file_write_resolutions WHERE operation_id = ${operationId}`;
-  assert.deepEqual(logged.review, { operationId, startedAt: emptyReview.startedAt, storageKeys: [], entries: [] });
+  assert.deepEqual(logged.review, { operationId, startedAt: emptyReview.startedAt,
+    backend: "local", bucketVersioning: null, storageKeys: [], entries: [] });
   assert.deepEqual({ review_sha256: logged.review_sha256, evidence_sha256: logged.evidence_sha256,
     case_id: logged.case_id, actor: logged.actor }, { review_sha256: emptyReview.reviewSha256, evidence_sha256: evidenceSha256,
     case_id: "RECOVERY-123", actor: "Test operator" });
@@ -118,11 +119,45 @@ test("local file-write recovery reviews bytes and records only audited, paused r
   const multiAfterQuarantine = await reviewOrResolveFileWrite(options(multiOperationId));
   assert.deepEqual(multiAfterQuarantine.entries.map(({ state }) => state), ["referenced_verified", "absent_unreferenced"]);
   await reviewOrResolveFileWrite(resolveOptions(multiOperationId, multiAfterQuarantine.reviewSha256));
-  assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
+  const { startS3Fixture } = await import("./fixtures/s3-server.mjs");
+  const { createS3AuditStorage } = await import("./s3-audit-storage.mjs");
+  const { DeleteObjectCommand, PutBucketVersioningCommand, PutObjectCommand } = await import("@aws-sdk/client-s3");
+  const fixture = await startS3Fixture();
+  const objectStorage = createS3AuditStorage(fixture.environment);
+  try {
+    await fixture.client.send(new PutObjectCommand({ Bucket: fixture.bucket, Key: key, Body: bytes }));
+    const s3OperationId = randomUUID();
+    await sql`INSERT INTO file_write_operations (id, storage_keys) VALUES (${s3OperationId}, ${[key]})`;
+    const s3Options = (operationId) => ({ ...options(operationId), objectStorage });
+    const s3Review = await reviewOrResolveFileWrite(s3Options(s3OperationId));
+    assert.equal(s3Review.backend, "s3");
+    assert.equal(s3Review.entries[0].state, "referenced_verified");
+    assert.equal(s3Review.entries[0].versionCount, 1);
+    await reviewOrResolveFileWrite({ ...s3Options(s3OperationId), reviewSha256: s3Review.reviewSha256,
+      evidenceSha256, caseId: "RECOVERY-S3", actor: "Test operator" });
 
-  const cli = spawnSync(process.execPath, ["scripts/file-write-recovery.mjs", "review", operationId], {
-    env: { ...process.env, DATABASE_URL: databaseUrl, DOCUMENT_STORAGE_ROOT: storageRoot, DOCUMENT_STORAGE_BACKEND: "s3" },
-    encoding: "utf8", timeout: 5_000,
-  });
-  assert.equal(cli.status, 1, "S3 resolution is explicitly unavailable");
+    const unreferencedKey = `${organization.id}/${randomUUID()}/v1.pdf`;
+    await fixture.client.send(new PutObjectCommand({ Bucket: fixture.bucket, Key: unreferencedKey, Body: bytes }));
+    const unreferencedOperationId = randomUUID();
+    await sql`INSERT INTO file_write_operations (id, storage_keys) VALUES (${unreferencedOperationId}, ${[unreferencedKey]})`;
+    const s3Present = await reviewOrResolveFileWrite(s3Options(unreferencedOperationId));
+    assert.equal(s3Present.entries[0].state, "unreferenced_present");
+    await assert.rejects(reviewOrResolveFileWrite({ ...s3Options(unreferencedOperationId), reviewSha256: s3Present.reviewSha256,
+      evidenceSha256, caseId: "RECOVERY-S3", actor: "Test operator" }), /separate preservation/);
+    await fixture.client.send(new PutBucketVersioningCommand({ Bucket: fixture.bucket,
+      VersioningConfiguration: { Status: "Enabled" } }));
+    await fixture.client.send(new DeleteObjectCommand({ Bucket: fixture.bucket, Key: unreferencedKey }));
+    const markedReview = await reviewOrResolveFileWrite(s3Options(unreferencedOperationId));
+    assert.equal(markedReview.bucketVersioning, "Enabled");
+    assert.equal(markedReview.entries[0].state, "unreferenced_present", "A delete marker must not hide retained historical bytes");
+    assert.ok(markedReview.entries[0].versionCount >= 2);
+    assert.notEqual(markedReview.reviewSha256, s3Present.reviewSha256);
+    const cli = spawnSync(process.execPath, ["scripts/file-write-recovery.mjs", "review", unreferencedOperationId], {
+      env: { ...process.env, ...fixture.environment, DATABASE_URL: databaseUrl }, encoding: "utf8", timeout: 5_000,
+    });
+    assert.equal(cli.status, 2, cli.stderr);
+    assert.equal(JSON.parse(cli.stdout).backend, "s3");
+    await sql`DELETE FROM file_write_operations WHERE id = ${unreferencedOperationId}`; // Disposable fixture only.
+  } finally { objectStorage.close(); await fixture.close(); }
+  assert.equal((await setFileWriteMode({ databaseUrl, mode: "resume" })).accepting, true);
 });

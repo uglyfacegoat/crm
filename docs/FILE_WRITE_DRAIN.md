@@ -1,4 +1,4 @@
-# File write drain and local recovery — source candidate
+# File write drain and recovery — source candidate
 
 The implementation added on 2026-09-23 is **not installed in the working CRM**.
 FS-02/03 remain open. Do not switch storage or clear unresolved operations on the
@@ -79,25 +79,31 @@ production Dockerfile. This is not an installed working-CRM browser check.
    each recorded key with the inventory and committed references; neither a
    matching key nor a clean audit alone establishes the interrupted outcome.
 4. Establish the outcome of **each** interrupted request from application and
-   database evidence. Preserve unknown files and backup material. For local
-   storage, the command below can resolve only a key whose current bytes match
+   database evidence. Preserve unknown files and backup material. For local or
+   S3 storage, the command below can resolve only a key whose current bytes match
    a committed reference, or one absent from both storage and references.
    If ownership/outcome is uncertain, leave the row and pause in place.
 5. Only after all rows are accounted for, rerun the audit and `inspect`. Resume
    only when `pending=0` and the operator has confirmed the storage state.
 
-## Audited local resolution candidate
+## Audited resolution candidate
 
-Only use this with the local backend, after every writer process has been
-stopped and a complete private `storage-audit.mjs --check` report retained.
+Only use this after every writer process has been stopped and a complete
+private `storage-audit.mjs --check` report retained.
 The tool cannot itself prove an external process has stopped or that storage
-is frozen. S3 resolution is rejected explicitly. Work under a restricted
+is frozen. S3 review also inventories all object versions and delete markers
+for the operation's keys; any remaining version of an unreferenced key blocks
+resolution, even when its latest state is a delete marker. The review hash
+includes the backend, bucket versioning state and version metadata digest.
+The S3 path passed source integration tests and a packaged-runtime smoke on a
+disposable database/bucket: the CLI rejected an unreferenced current object.
+That smoke did not cover every S3 resolution outcome. Work under a restricted
 operator account with `umask 077`; keep reports and evidence outside the
 document-storage tree.
 
 1. Run `node scripts/file-write-recovery.mjs review <operation-id>`. It takes
    the exclusive file-write lock, requires the persistent pause, checks all
-   four reference tables, verifies referenced local bytes, and reports whether
+   four reference tables, verifies referenced local or S3 bytes, and reports whether
    each recorded key is `referenced_verified`, `absent_unreferenced`,
    `unreferenced_present`, `reference_invalid`, or `unexpected_path`. Retain
    the complete JSON report and its `reviewSha256`. Review exits 2 if a key
@@ -124,9 +130,8 @@ After all per-ID resolutions, rerun the full storage audit and `inspect` before
 them in public logs or the repository. A self-reported operator name does not
 replace access control on the operator shell and database credentials.
 
-Before deployment and FS-02 acceptance, implement and verify recoverable
-quarantine for unreferenced files, and add
-S3 recovery before any S3 switch. Confirm no other non-interactive business-file
+Before deployment and FS-02 acceptance, complete packaged S3 recovery and
+implement and verify recoverable quarantine for unreferenced files. Confirm no other non-interactive business-file
 writer bypasses the gate, rehearse interruption/restart and failure of
 the lease connection, and verify browser messages in the installed build.
 FS-03 additionally requires competitive uploads, process crash, connection

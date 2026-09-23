@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 import { BACKUP_FILE_TABLES, STORAGE_KEY, verifyRestoredFile } from "./backup-integrity.mjs";
+import { createS3AuditStorage } from "./s3-audit-storage.mjs";
 import { FILE_WRITE_LOCK_CLASS, FILE_WRITE_LOCK_ID } from "../src/server/file-writes/lock-key.mjs";
 import { storageBackend } from "../src/server/storage/s3-config.mjs";
 
@@ -30,10 +31,32 @@ async function unreferencedFileState(storageRoot, key) {
   throw new Error("Invalid storage key.");
 }
 
-async function inspectOperation(connection, operation, storageRoot) {
+async function inspectOperation(connection, operation, storageRoot, objectStorage) {
   const entries = [];
+  const objectVersions = new Map();
+  let bucketVersioning = null;
+  if (objectStorage) {
+    bucketVersioning = await objectStorage.versioning();
+    const keys = new Set(operation.storage_keys);
+    for await (const item of objectStorage.inventory()) {
+      if (keys.has(item.storageKey)) {
+        const versions = objectVersions.get(item.storageKey) ?? [];
+        versions.push({ versionId: item.versionId, kind: item.kind, isLatest: item.isLatest, sizeBytes: item.sizeBytes });
+        objectVersions.set(item.storageKey, versions);
+      }
+    }
+    if (await objectStorage.versioning() !== bucketVersioning) throw new Error("Bucket versioning changed during recovery review.");
+  }
   for (const key of operation.storage_keys) {
     if (!STORAGE_KEY.test(key)) throw new Error("An operation contains an invalid storage key.");
+    const versions = objectVersions.get(key) ?? [];
+    versions.sort((left, right) => {
+      const a = JSON.stringify(left);
+      const b = JSON.stringify(right);
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+    const versionEvidence = objectStorage ? { versionCount: versions.length,
+      versionSha256: createHash("sha256").update(JSON.stringify(versions)).digest("hex") } : {};
     const organizationId = key.split("/")[0];
     const references = [];
     for (const table of BACKUP_FILE_TABLES) {
@@ -42,21 +65,28 @@ async function inspectOperation(connection, operation, storageRoot) {
       for (const row of rows) references.push({ table, row });
     }
     if (!references.length) {
-      entries.push({ key, state: await unreferencedFileState(storageRoot, key), references: [] });
+      entries.push({ key, state: objectStorage
+        ? objectVersions.has(key) ? "unreferenced_present" : "absent_unreferenced"
+        : await unreferencedFileState(storageRoot, key), references: [], ...versionEvidence });
       continue;
     }
     let valid = true;
     for (const { row } of references) {
-      try { await verifyRestoredFile(storageRoot, row); }
+      try {
+        if (objectStorage) await objectStorage.readVerified(key,
+          { sizeBytes: Number(row.size_bytes), sha256: row.sha256 }, 15 * 1024 * 1024);
+        else await verifyRestoredFile(storageRoot, row);
+      }
       catch { valid = false; }
     }
     entries.push({ key, state: valid ? "referenced_verified" : "reference_invalid",
-      references: references.map(({ table, row }) => ({ table, sizeBytes: Number(row.size_bytes), sha256: row.sha256 })) });
+      references: references.map(({ table, row }) => ({ table, sizeBytes: Number(row.size_bytes), sha256: row.sha256 })),
+      ...versionEvidence });
   }
-  return entries;
+  return { entries, bucketVersioning };
 }
 
-export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, operationId, reviewSha256, evidenceSha256, caseId, actor }) {
+export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, objectStorage, operationId, reviewSha256, evidenceSha256, caseId, actor }) {
   if (!databaseUrl || !UUID.test(operationId ?? "")) throw new Error("DATABASE_URL and a valid operation ID are required.");
   const resolving = reviewSha256 !== undefined;
   if (resolving && (!SHA256.test(reviewSha256) || !SHA256.test(evidenceSha256 ?? "")
@@ -64,7 +94,7 @@ export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, opera
     || actor.trim().length < 3 || actor.trim().length > 120)) {
     throw new Error("Resolution needs a review hash, evidence hash, case ID and actor.");
   }
-  await checkRoot(storageRoot);
+  if (!objectStorage) await checkRoot(storageRoot);
   const sql = postgres(databaseUrl, { max: 1, connect_timeout: 10,
     connection: { application_name: "crm_file_write_recovery" } });
   try {
@@ -90,9 +120,9 @@ export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, opera
             }
             throw new Error("File write operation was not found or was resolved with different evidence.");
           }
-          const entries = await inspectOperation(connection, operation, storageRoot);
+          const { entries, bucketVersioning } = await inspectOperation(connection, operation, storageRoot, objectStorage);
           const review = { operationId: operation.id, startedAt: operation.started_at.toISOString(),
-            storageKeys: operation.storage_keys, entries };
+            backend: objectStorage ? "s3" : "local", bucketVersioning, storageKeys: operation.storage_keys, entries };
           const hash = createHash("sha256").update(JSON.stringify(review)).digest("hex");
           const eligible = entries.every(({ state }) => state === "referenced_verified" || state === "absent_unreferenced");
           if (resolving) {
@@ -120,7 +150,7 @@ export async function reviewOrResolveFileWrite({ databaseUrl, storageRoot, opera
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    if (storageBackend(process.env) !== "local") throw new Error("Local storage backend is required for this recovery command.");
+    const backend = storageBackend(process.env);
     const [mode, operationId, reviewSha256, caseId, evidencePath, ...actorWords] = process.argv.slice(2);
     if (mode !== "review" && mode !== "resolve") throw new Error("Use review or resolve.");
     if (mode === "review" && process.argv.length !== 4) throw new Error("Use review <operation-id>.");
@@ -135,9 +165,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       }
       evidenceSha256 = createHash("sha256").update(await readFile(evidencePath)).digest("hex");
     }
-    const result = await reviewOrResolveFileWrite({ databaseUrl: process.env.DATABASE_URL,
-      storageRoot: process.env.DOCUMENT_STORAGE_ROOT, operationId,
-      ...(mode === "resolve" ? { reviewSha256, evidenceSha256, caseId, actor: actorWords.join(" ") } : {}) });
+    const objectStorage = backend === "s3" ? createS3AuditStorage(process.env) : undefined;
+    let result;
+    try {
+      result = await reviewOrResolveFileWrite({ databaseUrl: process.env.DATABASE_URL,
+        storageRoot: process.env.DOCUMENT_STORAGE_ROOT, objectStorage, operationId,
+        ...(mode === "resolve" ? { reviewSha256, evidenceSha256, caseId, actor: actorWords.join(" ") } : {}) });
+    } finally { objectStorage?.close(); }
     console.log(JSON.stringify(result));
     if (mode === "review" && !result.eligibleForManualResolution) process.exitCode = 2;
   } catch (error) {
