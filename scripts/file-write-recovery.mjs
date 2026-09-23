@@ -87,7 +87,9 @@ async function inspectOperation(connection, operation, storageRoot, objectStorag
       entries.push({ key, state, references: [], quarantine, ...versionEvidence });
       continue;
     }
-    let valid = true;
+    // Generated keys are write-once. A second version or delete marker can
+    // represent an interrupted write even when the current bytes match a row.
+    let valid = !objectStorage || (versions.length === 1 && versions[0].kind === "object" && versions[0].isLatest);
     for (const { row } of references) {
       try {
         if (objectStorage) await objectStorage.readVerified(key,

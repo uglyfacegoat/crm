@@ -7,6 +7,12 @@ The overall goal remains active; this document is not a declaration of productio
 
 ## Current evidence
 
+- **2026-09-23 20:47 MSK, S3 recovery guard:** a referenced write-once key
+  with multiple versions or a delete marker now blocks manual resolution even
+  if its latest bytes match the database reference. A disposable versioned S3
+  fixture proved the matching-current-bytes case is refused. Historical
+  versions still need individual classification and S3 quarantine; no S3
+  object was deleted by the recovery tool.
 - **2026-09-23 20:44 MSK, quarantine recovery export:** a local-only command
   reads a completed quarantine manifest and matching case ID, checks the
   original copy, then creates a private checksum-verified export outside both

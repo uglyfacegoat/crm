@@ -136,6 +136,20 @@ test("local and S3 file-write recovery review bytes and record only audited, pau
     await reviewOrResolveFileWrite({ ...s3Options(s3OperationId), reviewSha256: s3Review.reviewSha256,
       evidenceSha256, caseId: "RECOVERY-S3", actor: "Test operator" });
 
+    await fixture.client.send(new PutBucketVersioningCommand({ Bucket: fixture.bucket,
+      VersioningConfiguration: { Status: "Enabled" } }));
+    await fixture.client.send(new PutObjectCommand({ Bucket: fixture.bucket, Key: key, Body: bytes }));
+    const repeatedVersionOperationId = randomUUID();
+    await sql`INSERT INTO file_write_operations (id, storage_keys) VALUES (${repeatedVersionOperationId}, ${[key]})`;
+    const repeatedVersionReview = await reviewOrResolveFileWrite(s3Options(repeatedVersionOperationId));
+    assert.equal(repeatedVersionReview.entries[0].state, "reference_invalid",
+      "A matching current object cannot hide another version of a write-once key");
+    assert.ok(repeatedVersionReview.entries[0].versionCount >= 2);
+    await assert.rejects(reviewOrResolveFileWrite({ ...s3Options(repeatedVersionOperationId),
+      reviewSha256: repeatedVersionReview.reviewSha256, evidenceSha256,
+      caseId: "RECOVERY-S3", actor: "Test operator" }), /separate preservation/);
+    await sql`DELETE FROM file_write_operations WHERE id = ${repeatedVersionOperationId}`; // Disposable fixture only.
+
     const unreferencedKey = `${organization.id}/${randomUUID()}/v1.pdf`;
     await fixture.client.send(new PutObjectCommand({ Bucket: fixture.bucket, Key: unreferencedKey, Body: bytes }));
     const unreferencedOperationId = randomUUID();
@@ -144,8 +158,6 @@ test("local and S3 file-write recovery review bytes and record only audited, pau
     assert.equal(s3Present.entries[0].state, "unreferenced_present");
     await assert.rejects(reviewOrResolveFileWrite({ ...s3Options(unreferencedOperationId), reviewSha256: s3Present.reviewSha256,
       evidenceSha256, caseId: "RECOVERY-S3", actor: "Test operator" }), /separate preservation/);
-    await fixture.client.send(new PutBucketVersioningCommand({ Bucket: fixture.bucket,
-      VersioningConfiguration: { Status: "Enabled" } }));
     await fixture.client.send(new DeleteObjectCommand({ Bucket: fixture.bucket, Key: unreferencedKey }));
     const markedReview = await reviewOrResolveFileWrite(s3Options(unreferencedOperationId));
     assert.equal(markedReview.bucketVersioning, "Enabled");

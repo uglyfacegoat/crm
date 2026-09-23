@@ -94,7 +94,9 @@ private `storage-audit.mjs --check` report retained.
 The tool cannot itself prove an external process has stopped or that storage
 is frozen. S3 review also inventories all object versions and delete markers
 for the operation's keys; any remaining version of an unreferenced key blocks
-resolution, even when its latest state is a delete marker. The review hash
+resolution, even when its latest state is a delete marker. A referenced
+write-once key with more than one object version or a delete marker also blocks
+resolution, even when the current bytes match the database row. The review hash
 includes the backend, bucket versioning state and version metadata digest.
 The S3 path passed source integration tests and a packaged-runtime smoke on a
 disposable database/bucket: the CLI rejected an unreferenced current object.
