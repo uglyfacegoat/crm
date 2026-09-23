@@ -7,8 +7,6 @@ import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
 import { getBackupSystemSnapshot, getPreviewBackupSystemSnapshot } from "@/server/backups/repository";
 import type { BackupSystemSnapshot } from "@/server/backups/types";
-import { listRecentImportJobs } from "@/server/imports/repository";
-import type { ImportJobListItem } from "@/server/imports/types";
 import { listDocumentTemplates } from "@/server/document-templates/repository";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
 import { listMemberMasterOptions, listOrganizationMembers } from "@/server/members/repository";
@@ -32,7 +30,6 @@ export default async function SettingsPage() {
   let masterOptions: MemberMasterOption[];
   let templates: DocumentTemplateListItem[];
   let backupSnapshot: BackupSystemSnapshot;
-  let importJobs: ImportJobListItem[];
   let organizations: OrganizationSummary[];
   if (preview) {
     members = [{
@@ -51,11 +48,10 @@ export default async function SettingsPage() {
     masterOptions = [];
     templates = [];
     backupSnapshot = getPreviewBackupSystemSnapshot();
-    importJobs = [];
     organizations = [{ id: member.organizationId, name: "Центр компаний", kind: "center", current: true, clientCount: 0, orderCount: 0, activeOrderCount: 0, upcomingVisitCount: 0, openTaskCount: 0, receivedMinor: 0 }];
   } else {
-    [members, masterOptions, templates, backupSnapshot, importJobs, organizations] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listRecentImportJobs(member), listOrganizationSummaries(member)]);
+    [members, masterOptions, templates, backupSnapshot, organizations] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listOrganizationSummaries(member)]);
   }
 
-  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} /></div>;
+  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} /></div>;
 }

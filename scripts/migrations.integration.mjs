@@ -71,6 +71,11 @@ test("upgrade from the committed 049 baseline preserves existing business record
   assert.deepEqual(await sql`SELECT * FROM schema_migrations WHERE name <= ${baseline} ORDER BY name`, before);
   assert.equal(Number((await sql`SELECT count(*) FROM schema_migrations`)[0].count), files.length);
   assert.ok((await sql`SELECT to_regclass('public.contract_relations') AS relation`)[0].relation);
+  const [legacyImportTables] = await sql`SELECT
+    to_regclass('public.import_jobs') AS jobs,
+    to_regclass('public.import_job_issues') AS issues,
+    to_regclass('public.import_record_links') AS links`;
+  assert.deepEqual(legacyImportTables, { jobs: null, issues: null, links: null });
 });
 
 test("concurrent deployments serialize bootstrap and execute each migration exactly once", async (t) => {

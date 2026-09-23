@@ -730,8 +730,7 @@ Header: «База знаний · версия пакета / Документ�
 2. **Компании.** Сводки изолированных контуров: клиенты, все/активные заказы, будущие выезды, открытые задачи, получено. Создание новой компании, timezone.
 3. **Представление.** Light/Dark, размер compact/standard/large, цифры proportional/tabular. Хранится в browser cookie.
 4. **Шаблоны документов.** Утверждённые closing-act PDF/DOCX до 15 МБ, active/inactive, download, version.
-5. **Импорт данных.** Пять UTF-8 CSV: clients, objects, orders, services, documents. Dry-run с counts, errors/warnings, issue table и историей jobs. Реальные таблицы на dry-run не меняются.
-6. **Резервные копии.** Worker status/heartbeat, последний успех, размер, история 12 запусков, места хранения, состав архива и policy.
+5. **Резервные копии.** Worker status/heartbeat, последний успех, размер, история 12 запусков, места хранения, состав архива и policy.
 
 **Backup states:** not started, running, succeeded, failed, stale. Успех означает SHA-256 и реальное test restore. Docker volume — рабочая локальная защита; export на ПК зависит от path; внешнее S3 явно «Не настроено».
 
