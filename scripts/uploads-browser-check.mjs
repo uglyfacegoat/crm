@@ -49,18 +49,22 @@ let s3Fixture;
 let objectStorage;
 let scannerProxy;
 let disableScanner;
+let stallScanner;
+let resumeScanner;
 try {
   if (process.env.UPLOAD_CHECK_SCANNER_FAILURE === "true") {
     assert.equal(environment.CRM_FILE_SCAN_MODE, "required");
+    environment.CRM_CLAMD_TIMEOUT_MS = "2000";
     const upstreamHost = environment.CRM_CLAMD_HOST;
     const upstreamPort = Number(environment.CRM_CLAMD_PORT);
-    let available = true;
+    let scannerMode = "forward";
     const sockets = new Set();
     scannerProxy = createServer((client) => {
       sockets.add(client);
       client.on("close", () => sockets.delete(client));
       client.on("error", () => {});
-      if (!available) { client.destroy(); return; }
+      if (scannerMode === "down") { client.destroy(); return; }
+      if (scannerMode === "stall") { client.on("data", () => {}); return; }
       const upstream = createConnection({ host: upstreamHost, port: upstreamPort });
       sockets.add(upstream);
       upstream.on("close", () => sockets.delete(upstream));
@@ -71,7 +75,9 @@ try {
     await new Promise((resolveListening) => scannerProxy.listen(0, "127.0.0.1", resolveListening));
     environment.CRM_CLAMD_HOST = "127.0.0.1";
     environment.CRM_CLAMD_PORT = String(scannerProxy.address().port);
-    disableScanner = () => { available = false; for (const socket of sockets) socket.destroy(); };
+    stallScanner = () => { scannerMode = "stall"; };
+    resumeScanner = () => { scannerMode = "forward"; };
+    disableScanner = () => { scannerMode = "down"; for (const socket of sockets) socket.destroy(); };
   }
   if (storageMode === "s3") {
     s3Fixture = await startS3Fixture();
@@ -450,6 +456,40 @@ try {
   assert.equal(replaced, 9);
   assert.equal(interceptionError, null);
   assert.deepEqual(browserErrors, []);
+  if (stallScanner) {
+    await page.context().clearCookies();
+    await page.goto(`${baseUrl}/login`);
+    await page.getByPlaceholder("Email или телефон").fill(environment.AUTH_BOOTSTRAP_ADMIN_EMAIL);
+    await page.getByPlaceholder("Пароль").fill(environment.AUTH_BOOTSTRAP_ADMIN_PASSWORD);
+    await page.getByRole("button", { name: "Войти в CRM", exact: true }).click();
+    await page.waitForURL((url) => url.pathname === "/");
+    const [existingDocument] = await sql`SELECT id FROM documents WHERE organization_id = ${member.organization_id} ORDER BY created_at LIMIT 1`;
+    stallScanner();
+    const startedAt = Date.now();
+    const stalledReadiness = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
+    assert.equal(stalledReadiness.status, 503);
+    assert.equal((await stalledReadiness.json()).scanner, "unavailable");
+    assert.ok(Date.now() - startedAt >= 1_500, "Scanner timeout was not exercised.");
+    assert.equal((await archiveClient.get(`${baseUrl}/api/v1/documents/${existingDocument.id}/download`)).status(), 500);
+    await page.goto(`${baseUrl}/documents`);
+    await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+    const stalledDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+    await stalledDialog.locator('summary[aria-label="Заказ"]').click();
+    await stalledDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+    await stalledDialog.locator('input[name="title"]').fill("Scanner timeout test");
+    await stalledDialog.locator('input[name="file"]').setInputFiles({ name: "timeout.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nTimeout test\n") });
+    const stalledId = await stalledDialog.locator('input[name="idempotencyKey"]').inputValue();
+    await stalledDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await stalledDialog.getByRole("status").filter({ hasText: "Проверка файла временно недоступна." }).waitFor();
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${stalledId}`)[0].count, 0);
+    if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(stalledId)));
+    resumeScanner();
+    const recoveredReadiness = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
+    assert.equal(recoveredReadiness.status, 200);
+    assert.equal((await recoveredReadiness.json()).scanner, "available");
+    assert.equal((await archiveClient.get(`${baseUrl}/api/v1/documents/${existingDocument.id}/download`)).status(), 200);
+    console.log("scanner timeout: readiness and reads failed within deadline, upload left no data, recovery restored service.");
+  }
   if (disableScanner) {
     disableScanner();
     const readiness = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
