@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import { MAX_DOCUMENT_SIZE_BYTES } from "../../lib/file-limits.ts";
+import { hasBoundedZip } from "../file-scan/zip-bounds.mjs";
 
 export { MAX_DOCUMENT_SIZE_BYTES };
 
@@ -40,8 +41,7 @@ function hasValidSignature(buffer: Buffer, extension: AllowedDocumentFile["exten
   if (extension === "png") return startsWith(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   if (extension === "webp") return buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
   if (!startsWith(buffer, [0x50, 0x4b, 0x03, 0x04])) return false;
-  const archiveText = buffer.toString("latin1");
-  return archiveText.includes("[Content_Types].xml") && archiveText.includes(extension === "docx" ? "word/" : "xl/");
+  return hasBoundedZip(buffer, { requiredPrefix: extension === "docx" ? "word/" : "xl/" });
 }
 
 function safeOriginalFilename(filename: string) {

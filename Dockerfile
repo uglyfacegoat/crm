@@ -26,6 +26,7 @@ RUN apk add --no-cache postgresql17-client \
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
 COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules/zod ./node_modules/zod
+COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules/fflate ./node_modules/fflate
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrate.mjs ./scripts/migrate.mjs
@@ -40,7 +41,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts/file-write-s3-restore.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/storage-transfer.mjs ./scripts/storage-transfer.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-writes/lock-key.mjs ./src/server/file-writes/lock-key.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-writes/gate.mjs ./src/server/file-writes/gate.mjs
-COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-scan/clamd.mjs ./src/server/file-scan/clamd.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/src/server/file-scan/clamd.mjs /app/src/server/file-scan/zip-bounds.mjs ./src/server/file-scan/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/validate-runtime-config.mjs ./scripts/validate-runtime-config.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/config/environment.ts ./src/server/config/environment.ts
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/storage ./src/server/storage

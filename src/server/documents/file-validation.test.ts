@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { zipSync } from "fflate";
 import { DocumentFileValidationError, MAX_DOCUMENT_SIZE_BYTES, assertDocumentFileSize, validateDocumentFile } from "./file-validation.ts";
 
 test("accepts a PDF whose extension, MIME type and signature agree", () => {
@@ -36,6 +37,32 @@ test("rejects mismatched MIME, executable names and a forged Office container", 
     () => validateDocumentFile({ filename: "report.docx", declaredMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("not a zip with word/ and [Content_Types].xml") }),
     /Содержимое файла не соответствует/,
   );
+});
+
+test("accepts structurally readable Office ZIP files", () => {
+  for (const [extension, part, mimeType] of [
+    ["docx", "word/document.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    ["xlsx", "xl/workbook.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  ] as const) {
+    const buffer = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), [part]: Buffer.from("<document/>") }));
+    assert.equal(validateDocumentFile({ filename: `sample.${extension}`, declaredMimeType: mimeType, buffer }).extension, extension);
+  }
+});
+
+test("rejects malformed Office ZIPs and archives with excessive expanded size", () => {
+  const mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const validate = (buffer: Buffer) => validateDocumentFile({ filename: "sample.docx", declaredMimeType: mimeType, buffer });
+  assert.throws(() => validate(Buffer.from("PK\x03\x04[Content_Types].xml word/document.xml", "latin1")), DocumentFileValidationError);
+  const valid = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/document.xml": Buffer.from("<document/>") }));
+  assert.throws(() => validate(valid.subarray(0, valid.length - 20)), DocumentFileValidationError);
+  const forgedSize = Buffer.from(valid);
+  const centralDirectory = forgedSize.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  assert.ok(centralDirectory >= 0);
+  forgedSize.writeUInt32LE(1, centralDirectory + 24);
+  assert.throws(() => validate(forgedSize), DocumentFileValidationError);
+  const bomb = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/document.xml": Buffer.alloc(26 * 1024 * 1024, 65) }));
+  assert.ok(bomb.length < 100_000);
+  assert.throws(() => validate(bomb), DocumentFileValidationError);
 });
 
 test("strips path fragments from the display name without using them as a storage key", () => {

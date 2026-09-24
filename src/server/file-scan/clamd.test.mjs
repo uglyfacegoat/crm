@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import test from "node:test";
+import { zipSync } from "fflate";
 import { checkScannerAvailability, FileScanRejectedError, FileScanUnavailableError, scanFileBuffer } from "./clamd.mjs";
 
 async function withScanner(reply, run) {
@@ -48,6 +49,14 @@ test("required scan rejects a detected file and fails closed on scanner errors",
       await assert.rejects(scanFileBuffer(Buffer.from("file"), environment), errorType);
     });
   }
+});
+
+test("required scan rejects an oversized expanded ZIP before sending it to a scanner that would say OK", async () => {
+  const archive = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/document.xml": Buffer.alloc(26 * 1024 * 1024, 65) }));
+  await withScanner("stream: OK", async (environment, received) => {
+    await assert.rejects(scanFileBuffer(archive, environment), FileScanRejectedError);
+    assert.equal(received().length, 0);
+  });
 });
 
 test("availability requires INSTREAM support and configuration cannot silently disable a scan", { timeout: 3000 }, async () => {

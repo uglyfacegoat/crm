@@ -13,4 +13,10 @@ const office = Buffer.from(zipSync({
   "word/eicar.com": eicar,
 }));
 await assert.rejects(scanFileBuffer(office), FileScanRejectedError);
-console.log("ClamAV accepted a clean file and rejected EICAR directly and inside an Office-like ZIP.");
+const expandedArchive = Buffer.from(zipSync({
+  "[Content_Types].xml": Buffer.from("<Types/>"),
+  "word/document.xml": Buffer.alloc(26 * 1024 * 1024, 65),
+}));
+assert.ok(expandedArchive.length < 100_000);
+await assert.rejects(scanFileBuffer(expandedArchive), FileScanRejectedError);
+console.log("ClamAV accepted a clean file; EICAR and an oversized expanded Office ZIP were rejected.");

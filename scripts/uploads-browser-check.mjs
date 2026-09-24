@@ -348,20 +348,27 @@ try {
   if (environment.CRM_FILE_SCAN_MODE === "required") {
     const eicar = Buffer.from("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
     const infectedOffice = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/eicar.com": eicar }));
-    await page.goto(`${baseUrl}/documents`);
-    await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
-    const infectedDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
-    await infectedDialog.locator('summary[aria-label="Заказ"]').click();
-    await infectedDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
-    await infectedDialog.locator('input[name="title"]').fill("EICAR test");
-    await infectedDialog.locator('input[name="file"]').setInputFiles({ name: "eicar.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: infectedOffice });
-    const infectedId = await infectedDialog.locator('input[name="idempotencyKey"]').inputValue();
-    await infectedDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
-    await infectedDialog.getByRole("status").filter({ hasText: "Файл не прошёл проверку безопасности." }).waitFor();
-    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${infectedId}`)[0].count, 0);
-    if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(infectedId)));
-    await infectedDialog.getByRole("button", { name: "Отмена", exact: true }).click();
-    console.log("scanner: EICAR inside DOCX was rejected before file and database writes.");
+    const expandedOffice = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/document.xml": Buffer.alloc(26 * 1024 * 1024, 65) }));
+    assert.ok(expandedOffice.length < 100_000);
+    for (const [title, filename, bytes, errorText] of [
+      ["EICAR test", "eicar.docx", infectedOffice, "Файл не прошёл проверку безопасности."],
+      ["Expanded ZIP test", "expanded.docx", expandedOffice, "Содержимое файла не соответствует заявленному типу."],
+    ]) {
+      await page.goto(`${baseUrl}/documents`);
+      await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+      const dialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+      await dialog.locator('summary[aria-label="Заказ"]').click();
+      await dialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+      await dialog.locator('input[name="title"]').fill(title);
+      await dialog.locator('input[name="file"]').setInputFiles({ name: filename, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: bytes });
+      const rejectedId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+      await dialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+      await dialog.getByRole("status").filter({ hasText: errorText }).waitFor();
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${rejectedId}`)[0].count, 0);
+      if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(rejectedId)));
+      await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+    }
+    console.log("scanner: EICAR and oversized Office ZIP were rejected before file and database writes.");
   }
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.

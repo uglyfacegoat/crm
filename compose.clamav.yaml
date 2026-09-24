@@ -18,6 +18,11 @@
       "restart": "unless-stopped",
       "environment": {
         "CLAMD_CONF_SelfCheck": "60",
+        "CLAMD_CONF_AlertExceedsMax": "yes",
+        "CLAMD_CONF_MaxScanSize": "100M",
+        "CLAMD_CONF_MaxFileSize": "25M",
+        "CLAMD_CONF_MaxRecursion": "10",
+        "CLAMD_CONF_MaxFiles": "1000",
         "FRESHCLAM_CHECKS": "4"
       },
       "networks": ["crm_default"]

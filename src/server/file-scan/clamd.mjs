@@ -1,4 +1,5 @@
 import { createConnection } from "node:net";
+import { hasBoundedZip } from "./zip-bounds.mjs";
 
 const MAX_REPLY_BYTES = 1024;
 const MAX_SCAN_BYTES = 15 * 1024 * 1024;
@@ -76,6 +77,9 @@ export async function scanFileBuffer(buffer, environment = process.env) {
   const config = fileScanConfig(environment);
   if (config.mode === "off") return;
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > MAX_SCAN_BYTES) throw new FileScanUnavailableError();
+  // ClamAV can return OK after reaching its own archive limits. Enforce a
+  // bounded ZIP expansion on both writes and reads, including older files.
+  if (buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])) && !hasBoundedZip(buffer)) throw new FileScanRejectedError();
   const reply = await requestClamd(Buffer.from("zINSTREAM\0"), buffer, config);
   if (reply === "stream: OK") return;
   if (/^stream: .+ FOUND$/.test(reply)) throw new FileScanRejectedError();
