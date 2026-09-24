@@ -640,6 +640,10 @@ try {
   console.log("PDF parser: header-only PDF was rejected before file and database writes.");
   const [exportSource] = await sql`SELECT id FROM documents WHERE organization_id = ${member.organization_id} ORDER BY created_at LIMIT 1`;
   assert.ok(exportSource);
+  const [downloadVersion] = await sql`SELECT id FROM document_versions WHERE document_id = ${exportSource.id} ORDER BY version_number DESC LIMIT 1`;
+  const [downloadTemplate] = await sql`SELECT id FROM document_templates WHERE organization_id = ${member.organization_id} ORDER BY created_at LIMIT 1`;
+  const [downloadAttachment] = await sql`SELECT id FROM chat_message_attachments WHERE organization_id = ${member.organization_id} LIMIT 1`;
+  assert.ok(downloadVersion && downloadTemplate && downloadAttachment);
   await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
     WHERE organization_id = ${member.organization_id} AND operation IN ('document_upload', 'document_export')`;
   assert.equal(FILE_PROCESSING_SLOTS, 2, "Browser saturation fixture must acquire every processing slot.");
@@ -654,6 +658,16 @@ try {
     });
     assert.equal(blockedExport.status(), 429);
     assert.equal(blockedExport.headers()["retry-after"], "3");
+    for (const path of [
+      `/api/v1/documents/${exportSource.id}/download`,
+      `/api/v1/documents/${exportSource.id}/versions/${downloadVersion.id}/download`,
+      `/api/v1/document-templates/${downloadTemplate.id}/download`,
+      `/api/v1/chat/attachments/${downloadAttachment.id}/download`,
+    ]) {
+      const blocked = await archiveClient.get(`${baseUrl}${path}`);
+      assert.equal(blocked.status(), 429, `Busy file response: ${path}`);
+      assert.equal(blocked.headers()["retry-after"], "3");
+    }
     await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
     const busyDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
     await busyDialog.locator('summary[aria-label="Заказ"]').click();

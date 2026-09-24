@@ -23,6 +23,16 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, UP-05 read-side checkpoint:** the existing two PostgreSQL
+  processing slots now cover verified document/version/template/chat attachment
+  reads and DOCX preview conversion. When saturated, protected routes return
+  429 with `Retry-After: 3` before file allocation. Authorization and member
+  read budgets still run first. The packaged browser exercised real saturated
+  document, version, template and chat reads on local and test S3; route tests
+  covered preview and normal byte-exact responses. Typecheck, lint and build
+  passed. Slot release precedes potentially slow response delivery, so inbound
+  body buffering, transfer memory and representative load measurement remain
+  open in UP-05.
 - **2026-09-24, UP-07 local acceptance (9/9 upload families):** the packaged
   browser suite now aborts in-flight visit photo, signed act and group avatar
   requests after verified file write, before commit. Both commit and forced

@@ -2,6 +2,7 @@ import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
 import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
+import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
 import { DocumentTemplateNotFoundError, getDocumentTemplateDownload } from "@/server/document-templates/repository";
 import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 
@@ -19,7 +20,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const template = await getDocumentTemplateDownload(member, id);
     const limited = await rejectLimitedFileRead(member, "document_download");
     if (limited) return limited;
-    const file = await readVerifiedDocumentFile(template.storageKey, template, MAX_DOCUMENT_SIZE_BYTES);
+    const file = await withFileProcessingSlot(() => readVerifiedDocumentFile(template.storageKey, template, MAX_DOCUMENT_SIZE_BYTES));
     return new Response(file, {
       headers: {
         "Cache-Control": "private, no-store",
@@ -30,6 +31,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       },
     });
   } catch (error) {
+    if (error instanceof FileProcessingBusyError) return Response.json({ error: "processing_busy" }, { status: 429,
+      headers: { "Cache-Control": "private, no-store", "Retry-After": "3" } });
     if (error instanceof AuthorizationError) return Response.json({ error: "forbidden" }, { status: 403 });
     if (error instanceof DocumentTemplateNotFoundError) return Response.json({ error: "not_found" }, { status: 404 });
     console.error(JSON.stringify({ operation: "document_templates.download", category: error instanceof StoredFileIntegrityError ? "integrity_mismatch" : "download_failed", memberId: member.memberId }));

@@ -115,6 +115,14 @@ test("all document readers bound file allocation and preserve access checks", as
       }
       assert.equal(readStoredFile.mock.callCount(), 0);
     });
+    if (name !== "avatar") await t.test(`${name}: occupied processing slots return retry before file allocation`, async () => {
+      lookup.mock.mockImplementation(async () => name === "preview" ? { ...file, mimeType: docxMime } : file);
+      withFileProcessingSlot.mock.mockImplementation(async () => { throw new FileProcessingBusyError(); });
+      const response = await send(handler);
+      assert.equal(response.status, 429);
+      assert.equal(response.headers.get("retry-after"), "3");
+      assert.equal(readStoredFile.mock.callCount(), 0);
+    });
     await t.test(`${name}: invalid size, checksum and file substitution fail closed`, async () => {
       const metadata = name === "preview" ? { ...file, mimeType: docxMime } : file;
       for (const patch of [{ sizeBytes: limit + 1 }, { sizeBytes: 0 }, { sizeBytes: -1 }, { sizeBytes: 1.5 }, { sizeBytes: bytes.length + 1 }, { sha256: "0".repeat(64) }, { sha256: "invalid" }]) {

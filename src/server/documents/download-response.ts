@@ -1,5 +1,6 @@
 import "server-only";
 import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
+import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
 import type { DocumentDownload } from "./types";
 import { readVerifiedDocumentFile as readStoredFile, StoredFileIntegrityError } from "./storage";
 
@@ -37,11 +38,16 @@ export async function createDocumentDownloadResponse(
 ) {
   let file: Buffer;
   try {
-    file = await readVerifiedDocumentFile(document, operation);
-  } catch {
+    file = await withFileProcessingSlot(() => readVerifiedDocumentFile(document, operation));
+  } catch (error) {
+    if (error instanceof FileProcessingBusyError) {
+      return Response.json({ error: "processing_busy" }, { status: 429,
+        headers: { "Cache-Control": "private, no-store", "Retry-After": "3" } });
+    }
     return Response.json({ error: "file_integrity_error" }, { status: 500 });
   }
-  return new Response(Uint8Array.from(file), {
+  const bytes = new Uint8Array(file.buffer as ArrayBuffer, file.byteOffset, file.byteLength);
+  return new Response(bytes, {
     headers: {
       "Cache-Control": "private, no-store",
       "Content-Disposition": `${disposition}; filename="document.${document.filename.split(".").at(-1) ?? "bin"}"; filename*=UTF-8''${encodedFilename(document.filename)}`,

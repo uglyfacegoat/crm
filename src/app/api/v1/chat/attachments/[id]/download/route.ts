@@ -4,6 +4,7 @@ import { MAX_CHAT_ATTACHMENT_BYTES } from "@/server/chat/file-validation";
 import { ChatChannelNotFoundError, getChatAttachmentDownload, recordChatAttachmentDownload } from "@/server/chat/repository";
 import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 import { selectByteRange } from "@/server/http/byte-range";
+import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
 import { consumeRequestLimit } from "@/server/request-limits/repository";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       return Response.json({ error: "rate_limited" }, { status: 429, headers: { ...privateHeaders, "Retry-After": String(budget.retryAfterSeconds) } });
     }
     stage = "read";
-    const file = await readVerifiedDocumentFile(attachment.storageKey, attachment, MAX_CHAT_ATTACHMENT_BYTES);
+    const file = await withFileProcessingSlot(() => readVerifiedDocumentFile(attachment.storageKey, attachment, MAX_CHAT_ATTACHMENT_BYTES));
     const etag = `"${attachment.sha256}"`;
     const headers = new Headers({
         ...privateHeaders,
@@ -58,6 +59,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     await recordChatAttachmentDownload(member, attachment.id);
     return new Response(body, { status: range.kind === "partial" ? 206 : 200, headers });
   } catch (error) {
+    if (error instanceof FileProcessingBusyError) return Response.json({ error: "processing_busy" },
+      { status: 429, headers: { ...privateHeaders, "Retry-After": "3" } });
     if (error instanceof AuthorizationError) return Response.json({ error: "forbidden" }, { status: 403, headers: privateHeaders });
     if (error instanceof ChatChannelNotFoundError) return Response.json({ error: "not_found" }, { status: 404, headers: privateHeaders });
     const integrityFailure = error instanceof StoredFileIntegrityError;

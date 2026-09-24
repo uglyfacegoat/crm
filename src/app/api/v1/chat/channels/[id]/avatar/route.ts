@@ -16,7 +16,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const limited = await rejectLimitedFileRead(member, "chat_download");
     if (limited) return limited;
     const file = await readVerifiedDocumentFile(avatar.storageKey, avatar, MAX_CHAT_AVATAR_BYTES);
-    return new Response(Uint8Array.from(file), { headers: {
+    return new Response(file, { headers: {
       "Cache-Control": "private, no-store",
       "Content-Length": String(file.length),
       "Content-Type": avatar.mimeType,
