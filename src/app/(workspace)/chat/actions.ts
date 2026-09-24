@@ -10,6 +10,7 @@ import { consumeRequestLimit } from "@/server/request-limits/repository";
 import {
   assertChatMessageAccess,
   assertChatAvatarAccess,
+  chatAvatarRequestAlreadyApplied,
   ChatChannelConflictError,
   ChatDirectConversationError,
   ChatEntityUnavailableError,
@@ -177,7 +178,7 @@ async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState,
   if (getAuthMode() === "preview") return previewState;
   const member = await requireSession();
   const parsed = updateChatChannelSettingsSchema.safeParse({
-    channelId: formData.get("channelId"), expectedVersion: formData.get("expectedVersion"),
+    idempotencyKey: formData.get("idempotencyKey"), channelId: formData.get("channelId"), expectedVersion: formData.get("expectedVersion"),
     name: formData.get("name"), description: formData.get("description"), muted: formData.get("muted"),
   });
   if (!parsed.success) return { status: "error", message: "Проверьте название и описание группы.", fieldErrors: fieldErrors(parsed.error), entityId: null };
@@ -213,6 +214,23 @@ async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState,
     if (persisted) {
       logUnexpected("chat.channel.settings_revalidate", member.memberId, error);
       return { status: "success", refreshRequired: true, message: "Настройки группы сохранены, но страницу не удалось обновить. Обновите её вручную.", fieldErrors: {}, entityId: parsed.data.channelId };
+    }
+    if ((error instanceof ChatChannelVersionConflictError || errorCode(error) === "EEXIST")
+      && uploadedFile instanceof File && uploadedFile.size > 0 && uploadedFile.size <= MAX_CHAT_AVATAR_BYTES) {
+      try {
+        const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+        const file = validateChatAvatar({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
+        const replayStorageKey = createChatChannelAvatarStorageKey(member.organizationId, parsed.data.channelId, parsed.data.expectedVersion + 1, file.extension);
+        if (await chatAvatarRequestAlreadyApplied(member, parsed.data, { id: parsed.data.channelId, ...file, storageKey: replayStorageKey })) {
+          return { status: "success", message: "Настройки группы уже сохранены.", fieldErrors: {}, entityId: parsed.data.channelId };
+        }
+      } catch (replayError) {
+        if (!(replayError instanceof DocumentFileValidationError)) {
+          markFileWriteUncertain();
+          logUnexpected("chat.avatar.replay_check", member.memberId, replayError);
+          return { status: "error", message: "Не удалось проверить настройки группы. Обновите группу и проверьте результат перед повторным изменением.", fieldErrors: {}, entityId: null };
+        }
+      }
     }
     const rejected = error instanceof AuthorizationError || error instanceof ChatGeneralChannelMutationError
       || error instanceof ChatChannelConflictError || error instanceof ChatChannelVersionConflictError || error instanceof ChatChannelNotFoundError;

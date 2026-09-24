@@ -833,11 +833,12 @@ export async function updateChatChannelSettings(
         if (!updated.length) throw new ChatChannelVersionConflictError();
         if (avatar) {
           await transaction`INSERT INTO chat_channel_avatars
-              (organization_id, channel_id, storage_key, mime_type, size_bytes, sha256, uploaded_by, version)
-            VALUES (${member.organizationId}, ${input.channelId}, ${avatar.storageKey}, ${avatar.mimeType}, ${avatar.sizeBytes}, ${avatar.sha256}, ${member.memberId}, ${parsed.avatar_version ?? 1})
+              (organization_id, channel_id, storage_key, mime_type, size_bytes, sha256, uploaded_by, request_id, version)
+            VALUES (${member.organizationId}, ${input.channelId}, ${avatar.storageKey}, ${avatar.mimeType}, ${avatar.sizeBytes}, ${avatar.sha256}, ${member.memberId}, ${input.idempotencyKey}, ${parsed.avatar_version ?? 1})
             ON CONFLICT (organization_id, channel_id) DO UPDATE SET storage_key = EXCLUDED.storage_key,
               mime_type = EXCLUDED.mime_type, size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256,
-              uploaded_by = EXCLUDED.uploaded_by, version = chat_channel_avatars.version + 1, updated_at = now()`;
+              uploaded_by = EXCLUDED.uploaded_by, request_id = EXCLUDED.request_id,
+              version = chat_channel_avatars.version + 1, updated_at = now()`;
         }
       } else if (avatar) {
         throw new ChatGeneralChannelMutationError();
@@ -853,6 +854,35 @@ export async function updateChatChannelSettings(
     if (databaseConstraint(error) === "chat_channels_active_name_unique_idx") throw new ChatChannelConflictError();
     throw error;
   }
+}
+
+export async function chatAvatarRequestAlreadyApplied(
+  member: AuthenticatedMember,
+  input: UpdateChatChannelSettingsInput,
+  avatar: ChatAttachmentUpload & { extension: "jpg" | "png" | "webp" },
+): Promise<boolean> {
+  requirePermission(member, "chat.manage");
+  const [row] = await getDatabase()`SELECT channels.version, channels.name, channels.description,
+      membership.muted, avatars.request_id, avatars.uploaded_by, avatars.storage_key,
+      avatars.sha256, avatars.size_bytes, avatars.mime_type
+    FROM chat_channels channels
+    JOIN chat_channel_members membership ON membership.organization_id = channels.organization_id
+      AND membership.channel_id = channels.id AND membership.member_id = ${member.memberId}
+    JOIN chat_channel_avatars avatars ON avatars.organization_id = channels.organization_id
+      AND avatars.channel_id = channels.id
+    WHERE channels.organization_id = ${member.organizationId} AND channels.id = ${input.channelId}
+      AND channels.archived_at IS NULL AND channels.kind = 'group' AND channels.audience_kind = 'office'`;
+  if (!row) return false;
+  const saved = z.object({
+    version: z.number().int().positive(), name: z.string(), description: z.string().nullable(), muted: z.boolean(),
+    request_id: uuidSchema.nullable(), uploaded_by: uuidSchema, storage_key: z.string(),
+    sha256: z.string(), size_bytes: countSchema, mime_type: z.string(),
+  }).parse(row);
+  return saved.version === input.expectedVersion + 1
+    && saved.name === input.name && saved.description === input.description && saved.muted === input.muted
+    && saved.request_id === input.idempotencyKey && saved.uploaded_by === member.memberId
+    && saved.storage_key === avatar.storageKey && saved.sha256 === avatar.sha256
+    && saved.size_bytes === avatar.sizeBytes && saved.mime_type === avatar.mimeType;
 }
 
 export async function toggleChatReaction(member: AuthenticatedMember, input: ToggleChatReactionInput) {

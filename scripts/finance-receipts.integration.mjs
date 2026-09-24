@@ -450,9 +450,8 @@ test("uploads retain committed bytes and finance retries preserve file ownership
           }
           revalidatePath.mock.mockImplementation(() => {});
           const retry = await action(previous, payload);
-          // Avatar updates use optimistic versions rather than request keys.
-          // A stale retry must be rejected without touching the committed image.
-          assert.equal(retry.status, kind === "chat avatar" ? "error" : "success", retry.message);
+          assert.equal(retry.status, "success", retry.message);
+          if (kind === "chat avatar") assert.match(retry.message, /Настройки группы уже сохранены/);
           await assertReference();
         } finally {
           sql = directSql;

@@ -46,6 +46,7 @@ test("membership update deduplicates users and requires a channel version", () =
 
 test("channel settings parse a checkbox value without weakening other fields", () => {
   const parsed = updateChatChannelSettingsSchema.parse({
+    idempotencyKey: "00000000-0000-4000-8000-000000000001",
     channelId: "00000000-0000-4000-8000-000000000003",
     expectedVersion: "2",
     name: "  Выездная команда  ",

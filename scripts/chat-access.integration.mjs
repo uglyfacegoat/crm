@@ -159,4 +159,24 @@ test("chat file authorization uses current tenant, membership, channel and permi
     const { member, channelId } = await fixture();
     await assert.rejects(chat.assertChatAvatarAccess(member, channelId, 2), chat.ChatChannelVersionConflictError);
   });
+  await t.test("avatar replay only recognizes the same committed request and current settings", async () => {
+    const { member, channelId } = await fixture();
+    const input = {
+      idempotencyKey: randomUUID(), channelId, expectedVersion: 1,
+      name: "Updated test channel", description: "Saved description", muted: true,
+    };
+    const avatar = {
+      id: channelId, filename: "avatar.png", extension: "png", mimeType: "image/png",
+      sizeBytes: 10, sha256: "a".repeat(64), storageKey: `chat/avatars/${channelId}/2.png`,
+    };
+    await chat.updateChatChannelSettings(member, input, avatar);
+    assert.equal(await chat.chatAvatarRequestAlreadyApplied(member, input, avatar), true);
+    assert.equal(await chat.chatAvatarRequestAlreadyApplied(member, { ...input, idempotencyKey: randomUUID() }, avatar), false);
+    assert.equal(await chat.chatAvatarRequestAlreadyApplied(member, { ...input, name: "Other name" }, avatar), false);
+    assert.equal(await chat.chatAvatarRequestAlreadyApplied(member, input, { ...avatar, sha256: "b".repeat(64) }), false);
+    assert.equal(await chat.chatAvatarRequestAlreadyApplied(member, input, { ...avatar, storageKey: "other/avatar.png" }), false);
+    await sql`UPDATE chat_channels SET version = version + 1, name = 'Changed again' WHERE organization_id = ${member.organizationId} AND id = ${channelId}`;
+    assert.equal(await chat.chatAvatarRequestAlreadyApplied(member, input, avatar), false);
+    await assert.rejects(chat.chatAvatarRequestAlreadyApplied({ ...member, permissionOverrides: { "chat.manage": false } }, input, avatar), AuthorizationError);
+  });
 });

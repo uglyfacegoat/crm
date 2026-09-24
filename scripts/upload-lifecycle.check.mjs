@@ -19,7 +19,7 @@ const functions = Object.fromEntries([
   "completeVisitWithClosingDocument", "createAssignedVisitEvidence", "createVisit", "createVisitSeries", "rescheduleVisit",
   "startAssignedMasterVisit", "updateVisit", "visitCompletionExists", "visitEvidenceExists",
   "createDocumentTemplate", "documentTemplateExists", "updateDocumentTemplateStatus",
-  "assertChatMessageAccess", "assertChatAvatarAccess", "chatMessageExists", "sendChatMessage", "updateChatChannelSettings",
+  "assertChatMessageAccess", "assertChatAvatarAccess", "chatAvatarRequestAlreadyApplied", "chatMessageExists", "sendChatMessage", "updateChatChannelSettings",
   "createChatChannel", "createDirectChat", "markChatChannelRead", "toggleChatReaction", "toggleChatChannelPin", "updateChatChannelMembers",
 ].map((name) => [name, mock.fn()]));
 const errors = Object.fromEntries([

@@ -19,7 +19,7 @@ const hooks = registerHooks({
 const member = { organizationId: "b8b990ca-763c-4d7e-a2c3-e4135d481d55", memberId: "db18bd2f-764b-4ed5-a797-0714917b53a5" };
 const events = [];
 const functions = Object.fromEntries([
-  "assertChatMessageAccess", "assertChatAvatarAccess", "chatMessageExists", "sendChatMessage", "updateChatChannelSettings",
+  "assertChatMessageAccess", "assertChatAvatarAccess", "chatAvatarRequestAlreadyApplied", "chatMessageExists", "sendChatMessage", "updateChatChannelSettings",
   "createChatChannel", "createDirectChat", "markChatChannelRead", "toggleChatReaction", "toggleChatChannelPin", "updateChatChannelMembers",
 ].map((name) => [name, mock.fn()]));
 const errors = Object.fromEntries([

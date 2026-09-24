@@ -535,14 +535,14 @@ try {
       await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
       await page.waitForTimeout(1_300);
       if (await dialog.isVisible()) {
-        assert.match(await dialog.getByRole("status").innerText(), /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы сохранены/i);
+        assert.match(await dialog.getByRole("status").innerText(), /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы (уже )?сохранены/i);
         await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
         await dialog.waitFor({ state: "hidden" });
       }
       if (interceptionError) throw interceptionError;
       assert.ok(duplicateOtherResponse, "Concurrent duplicate chat-avatar POST must run");
       assert.equal(duplicateOtherResponse.status, 200);
-      assert.match(duplicateOtherResponse.body, /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы сохранены/i);
+      assert.match(duplicateOtherResponse.body, /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы (уже )?сохранены/i);
     } else {
       await submit(dialog, "Сохранить", { saved: "Настройки группы сохранены.", warning: "Настройки группы сохранены, но страницу не удалось обновить. Обновите её вручную." }, "avatar-warning.png");
     }
@@ -1129,13 +1129,18 @@ try {
   await avatarPage.screenshot({ path: join(artifacts, "avatar-lost-response.png") });
   const avatarReplay = await archiveClient.post(`${baseUrl}/chat?channel=${lostAvatarChannel.id}`, { data: lostAvatar.requestBody, headers: lostAvatar.requestHeaders });
   assert.equal(avatarReplay.status(), 200);
-  assert.match(await avatarReplay.text(), /Настройки уже изменились/);
+  assert.match(await avatarReplay.text(), /Настройки группы уже сохранены/);
+  await avatarDialog.locator('input[name="name"]').fill("Different group settings");
   await avatarDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
   await avatarDialog.getByRole("status").filter({ hasText: "Настройки уже изменились. Обновите страницу." }).waitFor();
   assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${lostAvatarChannel.id}`)[0].version, 2);
+  await avatarDialog.locator('input[name="name"]').fill("Lost avatar group updated");
+  await avatarDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await avatarDialog.waitFor({ state: "hidden" });
+  assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${lostAvatarChannel.id}`)[0].version, 2);
   assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${lostAvatarChannel.id}`)[0].count, 1);
   await verifyStoredReference("chat_channel_avatars", "channel_id", lostAvatarChannel.id, imageBytes);
-  console.log("lost avatar response after commit: form retained photo and settings; replay and UI retry reported version conflict without replacing the avatar.");
+  console.log("lost avatar response after commit: form retained photo and settings; replay and UI retry recognized the saved avatar without replacing it.");
   await avatarContext.close();
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
@@ -1680,12 +1685,12 @@ try {
     assert.equal(await commitAvatarDialog.locator('input[name="avatar"]').evaluate((input) => input.files?.[0]?.name), "avatar-commit-lost.png");
     assert.deepEqual(commitPageErrors, []);
     await commitAvatarDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
-    await commitAvatarDialog.getByRole("status").filter({ hasText: "Настройки уже изменились. Обновите страницу." }).waitFor();
+    await commitAvatarDialog.waitFor({ state: "hidden" });
     assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${commitAvatarChannel.id}`)[0].version, 2);
     assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${commitAvatarChannel.id}`)[0].count, 1);
     await verifyStoredReference("chat_channel_avatars", "channel_id", commitAvatarChannel.id, imageBytes);
     assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedAvatar.storage_key} = ANY(storage_keys)`)[0].count, 1);
-    console.log("lost avatar COMMIT acknowledgement: one group version and photo survived; retry reported a safe version conflict without erasing the durable unresolved operation.");
+    console.log("lost avatar COMMIT acknowledgement: one group version and photo survived; retry recognized the saved avatar without erasing the durable unresolved operation.");
     await commitContext.close();
 
     await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'

@@ -7,6 +7,7 @@ import type { FormEvent } from "react";
 import { type ChatMutationState, updateChatChannelSettingsAction } from "@/app/(workspace)/chat/actions";
 import { Dialog } from "@/components/ui/dialog";
 import type { ChatChannel } from "@/server/chat/types";
+import { clientCrypto as crypto } from "@/lib/client-id";
 
 const initialState: ChatMutationState = { status: "idle", message: null, fieldErrors: {}, entityId: null };
 
@@ -15,6 +16,7 @@ function SettingsForm({ channel, editableDetails, onComplete }: { channel: ChatC
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const [muted, setMuted] = useState(channel.muted);
+  const [requestKey] = useState(() => crypto.randomUUID());
   const direct = channel.audienceKind === "direct";
   useEffect(() => {
     if (state.status !== "success" || state.refreshRequired) return;
@@ -39,6 +41,7 @@ function SettingsForm({ channel, editableDetails, onComplete }: { channel: ChatC
     });
   };
   return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
+    <input type="hidden" name="idempotencyKey" value={requestKey} />
     <input type="hidden" name="channelId" value={channel.id} />
     <input type="hidden" name="expectedVersion" value={channel.version} />
     <div className="flex-1 space-y-5 p-5 sm:p-7">
