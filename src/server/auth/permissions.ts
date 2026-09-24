@@ -4,7 +4,7 @@ export const configurablePermissions = [
   "clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write",
   "documents.read", "documents.write", "masters.read", "masters.write", "finance.read", "finance.write", "settings.write",
   "tasks.read", "tasks.write",
-  "workflow.read", "workflow.write", "workflow.review", "workflow.publish",
+  "workflow.read", "workflow.write", "workflow.comment", "workflow.review", "workflow.publish",
   "contracts.read", "contracts.write",
   "chat.read", "chat.write", "chat.manage",
   "document_templates.read", "document_templates.write",
@@ -36,7 +36,7 @@ export const permissionSections = [
   { label: "Финансы", description: "Счета, оплаты, расходы и выплаты", permissions: [["finance.read", "Просматривать"], ["finance.write", "Проводить и сторнировать операции"]] },
   { label: "Аналитика", description: "Управленческие отчёты и CSV", permissions: [["analytics.read", "Просматривать и экспортировать"]] },
   { label: "Задачи", description: "Очереди, сроки и исполнители", permissions: [["tasks.read", "Просматривать"], ["tasks.write", "Создавать, переносить и завершать"]] },
-  { label: "Воркфлоу", description: "Карты процессов компании", permissions: [["workflow.read", "Просматривать карты"], ["workflow.write", "Создавать и редактировать"], ["workflow.review", "Согласовывать и отклонять"], ["workflow.publish", "Публиковать согласованные версии"]] },
+  { label: "Воркфлоу", description: "Карты процессов компании", permissions: [["workflow.read", "Просматривать карты"], ["workflow.write", "Создавать и редактировать"], ["workflow.comment", "Обсуждать карты"], ["workflow.review", "Согласовывать и отклонять"], ["workflow.publish", "Публиковать согласованные версии"]] },
   { label: "Входящие", description: "Обращения с подключённых сайтов", permissions: [["leads.read", "Просматривать"], ["leads.write", "Принимать и отклонять"]] },
   { label: "Чат", description: "Диалоги и рабочие группы", permissions: [["chat.read", "Читать"], ["chat.write", "Отправлять сообщения"], ["chat.manage", "Создавать группы и управлять участниками"]] },
   { label: "Уведомления", description: "Личная оперативная лента", permissions: [["notifications.read", "Просматривать и отмечать прочитанными"]] },
@@ -48,8 +48,8 @@ export const permissionSections = [
 const grants: Record<OrganizationRole, ReadonlySet<Permission>> = {
   developer: new Set(permissions),
   admin: new Set(configurablePermissions),
-  dispatcher: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write", "documents.read", "documents.write", "masters.read", "tasks.read", "tasks.write", "workflow.read", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read", "leads.read", "leads.write", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
-  manager: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "documents.read", "documents.write", "masters.read", "finance.read", "tasks.read", "tasks.write", "workflow.read", "workflow.write", "workflow.review", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read", "leads.read", "leads.write", "analytics.read", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
+  dispatcher: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write", "documents.read", "documents.write", "masters.read", "tasks.read", "tasks.write", "workflow.read", "workflow.comment", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read", "leads.read", "leads.write", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
+  manager: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "documents.read", "documents.write", "masters.read", "finance.read", "tasks.read", "tasks.write", "workflow.read", "workflow.write", "workflow.comment", "workflow.review", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read", "leads.read", "leads.write", "analytics.read", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
   accountant: new Set(["clients.read", "orders.read", "documents.read", "documents.write", "finance.read", "finance.write", "tasks.read", "contracts.read", "chat.read", "chat.write", "sites.read", "leads.read", "analytics.read", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
   master: new Set(["visits.read", "visits.write", "chat.read", "chat.write", "document_templates.read", "notifications.read", "help.read", "support.write"]),
 };

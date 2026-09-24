@@ -23,6 +23,8 @@ mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", sourceRoot), { namedExports: { getDatabase: () => sql } });
 const workflow = await import("../src/server/workflow/repository.ts");
 const versions = await import("../src/server/workflow/versions-repository.ts");
+const context = await import("../src/server/workflow/context-repository.ts");
+const contextAccess = await import("../src/server/workflow/context-access.ts");
 const { saveWorkflowMapSchema } = await import("../src/server/workflow/schemas.ts");
 
 test("workflow maps are tenant scoped, permission gated and version safe", async (t) => {
@@ -136,4 +138,77 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
   await assert.rejects(versions.publishWorkflowRevision(owner, { id: versionMapId, expectedVersion: 4 }),
     (error) => error instanceof versions.WorkflowReviewStateError && error.reason === "not_approved");
   assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_map_revisions WHERE map_id = ${versionMapId}`)[0].count, 4);
+
+  const [client] = await sql`INSERT INTO clients (organization_id, legal_name)
+    VALUES (${owner.organizationId}, 'Клиент для процесса') RETURNING id`;
+  const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    VALUES (${owner.organizationId}, ${client.id}, 'Объект для процесса', 'Офис', 'Москва, Тестовая улица, 1') RETURNING id`;
+  const [order] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-001', 'new', 'RUB',
+      'Клиент для процесса', 'Объект для процесса', 'Москва, Тестовая улица, 1') RETURNING id`;
+  const [contract] = await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status,
+    starts_on, ends_on, renewal_notice_days) VALUES (${owner.organizationId}, ${client.id}, ${object.id},
+    'WF-CONTRACT-001', 'draft', '2026-01-01', '2026-12-31', 30) RETURNING id`;
+  const [foreignClient] = await sql`INSERT INTO clients (organization_id, legal_name)
+    VALUES (${other.organizationId}, 'Чужой клиент') RETURNING id`;
+  const contextMapId = randomUUID();
+  await workflow.createWorkflowMap(owner, { id: contextMapId, title: 'Процесс с контекстом' });
+  const contextDraft = { ...draft, regulations: 'Общий порядок выполнения', nodes: [
+    { ...firstNode, regulation: 'Проверить исходные данные', ownerMemberId: reviewer.memberId,
+      resource: { kind: 'client', id: client.id } },
+    { ...secondNode, resource: { kind: 'order', id: order.id } },
+  ] };
+  assert.equal(await workflow.saveWorkflowMap(owner, { id: contextMapId, expectedVersion: 1,
+    title: 'Процесс с контекстом', description: '', draft: contextDraft }), 2);
+  assert.deepEqual((await workflow.getWorkflowWorkspace(owner, contextMapId)).selected?.draft, contextDraft);
+  const revokedClient = { ...owner, permissionOverrides: { 'clients.read': false } };
+  const redacted = (await workflow.getWorkflowWorkspace(revokedClient, contextMapId)).selected;
+  assert.equal(redacted?.contextEditable, false);
+  assert.equal(redacted?.draft.nodes[0].resource, null);
+  assert.equal(redacted?.draft.nodes[1].resource.id, order.id);
+  assert.equal((await versions.getWorkflowRevision(revokedClient, { id: contextMapId, version: 2 })).draft.nodes[0].resource, null);
+  await assert.rejects(workflow.saveWorkflowMap(revokedClient, { id: contextMapId, expectedVersion: 2,
+    title: 'Стереть скрытую ссылку', description: '', draft: redacted.draft }), AuthorizationError);
+  assert.deepEqual(await context.findWorkflowResources(owner, contextMapId, 'client', 'Клиент для'),
+    [{ id: client.id, label: 'Клиент для процесса' }]);
+  assert.deepEqual(await context.findWorkflowResources(owner, contextMapId, 'order', 'WF-TEST'),
+    [{ id: order.id, label: 'WF-TEST-001' }]);
+  assert.deepEqual(await context.findWorkflowResources(owner, contextMapId, 'contract', 'WF-CONTRACT'),
+    [{ id: contract.id, label: 'WF-CONTRACT-001' }]);
+  assert.deepEqual(await context.findWorkflowResources(revokedClient, contextMapId, 'client', ''), []);
+  await assert.rejects(context.findWorkflowResources(other, contextMapId, 'client', ''), workflow.WorkflowMapNotFoundError);
+  await assert.rejects(workflow.saveWorkflowMap(owner, { id: contextMapId, expectedVersion: 2,
+    title: 'Чужая ссылка', description: '', draft: { ...contextDraft,
+      nodes: [{ ...contextDraft.nodes[0], resource: { kind: 'client', id: foreignClient.id } }, contextDraft.nodes[1]] } }),
+    (error) => error instanceof contextAccess.WorkflowContextTargetError && error.kind === 'resource');
+  const commentId = randomUUID();
+  await context.addWorkflowComment(reader, { id: commentId, mapId: contextMapId, body: 'Уточнить порядок проверки' });
+  await context.addWorkflowComment(reader, { id: commentId, mapId: contextMapId, body: 'Уточнить порядок проверки' });
+  assert.equal((await context.getWorkflowContext(owner, contextMapId)).comments[0].body, 'Уточнить порядок проверки');
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_comments WHERE map_id = ${contextMapId}`)[0].count, 1);
+  await assert.rejects(sql`UPDATE workflow_comments SET body = 'Подмена' WHERE id = ${commentId}`);
+  await assert.rejects(context.addWorkflowComment(other, { id: randomUUID(), mapId: contextMapId, body: 'Чужая карта' }), workflow.WorkflowMapNotFoundError);
+  await assert.rejects(context.addWorkflowComment({ ...reader, permissionOverrides: { 'workflow.comment': false } },
+    { id: randomUUID(), mapId: contextMapId, body: 'Нет права' }), AuthorizationError);
+  for (let index = 0; index < 55; index++) {
+    await sql`INSERT INTO workflow_comments (organization_id, map_id, id, body, author_id)
+      VALUES (${owner.organizationId}, ${contextMapId}, ${randomUUID()}, ${`Комментарий ${index}`}, ${reader.memberId})`;
+  }
+  const firstComments = await context.listWorkflowComments(owner, contextMapId);
+  assert.equal(firstComments.comments.length, 50);
+  assert.equal(firstComments.hasMore, true);
+  const olderComments = await context.listWorkflowComments(owner, contextMapId, firstComments.comments.at(-1).id);
+  assert.equal(olderComments.comments.length, 6);
+  assert.equal(olderComments.hasMore, false);
+  assert.equal(new Set([...firstComments.comments, ...olderComments.comments].map((item) => item.id)).size, 56);
+  await assert.rejects(context.listWorkflowComments(other, contextMapId), workflow.WorkflowMapNotFoundError);
+  await versions.requestWorkflowReview(owner, { id: contextMapId, expectedVersion: 2 });
+  await versions.approveWorkflowReview(reviewer, { id: contextMapId, expectedVersion: 2 });
+  await versions.publishWorkflowRevision(owner, { id: contextMapId, expectedVersion: 2 });
+  await workflow.saveWorkflowMap(owner, { id: contextMapId, expectedVersion: 2,
+    title: 'Новый контекст', description: '', draft: { ...contextDraft, regulations: 'Новый порядок' } });
+  assert.equal((await versions.getWorkflowRevision(owner, { id: contextMapId, version: 2 })).draft.regulations,
+    'Общий порядок выполнения');
+  assert.equal((await workflow.getWorkflowWorkspace(owner, contextMapId)).selected?.publishedVersion, 2);
 });

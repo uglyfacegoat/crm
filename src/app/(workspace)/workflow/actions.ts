@@ -5,6 +5,8 @@ import { AuthorizationError } from "@/server/auth/permissions";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
 import { safeErrorCode } from "@/server/observability/safe-error";
+import { addWorkflowComment, findWorkflowResources, listWorkflowComments, type WorkflowCommentPage, type WorkflowResourceOption } from "@/server/workflow/context-repository";
+import { WorkflowContextTargetError } from "@/server/workflow/context-access";
 import {
   archiveWorkflowMap, createWorkflowMap, saveWorkflowMap,
   WorkflowMapConflictError, WorkflowMapNotFoundError,
@@ -18,9 +20,11 @@ import {
   archiveWorkflowMapSchema, createWorkflowMapSchema, saveWorkflowMapSchema,
   rejectWorkflowReviewSchema, restoreWorkflowRevisionSchema,
   workflowRevisionLookupSchema, workflowVersionCommandSchema,
+  addWorkflowCommentSchema, workflowCommentPageSchema, workflowResourceSearchSchema,
   type ArchiveWorkflowMapInput, type CreateWorkflowMapInput, type SaveWorkflowMapInput,
   type RejectWorkflowReviewInput, type RestoreWorkflowRevisionInput,
   type WorkflowRevisionLookupInput, type WorkflowVersionCommandInput,
+  type AddWorkflowCommentInput, type WorkflowCommentPageInput, type WorkflowResourceSearchInput,
 } from "@/server/workflow/schemas";
 
 type WorkflowActionResult = {
@@ -34,6 +38,7 @@ function failure(error: unknown, operation: string, memberId: string): WorkflowA
   if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для изменения карты.", id: null, version: null };
   if (error instanceof WorkflowMapNotFoundError) return { status: "error", message: "Карта недоступна или уже архивирована.", id: null, version: null };
   if (error instanceof WorkflowMapConflictError) return { status: "error", message: "Карту изменили в другой вкладке. Обновите страницу, чтобы увидеть актуальную версию.", id: null, version: null };
+  if (error instanceof WorkflowContextTargetError) return { status: "error", message: error.kind === "owner" ? "Ответственный сотрудник больше недоступен." : "Связанная запись CRM больше недоступна.", id: null, version: null };
   if (error instanceof WorkflowReviewStateError) {
     const messages = {
       empty: "Добавьте хотя бы один блок перед согласованием.",
@@ -149,7 +154,37 @@ export async function restoreWorkflowRevisionAction(input: RestoreWorkflowRevisi
   if (!parsed.success) return { status: "error", message: "Некорректная версия карты.", id: null, version: null };
   try {
     const version = await restoreWorkflowRevision(member, parsed.data);
-    revalidatePath("/workflow");
+    // The editor reloads after restore so its local draft is replaced with the new version.
     return { status: "success", message: `Версия ${input.sourceVersion} восстановлена в новый черновик.`, id: input.id, version };
   } catch (error) { return failure(error, "workflow.revision.restore", member.memberId); }
+}
+
+export async function addWorkflowCommentAction(input: AddWorkflowCommentInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = addWorkflowCommentSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Комментарий должен содержать от 2 до 2000 символов.", id: null, version: null };
+  try {
+    const id = await addWorkflowComment(member, parsed.data);
+    revalidatePath("/workflow");
+    return { status: "success", message: "Комментарий добавлен.", id, version: null };
+  } catch (error) { return failure(error, "workflow.comment.add", member.memberId); }
+}
+
+export async function findWorkflowResourcesAction(input: WorkflowResourceSearchInput): Promise<{ status: "success"; options: WorkflowResourceOption[] } | { status: "error"; message: string }> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен." };
+  const member = await requireSession();
+  const parsed = workflowResourceSearchSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректный запрос." };
+  try { return { status: "success", options: await findWorkflowResources(member, parsed.data.mapId, parsed.data.kind, parsed.data.query) }; }
+  catch (error) { return { status: "error", message: failure(error, "workflow.resource.search", member.memberId).message }; }
+}
+
+export async function getWorkflowCommentsAction(input: WorkflowCommentPageInput): Promise<{ status: "success"; page: WorkflowCommentPage } | { status: "error"; message: string }> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен." };
+  const member = await requireSession();
+  const parsed = workflowCommentPageSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная страница комментариев." };
+  try { return { status: "success", page: await listWorkflowComments(member, parsed.data.mapId, parsed.data.beforeId) }; }
+  catch (error) { return { status: "error", message: failure(error, "workflow.comment.page", member.memberId).message }; }
 }

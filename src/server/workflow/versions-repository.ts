@@ -4,6 +4,8 @@ import { z } from "zod";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { AuthorizationError } from "@/server/auth/permissions";
+import { canEditWorkflowContext, validateWorkflowContext, visibleWorkflowDraft } from "./context-access";
 import { WorkflowMapConflictError, WorkflowMapNotFoundError } from "./repository";
 import {
   workflowDraftSchema,
@@ -75,7 +77,7 @@ export async function getWorkflowRevision(member: AuthenticatedMember, input: Wo
   if (!row) throw new WorkflowMapNotFoundError();
   const revision = revisionRowSchema.parse(row);
   return { version: revision.version, title: revision.title, description: revision.description,
-    draft: revision.draft, changeKind: revision.change_kind, sourceVersion: revision.source_version,
+    draft: visibleWorkflowDraft(member, revision.draft), changeKind: revision.change_kind, sourceVersion: revision.source_version,
     savedAt: revision.saved_at.toISOString(), savedByName: revision.saved_by_name };
 }
 
@@ -86,6 +88,7 @@ export async function requestWorkflowReview(member: AuthenticatedMember, input: 
   return sql.begin(async (transaction) => {
     const map = await lockedMap(transaction, member.organizationId, input.id);
     if (map.version !== input.expectedVersion) throw new WorkflowMapConflictError();
+    if (!canEditWorkflowContext(member, map.draft)) throw new AuthorizationError();
     if (map.draft.nodes.length === 0) throw new WorkflowReviewStateError("empty");
     if (map.published_version === map.version) throw new WorkflowReviewStateError("already_published");
     if (map.approved_version === map.version) throw new WorkflowReviewStateError("already_approved");
@@ -109,6 +112,7 @@ export async function approveWorkflowReview(member: AuthenticatedMember, input: 
   return sql.begin(async (transaction) => {
     const map = await lockedMap(transaction, member.organizationId, input.id);
     if (map.version !== input.expectedVersion) throw new WorkflowMapConflictError();
+    if (!canEditWorkflowContext(member, map.draft)) throw new AuthorizationError();
     if (map.review_version !== map.version) throw new WorkflowReviewStateError("not_requested");
     if (map.review_requested_by === member.memberId) throw new WorkflowReviewStateError("self_review");
     if (map.approved_version === map.version) return;
@@ -130,6 +134,7 @@ export async function rejectWorkflowReview(member: AuthenticatedMember, input: R
   return sql.begin(async (transaction) => {
     const map = await lockedMap(transaction, member.organizationId, input.id);
     if (map.version !== input.expectedVersion) throw new WorkflowMapConflictError();
+    if (!canEditWorkflowContext(member, map.draft)) throw new AuthorizationError();
     if (map.review_version !== map.version || map.approved_version === map.version) throw new WorkflowReviewStateError("not_requested");
     if (map.review_requested_by === member.memberId) throw new WorkflowReviewStateError("self_review");
     await transaction`UPDATE workflow_maps SET review_version = NULL,
@@ -151,6 +156,7 @@ export async function publishWorkflowRevision(member: AuthenticatedMember, input
   return sql.begin(async (transaction) => {
     const map = await lockedMap(transaction, member.organizationId, input.id);
     if (map.version !== input.expectedVersion) throw new WorkflowMapConflictError();
+    if (!canEditWorkflowContext(member, map.draft)) throw new AuthorizationError();
     if (map.approved_version !== map.version) throw new WorkflowReviewStateError("not_approved");
     if (map.published_version === map.version) return;
     await transaction`UPDATE workflow_maps SET published_version = ${map.version},
@@ -171,11 +177,13 @@ export async function restoreWorkflowRevision(member: AuthenticatedMember, input
   return sql.begin(async (transaction) => {
     const map = await lockedMap(transaction, member.organizationId, input.id);
     if (map.version !== input.expectedVersion) throw new WorkflowMapConflictError();
+    if (!canEditWorkflowContext(member, map.draft)) throw new AuthorizationError();
     const [source] = await transaction`SELECT title, description, draft FROM workflow_map_revisions
       WHERE organization_id = ${member.organizationId} AND map_id = ${input.id}
         AND version = ${input.sourceVersion}`;
     if (!source) throw new WorkflowMapNotFoundError();
     const sourceDraft = workflowDraftSchema.parse(source.draft);
+    await validateWorkflowContext(transaction, member, sourceDraft);
     const nextVersion = map.version + 1;
     await transaction`UPDATE workflow_maps SET title = ${source.title},
       description = ${source.description}, draft = ${transaction.json(sourceDraft)},

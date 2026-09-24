@@ -1,8 +1,9 @@
 import "server-only";
 import { z } from "zod";
-import { requirePermission } from "@/server/auth/permissions";
+import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { canEditWorkflowContext, validateWorkflowContext, visibleWorkflowDraft } from "./context-access";
 import {
   workflowDraftSchema,
   type ArchiveWorkflowMapInput,
@@ -50,6 +51,7 @@ export type WorkflowMap = {
   approvedVersion: number | null;
   publishedVersion: number | null;
   publishedAt: string | null;
+  contextEditable: boolean;
 };
 export type WorkflowMapSummary = Pick<WorkflowMap, "id" | "title" | "version" | "updatedAt" | "updatedByName">;
 export type WorkflowRevisionSummary = {
@@ -106,7 +108,7 @@ export async function getWorkflowWorkspace(member: AuthenticatedMember, requeste
     sourceVersion: row.source_version, savedAt: row.saved_at.toISOString(), savedByName: row.saved_by_name,
   }));
   return { maps, selected: { ...toSummary(selected), description: selected.description,
-    draft: selected.draft, reviewVersion: selected.review_version,
+    draft: visibleWorkflowDraft(member, selected.draft), contextEditable: canEditWorkflowContext(member, selected.draft), reviewVersion: selected.review_version,
     reviewRequestedBy: selected.review_requested_by, approvedVersion: selected.approved_version,
     publishedVersion: selected.published_version,
     publishedAt: selected.published_at?.toISOString() ?? null } satisfies WorkflowMap, revisions };
@@ -145,6 +147,13 @@ export async function saveWorkflowMap(member: AuthenticatedMember, input: SaveWo
   requirePermission(member, "workflow.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
+    const [current] = await transaction`SELECT version, draft FROM workflow_maps
+      WHERE organization_id = ${member.organizationId} AND id = ${input.id}
+        AND archived_at IS NULL FOR UPDATE`;
+    if (!current) throw new WorkflowMapNotFoundError();
+    if (current.version !== input.expectedVersion) throw new WorkflowMapConflictError();
+    if (!canEditWorkflowContext(member, workflowDraftSchema.parse(current.draft))) throw new AuthorizationError();
+    await validateWorkflowContext(transaction, member, input.draft);
     const [updated] = await transaction`UPDATE workflow_maps SET
       title = ${input.title}, description = ${input.description}, draft = ${transaction.json(input.draft)},
       version = version + 1, updated_by = ${member.memberId}, updated_at = now(),

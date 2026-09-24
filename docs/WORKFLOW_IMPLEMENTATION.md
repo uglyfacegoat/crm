@@ -3,7 +3,7 @@
 24 September 2026. The owner approved full implementation of the Workflow page.
 This document tracks the actual working scope, not the planned final scope.
 
-## Working now (WF-01 and WF-02 in local Docker)
+## Working now (WF-01 and WF-02 in local Docker; WF-03 verified in source)
 
 - `064_workflow_maps.sql` creates organization-scoped process maps. A draft stores
   validated visual nodes and directed connections. Each edit advances an
@@ -47,11 +47,25 @@ This document tracks the actual working scope, not the planned final scope.
   database, preserving counts in all 72 pre-existing tables. After local
   deployment, the same rehearsal passed at 065→065, preserving counts in all
   73 existing tables.
+- `066_workflow_context.sql` adds an append-only discussion with paginated
+  history and an audited `workflow.comment` permission. Map and node regulations,
+  node owners, and links to clients, orders and contracts live in versioned
+  drafts, so publishing never mutates a previous snapshot. Resource lookup and
+  save verify the organization and the target; a missing resource or foreign
+  company is rejected. Reading a map or snapshot hides links when the member
+  lacks the target module's read permission, and editing, review, publication
+  and restore are denied until the member has access to all linked resources.
+  Linked cards still enforce their own access check when opened. Context stores
+  references, not duplicate order status or financial state.
+- Isolated tests covered cross-company targets, revoked read rights, redaction,
+  rejection of unsafe saves, immutable comments, pagination and preservation of
+  the published context after later edits. The packaged browser check exercised
+  the owner, regulation, resource search/link and discussion controls. Typecheck,
+  lint, production build and all 227 unit tests passed. The 065→066 working
+  database upgrade rehearsal passed with all 73 existing table counts preserved.
 
 ## Still open
 
-- WF-03: regulations, comments, owners and permission-checked links to live
-  CRM entities.
 - WF-04: collaboration permissions, change notifications and concurrent
   editing experience beyond explicit version conflicts.
 - WF-05: tightly scoped, idempotent and audited automation through domain

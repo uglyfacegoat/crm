@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Check, Clock3, GitCompareArrows, RotateCcw, Send, Upload, X } from "lucide-react";
 import {
@@ -125,11 +126,19 @@ export function WorkflowLifecycle({ map, currentVersion, currentTitle, currentDe
       {dirty && <p className="mt-1 text-[var(--warning)]">Сравнение включает несохранённые правки.</p>}
       <p className="mt-2">Название: {comparison.title === currentTitle ? "без изменений" : `${comparison.title} → ${currentTitle}`}</p>
       <p>Описание: {comparison.description === currentDescription ? "без изменений" : "изменено"}</p>
+      <p>Регламент: {(comparison.draft.regulations ?? "") === (currentDraft.regulations ?? "") ? "без изменений" : "изменён"}</p>
       <p>Блоки: +{nodeChanges?.added} / −{nodeChanges?.removed} / изменено {nodeChanges?.changed}</p>
       <p>Связи: +{edgeChanges?.added} / −{edgeChanges?.removed} / изменено {edgeChanges?.changed}</p>
       <div className="mt-2 border-t border-[var(--line)] pt-2"><p className="font-medium text-[var(--text)]">Содержимое версии {comparison.version}</p>
         <p className="mt-1">{comparison.title}{comparison.description ? ` · ${comparison.description}` : ""}</p>
-        <ol className="mt-2 list-inside list-decimal">{comparison.draft.nodes.map((node) => <li key={node.id}>{node.title}{node.description ? ` — ${node.description}` : ""}</li>)}</ol>
+        {comparison.draft.regulations && <p className="mt-2 whitespace-pre-wrap break-words">Общий регламент: {comparison.draft.regulations}</p>}
+        <ol className="mt-2 list-inside list-decimal">{comparison.draft.nodes.map((node) => <li key={node.id} className="mb-2">
+          {node.title}{node.description ? ` — ${node.description}` : ""}
+          {node.regulation && <span className="block whitespace-pre-wrap break-words pl-3">Регламент: {node.regulation}</span>}
+          {node.ownerMemberId && <span className="block pl-3">Ответственный: {node.ownerMemberId.slice(0, 8)}</span>}
+          {node.resource && <Link href={`/${node.resource.kind === "client" ? "clients" : node.resource.kind === "order" ? "orders" : "contracts"}/${node.resource.id}`}
+            className="focus-ring block break-all pl-3 text-[var(--accent-ink)] underline underline-offset-2">Связанная карточка: {node.resource.kind} · {node.resource.id.slice(0, 8)}</Link>}
+        </li>)}</ol>
         {comparison.draft.nodes.length === 0 && <p className="mt-1 text-[var(--muted)]">Блоков нет.</p>}
         {comparison.draft.edges.map((edge) => <p key={edge.id} className="mt-1">{comparison.draft.nodes.find((node) => node.id === edge.sourceId)?.title} → {comparison.draft.nodes.find((node) => node.id === edge.targetId)?.title}{edge.label ? ` · ${edge.label}` : ""}</p>)}
       </div>

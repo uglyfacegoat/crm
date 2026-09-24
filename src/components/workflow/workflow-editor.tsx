@@ -6,7 +6,9 @@ import { useState, useTransition } from "react";
 import { Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, GitBranch, Link2, Plus, Save, Trash2 } from "lucide-react";
 import { archiveWorkflowMapAction, createWorkflowMapAction, saveWorkflowMapAction } from "@/app/(workspace)/workflow/actions";
 import { WorkflowLifecycle } from "./workflow-lifecycle";
+import { WorkflowDiscussion, WorkflowNodeContext } from "./workflow-context";
 import type { WorkflowMap, WorkflowMapSummary, WorkflowRevisionSummary } from "@/server/workflow/repository";
+import type { WorkflowComment, WorkflowMemberOption } from "@/server/workflow/context-repository";
 import type { WorkflowDraft, WorkflowNode } from "@/server/workflow/schemas";
 
 const blockKinds = [
@@ -21,17 +23,22 @@ const blockTone = Object.fromEntries(blockKinds.map((item) => [item.kind, item.t
 const nodeWidth = 196;
 const nodeHeight = 126;
 
-export function WorkflowEditor({ maps, selected, revisions, canWrite, canReview, canPublish, currentMemberId, preview }: {
+export function WorkflowEditor({ maps, selected, revisions, comments, commentsHasMore, members, canWrite, canComment, canReview, canPublish, currentMemberId, preview }: {
   maps: WorkflowMapSummary[];
   selected: WorkflowMap | null;
   revisions: WorkflowRevisionSummary[];
+  comments: WorkflowComment[];
+  commentsHasMore: boolean;
+  members: WorkflowMemberOption[];
   canWrite: boolean;
+  canComment: boolean;
   canReview: boolean;
   canPublish: boolean;
   currentMemberId: string;
   preview: boolean;
 }) {
   const router = useRouter();
+  const canEdit = canWrite && (selected?.contextEditable ?? true);
   const [pending, startTransition] = useTransition();
   const [newTitle, setNewTitle] = useState("");
   const [title, setTitle] = useState(selected?.title ?? "");
@@ -85,7 +92,7 @@ export function WorkflowEditor({ maps, selected, revisions, canWrite, canReview,
 
   function removeNode() {
     if (!currentNode) return;
-    changeDraft({ nodes: draft.nodes.filter((node) => node.id !== currentNode.id),
+    changeDraft({ ...draft, nodes: draft.nodes.filter((node) => node.id !== currentNode.id),
       edges: draft.edges.filter((edge) => edge.sourceId !== currentNode.id && edge.targetId !== currentNode.id) });
     setSelectedNodeId(null);
   }
@@ -142,7 +149,7 @@ export function WorkflowEditor({ maps, selected, revisions, canWrite, canReview,
           </Link>)}
           {maps.length === 0 && <p className="rounded-[12px] border border-dashed border-[var(--line-strong)] p-3 text-xs leading-5 text-[var(--muted)]">{preview ? "В предпросмотре карты не сохраняются." : "Карт пока нет. Создайте первую карту процесса."}</p>}
         </nav>
-        {selected && canWrite && <div className="mt-6 border-t border-[var(--line)] pt-4">
+        {selected && canEdit && <div className="mt-6 border-t border-[var(--line)] pt-4">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Добавить блок</p>
           <div className="mt-3 grid gap-2">{blockKinds.map(({ kind, label }) => <button key={kind} type="button" onClick={() => addNode(kind)} disabled={pending || draft.nodes.length >= 60}
             className="focus-ring flex min-h-10 items-center gap-2 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 text-left text-xs text-[var(--text-secondary)] hover:border-[var(--line-strong)] disabled:opacity-50"><Plus className="size-3.5" />{label}</button>)}</div>
@@ -154,7 +161,7 @@ export function WorkflowEditor({ maps, selected, revisions, canWrite, canReview,
         {selected ? <>
           <header className="flex flex-wrap items-center gap-3 border-b border-[var(--line)] bg-[var(--surface-raised)] px-4 py-3">
             <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold text-[var(--text)]">{title || "Без названия"}</h2><p className="mt-1 text-[10px] text-[var(--muted)]">Черновик · версия {version} · {draft.nodes.length} блоков · {draft.edges.length} связей</p></div>
-            {canWrite && <button type="button" onClick={saveMap} disabled={pending || !dirty} className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-[10px] bg-[var(--accent)] px-4 text-xs font-medium text-[var(--on-accent)] disabled:opacity-50"><Save className="size-3.5" />{pending ? "Сохраняем…" : dirty ? "Сохранить" : "Сохранено"}</button>}
+            {canEdit && <button type="button" onClick={saveMap} disabled={pending || !dirty} className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-[10px] bg-[var(--accent)] px-4 text-xs font-medium text-[var(--on-accent)] disabled:opacity-50"><Save className="size-3.5" />{pending ? "Сохраняем…" : dirty ? "Сохранить" : "Сохранено"}</button>}
           </header>
           <div className="grid gap-3 p-4 lg:hidden">
             {draft.nodes.map((node, index) => <button key={node.id} type="button" onClick={() => setSelectedNodeId(node.id)}
@@ -200,9 +207,9 @@ export function WorkflowEditor({ maps, selected, revisions, canWrite, canReview,
         <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{currentNode ? "Выбранный блок" : "Свойства карты"}</h2>
         {selected && <div className="mt-4 grid gap-4">
           {currentNode ? <>
-            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Название блока<input value={currentNode.title} onChange={(event) => updateNode({ title: event.target.value })} disabled={!canWrite} maxLength={100} className="focus-ring h-10 min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 disabled:opacity-60" /></label>
-            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea value={currentNode.description} onChange={(event) => updateNode({ description: event.target.value })} disabled={!canWrite} maxLength={500} rows={3} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
-            {canWrite && <><div><p className="mb-2 text-xs text-[var(--text-secondary)]">Положение на карте</p><div className="flex flex-wrap gap-2">
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Название блока<input value={currentNode.title} onChange={(event) => updateNode({ title: event.target.value })} disabled={!canEdit} maxLength={100} className="focus-ring h-10 min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 disabled:opacity-60" /></label>
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea value={currentNode.description} onChange={(event) => updateNode({ description: event.target.value })} disabled={!canEdit} maxLength={500} rows={3} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
+            {canEdit && <><div><p className="mb-2 text-xs text-[var(--text-secondary)]">Положение на карте</p><div className="flex flex-wrap gap-2">
               {[[ArrowLeft, -40, 0, "Влево"], [ArrowRight, 40, 0, "Вправо"], [ArrowUp, 0, -40, "Вверх"], [ArrowDown, 0, 40, "Вниз"]].map(([Icon, dx, dy, label]) => {
                 const MoveIcon = Icon as typeof ArrowLeft;
                 return <button key={label as string} type="button" aria-label={label as string} onClick={() => updateNode({ x: Math.max(0, Math.min(5000, currentNode.x + Number(dx))), y: Math.max(0, Math.min(5000, currentNode.y + Number(dy))) })} className="focus-ring grid size-9 place-items-center rounded-[9px] border border-[var(--line)]"><MoveIcon className="size-4" /></button>;
@@ -212,22 +219,25 @@ export function WorkflowEditor({ maps, selected, revisions, canWrite, canReview,
                 <input aria-label="Подпись связи" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} maxLength={80} placeholder="Подпись (необязательно)" className="focus-ring mt-2 h-10 w-full rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 text-xs" />
                 <button type="button" onClick={addEdge} disabled={!targetId || draft.edges.length >= 120} className="focus-ring mt-2 min-h-9 rounded-[9px] border border-[var(--line)] px-3 text-xs disabled:opacity-50">Добавить связь</button>
               </div></>}
-            <div className="border-t border-[var(--line)] pt-4"><p className="mb-2 text-xs font-medium text-[var(--text)]">Связи блока</p>{draft.edges.filter((edge) => edge.sourceId === currentNode.id || edge.targetId === currentNode.id).map((edge) => <div key={edge.id} className="mb-2 flex items-center gap-2 rounded-[9px] border border-[var(--line)] p-2 text-[10px] text-[var(--text-secondary)]"><GitBranch className="size-3 shrink-0" /><span className="min-w-0 flex-1 truncate">{draft.nodes.find((node) => node.id === edge.sourceId)?.title} → {draft.nodes.find((node) => node.id === edge.targetId)?.title}</span>{canWrite && <button type="button" aria-label="Удалить связь" onClick={() => changeDraft({ ...draft, edges: draft.edges.filter((item) => item.id !== edge.id) })}><Trash2 className="size-3.5" /></button>}</div>)}
+            <div className="border-t border-[var(--line)] pt-4"><p className="mb-2 text-xs font-medium text-[var(--text)]">Связи блока</p>{draft.edges.filter((edge) => edge.sourceId === currentNode.id || edge.targetId === currentNode.id).map((edge) => <div key={edge.id} className="mb-2 flex items-center gap-2 rounded-[9px] border border-[var(--line)] p-2 text-[10px] text-[var(--text-secondary)]"><GitBranch className="size-3 shrink-0" /><span className="min-w-0 flex-1 truncate">{draft.nodes.find((node) => node.id === edge.sourceId)?.title} → {draft.nodes.find((node) => node.id === edge.targetId)?.title}</span>{canEdit && <button type="button" aria-label="Удалить связь" onClick={() => changeDraft({ ...draft, edges: draft.edges.filter((item) => item.id !== edge.id) })}><Trash2 className="size-3.5" /></button>}</div>)}
               {draft.edges.every((edge) => edge.sourceId !== currentNode.id && edge.targetId !== currentNode.id) && <p className="text-[10px] text-[var(--muted)]">Связей пока нет.</p>}
             </div>
-            {canWrite && <button type="button" onClick={removeNode} className="focus-ring flex min-h-10 items-center gap-2 rounded-[10px] border border-[var(--danger)]/40 px-3 text-xs text-[var(--danger)]"><Trash2 className="size-3.5" />Удалить блок</button>}
+            <WorkflowNodeContext mapId={selected.id} node={currentNode} members={members} canWrite={canEdit} onChange={updateNode} />
+            {canEdit && <button type="button" onClick={removeNode} className="focus-ring flex min-h-10 items-center gap-2 rounded-[10px] border border-[var(--danger)]/40 px-3 text-xs text-[var(--danger)]"><Trash2 className="size-3.5" />Удалить блок</button>}
             <button type="button" onClick={() => setSelectedNodeId(null)} className="focus-ring min-h-9 text-left text-xs text-[var(--muted)]">Вернуться к карте</button>
           </> : <>
-            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Название<input value={title} onChange={(event) => { setTitle(event.target.value); setDirty(true); }} disabled={!canWrite} maxLength={120} className="focus-ring h-10 min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 disabled:opacity-60" /></label>
-            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea value={description} onChange={(event) => { setDescription(event.target.value); setDirty(true); }} disabled={!canWrite} maxLength={1000} rows={4} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Название<input value={title} onChange={(event) => { setTitle(event.target.value); setDirty(true); }} disabled={!canEdit} maxLength={120} className="focus-ring h-10 min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 disabled:opacity-60" /></label>
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea value={description} onChange={(event) => { setDescription(event.target.value); setDirty(true); }} disabled={!canEdit} maxLength={1000} rows={4} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Общий регламент<textarea value={draft.regulations ?? ""} onChange={(event) => changeDraft({ ...draft, regulations: event.target.value })} disabled={!canEdit} maxLength={8000} rows={5} placeholder="Правила и критерии выполнения процесса" className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
             <p className="text-[10px] leading-4 text-[var(--muted)]">Последнее изменение: {new Date(selected.updatedAt).toLocaleString("ru-RU")} · {selected.updatedByName}</p>
-            {canWrite && <div className="border-t border-[var(--line)] pt-4">{confirmArchive ? <div className="grid gap-2"><p className="text-xs text-[var(--text-secondary)]">Архивировать карту? Она исчезнет из списка.</p><button type="button" onClick={archiveMap} disabled={pending} className="focus-ring min-h-9 rounded-[9px] bg-[var(--danger)] px-3 text-xs text-white disabled:opacity-50">Подтвердить архивирование</button><button type="button" onClick={() => setConfirmArchive(false)} className="focus-ring min-h-9 text-xs">Отмена</button></div> : <button type="button" onClick={() => setConfirmArchive(true)} className="focus-ring flex min-h-9 items-center gap-2 text-xs text-[var(--muted)]"><Archive className="size-3.5" />В архив</button>}</div>}
+            {canEdit && <div className="border-t border-[var(--line)] pt-4">{confirmArchive ? <div className="grid gap-2"><p className="text-xs text-[var(--text-secondary)]">Архивировать карту? Она исчезнет из списка.</p><button type="button" onClick={archiveMap} disabled={pending} className="focus-ring min-h-9 rounded-[9px] bg-[var(--danger)] px-3 text-xs text-white disabled:opacity-50">Подтвердить архивирование</button><button type="button" onClick={() => setConfirmArchive(false)} className="focus-ring min-h-9 text-xs">Отмена</button></div> : <button type="button" onClick={() => setConfirmArchive(true)} className="focus-ring flex min-h-9 items-center gap-2 text-xs text-[var(--muted)]"><Archive className="size-3.5" />В архив</button>}</div>}
           </>}
         </div>}
         {selected && !currentNode && <WorkflowLifecycle map={selected} currentVersion={version}
           currentTitle={title} currentDescription={description} currentDraft={draft}
-          revisions={revisions} canWrite={canWrite} canReview={canReview}
+          revisions={revisions} canWrite={canEdit} canReview={canReview}
           canPublish={canPublish} currentMemberId={currentMemberId} dirty={dirty} />}
+        {selected && <WorkflowDiscussion mapId={selected.id} comments={comments} hasMore={commentsHasMore} canComment={canComment} />}
         {feedback && <p role={feedback.error ? "alert" : "status"} className={`mt-5 rounded-[10px] border p-3 text-xs leading-5 ${feedback.error ? "border-[var(--danger)]/40 text-[var(--danger)]" : "border-[var(--success)]/40 text-[var(--success)]"}`}>{feedback.message}</p>}
       </aside>
     </div>

@@ -66,9 +66,10 @@ function replacement(table, column, type) {
   if ((table === "workflow_maps" || table === "workflow_map_revisions") && column === "draft") {
     // Keep graph IDs, positions and topology; redact only text in the private copy.
     return `jsonb_build_object(
-      'nodes', coalesce((SELECT jsonb_agg(node.value || jsonb_build_object(
+      'nodes', coalesce((SELECT jsonb_agg((node.value - 'regulation') || jsonb_build_object(
         'title', 'Anonymized node ' || node.ordinality::text,
         'description', CASE WHEN node.value->>'description' = '' THEN '' ELSE 'Anonymized description' END)
+        || CASE WHEN node.value ? 'regulation' THEN jsonb_build_object('regulation', 'Anonymized regulation') ELSE '{}'::jsonb END
         ORDER BY node.ordinality)
         FROM jsonb_array_elements(coalesce(t.draft->'nodes', '[]'::jsonb))
           WITH ORDINALITY AS node(value, ordinality)), '[]'::jsonb),
@@ -76,7 +77,8 @@ function replacement(table, column, type) {
         'label', CASE WHEN edge.value->>'label' = '' THEN '' ELSE 'Anonymized link' END)
         ORDER BY edge.ordinality)
         FROM jsonb_array_elements(coalesce(t.draft->'edges', '[]'::jsonb))
-          WITH ORDINALITY AS edge(value, ordinality)), '[]'::jsonb))`;
+          WITH ORDINALITY AS edge(value, ordinality)), '[]'::jsonb))
+      || CASE WHEN t.draft ? 'regulations' THEN jsonb_build_object('regulations', 'Anonymized regulations') ELSE '{}'::jsonb END`;
   }
   if (type === "jsonb") return "'{}'::jsonb";
   if (type === "ARRAY") return "ARRAY[]::text[]";
@@ -136,7 +138,9 @@ async function anonymize(sql) {
       FROM ${q(table)}`))[0];
   const before = await Promise.all(fingerprints.map(fingerprint));
   const revisionTableExists = byTable.has("workflow_map_revisions");
+  const commentTableExists = byTable.has("workflow_comments");
   if (revisionTableExists) await sql`ALTER TABLE workflow_map_revisions DISABLE TRIGGER workflow_map_revisions_immutable`;
+  if (commentTableExists) await sql`ALTER TABLE workflow_comments DISABLE TRIGGER workflow_comments_immutable`;
   try {
     for (const [table, assignments] of byTable) {
       const statement = `WITH numbered AS (SELECT ctid, row_number() OVER (ORDER BY ctid) AS rn FROM ${q(table)})
@@ -146,6 +150,7 @@ async function anonymize(sql) {
     }
   } finally {
     if (revisionTableExists) await sql`ALTER TABLE workflow_map_revisions ENABLE TRIGGER workflow_map_revisions_immutable`;
+    if (commentTableExists) await sql`ALTER TABLE workflow_comments ENABLE TRIGGER workflow_comments_immutable`;
   }
   const after = await Promise.all(fingerprints.map(fingerprint));
   for (const [index, entry] of fingerprints.entries()) {

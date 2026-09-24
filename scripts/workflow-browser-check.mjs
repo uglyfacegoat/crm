@@ -52,6 +52,9 @@ try {
       AUTH_MEMBER_PASSWORD: reviewerPassword, AUTH_MEMBER_ROLE: "manager" }, stdio: "inherit",
   });
   assert.equal(createReviewer.status, 0);
+  const [reviewerMember] = await sql`SELECT id FROM organization_members WHERE email = ${reviewerEmail}`;
+  const [linkedClient] = await sql`INSERT INTO clients (organization_id, legal_name)
+    VALUES (${adminMember.organization_id}, 'Клиент воркфлоу') RETURNING id`;
   server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", (chunk) => process.stderr.write(chunk));
   await new Promise((resolveReady, reject) => {
@@ -79,13 +82,28 @@ try {
   await page.getByLabel("Название блока").fill("Новая заявка");
   await page.getByRole("button", { name: "Карточка CRM", exact: false }).first().click();
   await page.getByLabel("Название блока").fill("Заказ в CRM");
+  await page.getByLabel("Регламент блока").fill("Проверить заказ перед согласованием");
+  await page.getByLabel("Ответственный за блок").selectOption(reviewerMember.id);
+  await page.getByLabel("Поиск карточки CRM").fill("Клиент воркфлоу");
+  await page.getByRole("button", { name: "Найти карточку" }).click();
+  await page.getByRole("button", { name: "Клиент воркфлоу" }).click();
+  await page.getByRole("link", { name: /Клиент ·/ }).waitFor();
   await page.getByRole("button", { name: /Событие · 01 Новая заявка/ }).click();
   await page.getByLabel("Следующий блок").selectOption({ label: "Заказ в CRM" });
   await page.getByLabel("Подпись связи").fill("оформить");
   await page.getByRole("button", { name: "Добавить связь" }).click();
+  await page.getByRole("button", { name: "Вернуться к карте" }).click();
+  await page.getByLabel("Общий регламент").fill("Сначала проверить заявку, затем оформить заказ");
   await page.getByRole("button", { name: "Сохранить", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Карта сохранена" }).waitFor();
   assert.equal((await sql`SELECT version FROM workflow_maps WHERE id = ${mapId}`)[0].version, 2);
+  assert.equal((await sql`SELECT draft->>'regulations' AS regulations FROM workflow_maps WHERE id = ${mapId}`)[0].regulations,
+    "Сначала проверить заявку, затем оформить заказ");
+  assert.equal((await sql`SELECT draft#>>'{nodes,1,resource,id}' AS linked_id FROM workflow_maps WHERE id = ${mapId}`)[0].linked_id,
+    linkedClient.id);
+  await page.getByLabel("Комментарий к карте").fill("Уточним порядок проверки на следующей встрече");
+  await page.getByRole("button", { name: "Добавить комментарий" }).click();
+  await page.getByText("Уточним порядок проверки на следующей встрече").waitFor();
   await page.reload();
   await page.getByText("2 блоков · 1 связей").waitFor();
   assert.equal(await page.getByRole("button", { name: /Событие · 01 Новая заявка/ }).count(), 1);
@@ -126,6 +144,7 @@ try {
   assert.equal((await sql`SELECT published_version FROM workflow_maps WHERE id = ${mapId}`)[0].published_version, 3);
   await secondPage.getByRole("button", { name: "Посмотреть опубликованную версию 3" }).click();
   await secondPage.getByText("Содержимое версии 3").waitFor();
+  await secondPage.getByText("Общий регламент: Сначала проверить заявку, затем оформить заказ").waitFor();
   await secondPage.screenshot({ path: join(artifacts, "workflow-published.png"), animations: "disabled" });
   await secondPage.getByLabel("Название", { exact: true }).fill("Следующий черновик");
   await secondPage.getByRole("button", { name: "Сохранить", exact: true }).click();
@@ -144,7 +163,7 @@ try {
   await secondPage.waitForURL(`${baseUrl}/workflow`);
   assert.equal((await sql`SELECT archived_at IS NOT NULL AS archived FROM workflow_maps WHERE id = ${mapId}`)[0].archived, true);
   assert.deepEqual(browserErrors, []);
-  console.log("Workflow browser check passed: edit/save, two-tab conflict, separate reviewer, publication, immutable history, compare, restore and archive.");
+  console.log("Workflow browser check passed: context, resource links, comments, edit/save, two-tab conflict, separate reviewer, publication, immutable history, compare, restore and archive.");
 } catch (error) {
   if (page) await page.screenshot({ path: join(artifacts, "workflow-failure.png") }).catch(() => {});
   throw error;

@@ -8,6 +8,9 @@ export const workflowNodeSchema = z.object({
   kind: z.enum(["event", "crm_card", "condition", "action", "note"]),
   title: boundedText(2, 100),
   description: boundedText(0, 500),
+  regulation: boundedText(0, 4000).optional(),
+  ownerMemberId: uuid.nullable().optional(),
+  resource: z.object({ kind: z.enum(["client", "order", "contract"]), id: uuid }).strict().nullable().optional(),
   x: z.number().int().min(0).max(5000),
   y: z.number().int().min(0).max(5000),
 }).strict();
@@ -22,6 +25,7 @@ export const workflowEdgeSchema = z.object({
 export const workflowDraftSchema = z.object({
   nodes: z.array(workflowNodeSchema).max(60),
   edges: z.array(workflowEdgeSchema).max(120),
+  regulations: boundedText(0, 8000).optional(),
 }).strict().superRefine((draft, context) => {
   const nodeIds = new Set<string>();
   for (const node of draft.nodes) {
@@ -72,6 +76,18 @@ export const workflowRevisionLookupSchema = z.object({
   version: z.number().int().positive(),
 }).strict();
 
+export const addWorkflowCommentSchema = z.object({
+  id: uuid,
+  mapId: uuid,
+  body: boundedText(2, 2000),
+}).strict();
+export const workflowResourceSearchSchema = z.object({
+  mapId: uuid,
+  kind: z.enum(["client", "order", "contract"]),
+  query: boundedText(0, 100),
+}).strict();
+export const workflowCommentPageSchema = z.object({ mapId: uuid, beforeId: uuid }).strict();
+
 export type WorkflowDraft = z.infer<typeof workflowDraftSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
@@ -82,3 +98,6 @@ export type WorkflowVersionCommandInput = z.infer<typeof workflowVersionCommandS
 export type RejectWorkflowReviewInput = z.infer<typeof rejectWorkflowReviewSchema>;
 export type RestoreWorkflowRevisionInput = z.infer<typeof restoreWorkflowRevisionSchema>;
 export type WorkflowRevisionLookupInput = z.infer<typeof workflowRevisionLookupSchema>;
+export type AddWorkflowCommentInput = z.infer<typeof addWorkflowCommentSchema>;
+export type WorkflowResourceSearchInput = z.infer<typeof workflowResourceSearchSchema>;
+export type WorkflowCommentPageInput = z.infer<typeof workflowCommentPageSchema>;

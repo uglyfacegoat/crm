@@ -16,13 +16,22 @@ next product task after the current upload-reliability checkpoint. The scope is
 editable process maps, versions/review/publication, regulations and links to
 real CRM entities, collaboration, and bounded automations as defined in
 [section 10 of the plan](../PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md).
-WF-01 and WF-02 are implemented, verified in an isolated packaged runtime and
-installed in local Docker;
-WF-03–06 remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
+WF-01 and WF-02 are installed in local Docker. WF-03 is implemented and verified
+in source and an isolated packaged runtime, with local Docker installation pending.
+WF-04–06 remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
 Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, Workflow WF-03 source acceptance:** migration 066 adds
+  audited append-only comments. Regulations, owners and CRM references are
+  included in immutable map snapshots. Links to clients, orders and contracts
+  require both target existence in the same organization and the module's read
+  permission; restricted readers receive a redacted link and cannot overwrite
+  it. Isolated tests covered cross-company data, revoked rights, pagination,
+  immutable comments and snapshot preservation. Browser checks covered context
+  editing, resource search and comments. Typecheck, lint, build, all 227 unit
+  tests and the 065→066 upgrade rehearsal passed. Docker installation is next.
 - **2026-09-24, Workflow WF-02 local installation:** migration 065 adds
   immutable revision snapshots and a backfill of the current WF-01 draft.
   A different authorized reviewer must approve a saved version before an
