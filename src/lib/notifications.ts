@@ -8,11 +8,12 @@ export const notificationKinds = [
   "task_overdue",
   "contract_renewal",
   "document_uploaded",
+  "workflow_update",
 ] as const;
 
 export const notificationSeverities = ["info", "warning", "critical"] as const;
-export const notificationTargetTypes = ["order", "visit", "task", "client", "document"] as const;
-export const notificationSourceTypes = ["visit", "task", "contract", "document"] as const;
+export const notificationTargetTypes = ["order", "visit", "task", "client", "document", "workflow"] as const;
+export const notificationSourceTypes = ["visit", "task", "contract", "document", "workflow"] as const;
 
 export const notificationItemSchema = z.object({
   id: z.string().uuid(),
@@ -63,5 +64,6 @@ export function notificationHref(targetType: NotificationTargetType, targetId: s
     case "task": return "/tasks";
     case "client": return `/clients/${targetId}`;
     case "document": return `/documents?document=${encodeURIComponent(targetId)}`;
+    case "workflow": return `/workflow?map=${encodeURIComponent(targetId)}`;
   }
 }

@@ -18,7 +18,7 @@ export default async function NotificationsPage() {
     : await listNotifications(member, { limit: 100, unreadOnly: false });
   return (
     <div>
-      <PageHeading eyebrow="Оперативный контроль" title="Центр уведомлений" description="События, которые требуют внимания: выезды, задачи, договоры и документы." />
+      <PageHeading eyebrow="Оперативный контроль" title="Центр уведомлений" description="Выезды, задачи, договоры, документы и изменения карт процессов." />
       <NotificationsWorkspace initialSnapshot={snapshot} />
     </div>
   );

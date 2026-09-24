@@ -52,7 +52,7 @@ export function WorkflowNodeContext({ mapId, node, members, canWrite, onChange }
       </select>
     </div>
     <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Регламент блока
-      <textarea value={node.regulation ?? ""} onChange={(event) => onChange({ regulation: event.target.value })}
+      <textarea aria-label="Регламент блока" value={node.regulation ?? ""} onChange={(event) => onChange({ regulation: event.target.value })}
         disabled={!canWrite} maxLength={4000} rows={5} placeholder="Что делать на этом этапе, кто проверяет результат и когда передавать дальше"
         className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" />
     </label>

@@ -5,6 +5,7 @@ import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { WorkflowMapConflictError, WorkflowMapNotFoundError } from "./repository";
 import { canReadWorkflowResource } from "./context-access";
+import { notifyWorkflowChange } from "./collaboration-repository";
 import type { AddWorkflowCommentInput, WorkflowNode } from "./schemas";
 
 const uuid = z.string().uuid();
@@ -22,7 +23,7 @@ export async function listWorkflowComments(member: AuthenticatedMember, mapId: s
   const [map] = await sql`SELECT id FROM workflow_maps
     WHERE organization_id = ${member.organizationId} AND id = ${mapId} AND archived_at IS NULL`;
   if (!map) throw new WorkflowMapNotFoundError();
-  const [cursor] = beforeId ? await sql`SELECT created_at, id FROM workflow_comments
+  const [cursor] = beforeId ? await sql`SELECT id FROM workflow_comments
     WHERE organization_id = ${member.organizationId} AND map_id = ${mapId} AND id = ${beforeId}` : [];
   if (beforeId && !cursor) throw new WorkflowMapNotFoundError();
   const rows = cursor
@@ -30,7 +31,10 @@ export async function listWorkflowComments(member: AuthenticatedMember, mapId: s
         FROM workflow_comments comment JOIN organization_members author
           ON author.organization_id = comment.organization_id AND author.id = comment.author_id
         WHERE comment.organization_id = ${member.organizationId} AND comment.map_id = ${mapId}
-          AND (comment.created_at, comment.id) < (${cursor.created_at}, ${cursor.id})
+          AND (comment.created_at, comment.id) < (
+            SELECT marker.created_at, marker.id FROM workflow_comments marker
+            WHERE marker.organization_id = ${member.organizationId} AND marker.map_id = ${mapId}
+              AND marker.id = ${beforeId})
         ORDER BY comment.created_at DESC, comment.id DESC LIMIT 51`
     : await sql`SELECT comment.id, comment.body, author.display_name AS author_name, comment.created_at
         FROM workflow_comments comment JOIN organization_members author
@@ -64,7 +68,7 @@ export async function addWorkflowComment(member: AuthenticatedMember, input: Add
   requirePermission(member, "workflow.comment");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
-    const [map] = await transaction`SELECT id FROM workflow_maps
+    const [map] = await transaction`SELECT id, title FROM workflow_maps
       WHERE organization_id = ${member.organizationId} AND id = ${input.mapId} AND archived_at IS NULL`;
     if (!map) throw new WorkflowMapNotFoundError();
     const [created] = await transaction`INSERT INTO workflow_comments
@@ -83,6 +87,9 @@ export async function addWorkflowComment(member: AuthenticatedMember, input: Add
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
         'workflow.comment.add', 'workflow_map', ${input.mapId},
         ${transaction.json({ commentId: input.id })})`;
+    await notifyWorkflowChange(transaction, { organizationId: member.organizationId, mapId: input.mapId,
+      actorId: member.memberId, audience: "watchers", title: "Новое обсуждение карты",
+      body: `${member.displayName} добавил комментарий к карте «${map.title}».` });
     return input.id;
   });
 }

@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { notificationHref, notificationKinds, notificationSeverities, notificationSourceTypes, notificationTargetTypes, type NotificationCursor, type NotificationSnapshot } from "@/lib/notifications";
 import type { AuthenticatedMember } from "@/server/auth/types";
-import { requirePermission } from "@/server/auth/permissions";
+import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import { getDatabase } from "@/server/database";
 
 const uuidSchema = z.string().uuid();
@@ -38,6 +38,7 @@ export async function listNotifications(
 ): Promise<NotificationSnapshot> {
   requirePermission(member, "notifications.read");
   const sql = getDatabase();
+  const canSeeWorkflow = hasPermission(member, "workflow.read");
   const cursorAt = options.cursor?.occurredAt ?? null;
   const cursorId = options.cursor?.id ?? null;
   const [rows, summaryRows] = await Promise.all([
@@ -46,6 +47,7 @@ export async function listNotifications(
       WHERE organization_id = ${member.organizationId}
         AND recipient_member_id = ${member.memberId}
         AND resolved_at IS NULL
+        AND (${canSeeWorkflow} OR source_type <> 'workflow')
         AND (${options.unreadOnly} = false OR read_at IS NULL)
         AND (${cursorAt}::timestamptz IS NULL OR (occurred_at, id) < (${cursorAt}::timestamptz, ${cursorId}::uuid))
       ORDER BY occurred_at DESC, id DESC
@@ -56,7 +58,8 @@ export async function listNotifications(
       FROM notifications
       WHERE organization_id = ${member.organizationId}
         AND recipient_member_id = ${member.memberId}
-        AND resolved_at IS NULL`,
+        AND resolved_at IS NULL
+        AND (${canSeeWorkflow} OR source_type <> 'workflow')`,
   ]);
   const summary = summaryRowSchema.parse(summaryRows[0]);
   const visibleRows = rows.slice(0, options.limit);
@@ -91,12 +94,14 @@ export async function listNotifications(
 export async function markNotificationRead(member: AuthenticatedMember, notificationId: string) {
   requirePermission(member, "notifications.read");
   const sql = getDatabase();
+  const canSeeWorkflow = hasPermission(member, "workflow.read");
   const rows = await sql`UPDATE notifications
     SET read_at = coalesce(read_at, now()), updated_at = CASE WHEN read_at IS NULL THEN now() ELSE updated_at END
     WHERE organization_id = ${member.organizationId}
       AND recipient_member_id = ${member.memberId}
       AND id = ${notificationId}
       AND resolved_at IS NULL
+      AND (${canSeeWorkflow} OR source_type <> 'workflow')
     RETURNING id`;
   if (!rows.length) throw new NotificationNotFoundError();
   return 1;
@@ -105,11 +110,13 @@ export async function markNotificationRead(member: AuthenticatedMember, notifica
 export async function markAllNotificationsRead(member: AuthenticatedMember) {
   requirePermission(member, "notifications.read");
   const sql = getDatabase();
+  const canSeeWorkflow = hasPermission(member, "workflow.read");
   const rows = await sql`UPDATE notifications
     SET read_at = now(), updated_at = now()
     WHERE organization_id = ${member.organizationId}
       AND recipient_member_id = ${member.memberId}
       AND resolved_at IS NULL
+      AND (${canSeeWorkflow} OR source_type <> 'workflow')
       AND read_at IS NULL
     RETURNING id`;
   return rows.length;

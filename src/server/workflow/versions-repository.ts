@@ -6,6 +6,7 @@ import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { canEditWorkflowContext, validateWorkflowContext, visibleWorkflowDraft } from "./context-access";
+import { notifyWorkflowChange } from "./collaboration-repository";
 import { WorkflowMapConflictError, WorkflowMapNotFoundError } from "./repository";
 import {
   workflowDraftSchema,
@@ -17,11 +18,13 @@ import {
 
 const uuid = z.string().uuid();
 const stateRowSchema = z.object({
+  title: z.string(),
   version: z.number().int().positive(),
   draft: workflowDraftSchema,
   review_version: z.number().int().positive().nullable(),
   review_requested_by: uuid.nullable(),
   approved_version: z.number().int().positive().nullable(),
+  approved_by: uuid.nullable(),
   published_version: z.number().int().positive().nullable(),
 });
 const revisionRowSchema = z.object({
@@ -54,8 +57,8 @@ export class WorkflowReviewStateError extends Error {
 }
 
 async function lockedMap(transaction: postgres.TransactionSql, organizationId: string, id: string) {
-  const [row] = await transaction`SELECT version, draft, review_version, review_requested_by,
-      approved_version, published_version FROM workflow_maps
+  const [row] = await transaction`SELECT title, version, draft, review_version, review_requested_by,
+      approved_version, approved_by, published_version FROM workflow_maps
     WHERE organization_id = ${organizationId} AND id = ${id} AND archived_at IS NULL FOR UPDATE`;
   if (!row) throw new WorkflowMapNotFoundError();
   return stateRowSchema.parse(row);
@@ -102,6 +105,10 @@ export async function requestWorkflowReview(member: AuthenticatedMember, input: 
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
         'workflow.review.request', 'workflow_map', ${input.id},
         ${transaction.json({ version: map.version })})`;
+    await notifyWorkflowChange(transaction, { organizationId: member.organizationId, mapId: input.id,
+      actorId: member.memberId, audience: "reviewers", draft: map.draft,
+      title: "Карта ждёт согласования",
+      body: `${member.displayName} отправил версию ${map.version} карты «${map.title}» на согласование.` });
   });
 }
 
@@ -124,6 +131,10 @@ export async function approveWorkflowReview(member: AuthenticatedMember, input: 
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
         'workflow.review.approve', 'workflow_map', ${input.id},
         ${transaction.json({ version: map.version })})`;
+    await notifyWorkflowChange(transaction, { organizationId: member.organizationId, mapId: input.id,
+      actorId: member.memberId, audience: "watchers", additionalMemberIds: [map.review_requested_by!],
+      title: "Версия карты согласована",
+      body: `${member.displayName} согласовал версию ${map.version} карты «${map.title}».` });
   });
 }
 
@@ -146,6 +157,10 @@ export async function rejectWorkflowReview(member: AuthenticatedMember, input: R
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
         'workflow.review.reject', 'workflow_map', ${input.id},
         ${transaction.json({ version: map.version, reason: input.reason })})`;
+    await notifyWorkflowChange(transaction, { organizationId: member.organizationId, mapId: input.id,
+      actorId: member.memberId, audience: "watchers", additionalMemberIds: [map.review_requested_by!],
+      title: "Версия карты возвращена",
+      body: `${member.displayName} вернул версию ${map.version} карты «${map.title}» на доработку: ${input.reason}` });
   });
 }
 
@@ -167,6 +182,11 @@ export async function publishWorkflowRevision(member: AuthenticatedMember, input
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
         'workflow.revision.publish', 'workflow_map', ${input.id},
         ${transaction.json({ version: map.version })})`;
+    await notifyWorkflowChange(transaction, { organizationId: member.organizationId, mapId: input.id,
+      actorId: member.memberId, audience: "watchers",
+      additionalMemberIds: [map.review_requested_by, map.approved_by].filter((id): id is string => id !== null),
+      title: "Версия карты опубликована",
+      body: `${member.displayName} опубликовал версию ${map.version} карты «${map.title}».` });
   });
 }
 
@@ -202,6 +222,9 @@ export async function restoreWorkflowRevision(member: AuthenticatedMember, input
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
         'workflow.revision.restore', 'workflow_map', ${input.id},
         ${transaction.json({ fromVersion: input.sourceVersion, version: nextVersion })})`;
+    await notifyWorkflowChange(transaction, { organizationId: member.organizationId, mapId: input.id,
+      actorId: member.memberId, audience: "watchers", title: "Карта процесса изменена",
+      body: `${member.displayName} восстановил версию ${input.sourceVersion} карты «${source.title}» в новый черновик.` });
     return nextVersion;
   });
 }

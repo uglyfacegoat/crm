@@ -4,6 +4,7 @@ import { AuthorizationError, requirePermission } from "@/server/auth/permissions
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { canEditWorkflowContext, validateWorkflowContext, visibleWorkflowDraft } from "./context-access";
+import { followWorkflowParticipant, notifyWorkflowChange } from "./collaboration-repository";
 import {
   workflowDraftSchema,
   type ArchiveWorkflowMapInput,
@@ -134,6 +135,7 @@ export async function createWorkflowMap(member: AuthenticatedMember, input: Crea
       (organization_id, map_id, version, title, description, draft, change_kind, saved_by)
       VALUES (${member.organizationId}, ${input.id}, 1, ${input.title}, '',
         ${transaction.json({ nodes: [], edges: [] })}, 'created', ${member.memberId})`;
+    await followWorkflowParticipant(transaction, member.organizationId, input.id, member.memberId);
     await transaction`INSERT INTO audit_events
       (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
@@ -178,6 +180,9 @@ export async function saveWorkflowMap(member: AuthenticatedMember, input: SaveWo
         'workflow.map.save', 'workflow_map', ${input.id},
         ${transaction.json({ version: updated.version, title: input.title,
           nodeCount: input.draft.nodes.length, edgeCount: input.draft.edges.length })})`;
+    await notifyWorkflowChange(transaction, { organizationId: member.organizationId, mapId: input.id,
+      actorId: member.memberId, audience: "watchers", title: "Карта процесса изменена",
+      body: `${member.displayName} сохранил версию ${updated.version} карты «${input.title}».` });
     return z.number().int().positive().parse(updated.version);
   });
 }
@@ -209,5 +214,8 @@ export async function archiveWorkflowMap(member: AuthenticatedMember, input: Arc
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
         'workflow.map.archive', 'workflow_map', ${input.id},
         ${transaction.json({ version: archived.version })})`;
+    await transaction`UPDATE notifications SET resolved_at = now(), updated_at = now()
+      WHERE organization_id = ${member.organizationId} AND source_type = 'workflow'
+        AND source_id = ${input.id} AND resolved_at IS NULL`;
   });
 }

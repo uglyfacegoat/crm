@@ -7,6 +7,7 @@ import { requireSession } from "@/server/auth/session";
 import { safeErrorCode } from "@/server/observability/safe-error";
 import { addWorkflowComment, findWorkflowResources, listWorkflowComments, type WorkflowCommentPage, type WorkflowResourceOption } from "@/server/workflow/context-repository";
 import { WorkflowContextTargetError } from "@/server/workflow/context-access";
+import { watchWorkflowMap, WorkflowCollaborationMapNotFoundError } from "@/server/workflow/collaboration-repository";
 import {
   archiveWorkflowMap, createWorkflowMap, saveWorkflowMap,
   WorkflowMapConflictError, WorkflowMapNotFoundError,
@@ -20,11 +21,11 @@ import {
   archiveWorkflowMapSchema, createWorkflowMapSchema, saveWorkflowMapSchema,
   rejectWorkflowReviewSchema, restoreWorkflowRevisionSchema,
   workflowRevisionLookupSchema, workflowVersionCommandSchema,
-  addWorkflowCommentSchema, workflowCommentPageSchema, workflowResourceSearchSchema,
+  addWorkflowCommentSchema, workflowCommentPageSchema, workflowResourceSearchSchema, watchWorkflowMapSchema,
   type ArchiveWorkflowMapInput, type CreateWorkflowMapInput, type SaveWorkflowMapInput,
   type RejectWorkflowReviewInput, type RestoreWorkflowRevisionInput,
   type WorkflowRevisionLookupInput, type WorkflowVersionCommandInput,
-  type AddWorkflowCommentInput, type WorkflowCommentPageInput, type WorkflowResourceSearchInput,
+  type AddWorkflowCommentInput, type WorkflowCommentPageInput, type WorkflowResourceSearchInput, type WatchWorkflowMapInput,
 } from "@/server/workflow/schemas";
 
 type WorkflowActionResult = {
@@ -37,6 +38,7 @@ type WorkflowActionResult = {
 function failure(error: unknown, operation: string, memberId: string): WorkflowActionResult {
   if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для изменения карты.", id: null, version: null };
   if (error instanceof WorkflowMapNotFoundError) return { status: "error", message: "Карта недоступна или уже архивирована.", id: null, version: null };
+  if (error instanceof WorkflowCollaborationMapNotFoundError) return { status: "error", message: "Карта недоступна или уже архивирована.", id: null, version: null };
   if (error instanceof WorkflowMapConflictError) return { status: "error", message: "Карту изменили в другой вкладке. Обновите страницу, чтобы увидеть актуальную версию.", id: null, version: null };
   if (error instanceof WorkflowContextTargetError) return { status: "error", message: error.kind === "owner" ? "Ответственный сотрудник больше недоступен." : "Связанная запись CRM больше недоступна.", id: null, version: null };
   if (error instanceof WorkflowReviewStateError) {
@@ -187,4 +189,16 @@ export async function getWorkflowCommentsAction(input: WorkflowCommentPageInput)
   if (!parsed.success) return { status: "error", message: "Некорректная страница комментариев." };
   try { return { status: "success", page: await listWorkflowComments(member, parsed.data.mapId, parsed.data.beforeId) }; }
   catch (error) { return { status: "error", message: failure(error, "workflow.comment.page", member.memberId).message }; }
+}
+
+export async function watchWorkflowMapAction(input: WatchWorkflowMapInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = watchWorkflowMapSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректные данные карты.", id: null, version: null };
+  try {
+    await watchWorkflowMap(member, parsed.data.mapId, parsed.data.watching);
+    revalidatePath("/workflow");
+    return { status: "success", message: parsed.data.watching ? "Вы следите за изменениями карты." : "Слежение за картой отключено.", id: parsed.data.mapId, version: null };
+  } catch (error) { return failure(error, "workflow.watch", member.memberId); }
 }

@@ -9,6 +9,7 @@ test("notification targets are converted to trusted internal routes", () => {
   assert.equal(notificationHref("client", id, "accountant"), `/clients/${id}`);
   assert.equal(notificationHref("document", id, "dispatcher"), `/documents?document=${id}`);
   assert.equal(notificationHref("visit", id, "master"), "/my-visits");
+  assert.equal(notificationHref("workflow", id, "manager"), `/workflow?map=${id}`);
 });
 
 test("notification response rejects external target links", () => {

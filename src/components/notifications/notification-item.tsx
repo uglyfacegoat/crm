@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, ClipboardCheck, FileUp, FileWarning, UserRoundSearch } from "lucide-react";
+import { AlertTriangle, CalendarClock, ClipboardCheck, FileUp, FileWarning, GitBranch, UserRoundSearch } from "lucide-react";
 import type { NotificationItem } from "@/lib/notifications";
 
 const kindPresentation = {
@@ -10,6 +10,7 @@ const kindPresentation = {
   task_overdue: { icon: ClipboardCheck, label: "Задача", tone: "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]" },
   contract_renewal: { icon: AlertTriangle, label: "Договор", tone: "border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)]" },
   document_uploaded: { icon: FileUp, label: "Файл", tone: "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" },
+  workflow_update: { icon: GitBranch, label: "Воркфлоу", tone: "border-[var(--support-strong)] bg-[var(--support-soft)] text-[var(--support-strong)]" },
 } satisfies Record<NotificationItem["kind"], { icon: typeof CalendarClock; label: string; tone: string }>;
 
 const relativeFormatter = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });

@@ -7,8 +7,10 @@ import { Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, GitBranch, Link2, P
 import { archiveWorkflowMapAction, createWorkflowMapAction, saveWorkflowMapAction } from "@/app/(workspace)/workflow/actions";
 import { WorkflowLifecycle } from "./workflow-lifecycle";
 import { WorkflowDiscussion, WorkflowNodeContext } from "./workflow-context";
+import { WorkflowCollaboration } from "./workflow-collaboration";
 import type { WorkflowMap, WorkflowMapSummary, WorkflowRevisionSummary } from "@/server/workflow/repository";
 import type { WorkflowComment, WorkflowMemberOption } from "@/server/workflow/context-repository";
+import type { WorkflowActivity } from "@/server/workflow/collaboration-repository";
 import type { WorkflowDraft, WorkflowNode } from "@/server/workflow/schemas";
 
 const blockKinds = [
@@ -23,15 +25,18 @@ const blockTone = Object.fromEntries(blockKinds.map((item) => [item.kind, item.t
 const nodeWidth = 196;
 const nodeHeight = 126;
 
-export function WorkflowEditor({ maps, selected, revisions, comments, commentsHasMore, members, canWrite, canComment, canReview, canPublish, currentMemberId, preview }: {
+export function WorkflowEditor({ maps, selected, revisions, comments, commentsHasMore, members, watching, activity, canWrite, canComment, canWatch, canReview, canPublish, currentMemberId, preview }: {
   maps: WorkflowMapSummary[];
   selected: WorkflowMap | null;
   revisions: WorkflowRevisionSummary[];
   comments: WorkflowComment[];
   commentsHasMore: boolean;
   members: WorkflowMemberOption[];
+  watching: boolean;
+  activity: WorkflowActivity[];
   canWrite: boolean;
   canComment: boolean;
+  canWatch: boolean;
   canReview: boolean;
   canPublish: boolean;
   currentMemberId: string;
@@ -45,6 +50,7 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
   const [description, setDescription] = useState(selected?.description ?? "");
   const [draft, setDraft] = useState<WorkflowDraft>(selected?.draft ?? { nodes: [], edges: [] });
   const [version, setVersion] = useState(selected?.version ?? 1);
+  const remoteVersionAvailable = selected !== null && selected.version > version;
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [targetId, setTargetId] = useState("");
   const [edgeLabel, setEdgeLabel] = useState("");
@@ -109,6 +115,10 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
 
   function saveMap() {
     if (!selected) return;
+    if (remoteVersionAvailable) {
+      setFeedback({ error: true, message: "Карту изменил другой сотрудник. Загрузите новую версию перед сохранением." });
+      return;
+    }
     startTransition(async () => {
       const result = await saveWorkflowMapAction({ id: selected.id, expectedVersion: version, title, description, draft });
       setFeedback({ error: result.status === "error", message: result.message });
@@ -118,6 +128,19 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
         router.refresh();
       }
     });
+  }
+
+  function loadLatestVersion() {
+    if (!selected || (dirty && !window.confirm("Несохранённые изменения будут потеряны. Загрузить новую версию?"))) return;
+    setTitle(selected.title);
+    setDescription(selected.description);
+    setDraft(selected.draft);
+    setVersion(selected.version);
+    setSelectedNodeId(null);
+    setTargetId("");
+    setEdgeLabel("");
+    setDirty(false);
+    setFeedback(null);
   }
 
   function archiveMap() {
@@ -163,6 +186,11 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
             <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold text-[var(--text)]">{title || "Без названия"}</h2><p className="mt-1 text-[10px] text-[var(--muted)]">Черновик · версия {version} · {draft.nodes.length} блоков · {draft.edges.length} связей</p></div>
             {canEdit && <button type="button" onClick={saveMap} disabled={pending || !dirty} className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-[10px] bg-[var(--accent)] px-4 text-xs font-medium text-[var(--on-accent)] disabled:opacity-50"><Save className="size-3.5" />{pending ? "Сохраняем…" : dirty ? "Сохранить" : "Сохранено"}</button>}
           </header>
+          {remoteVersionAvailable && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-[var(--warning-border)] bg-[var(--warning-bg)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+            <span className="min-w-0 flex-1">Карту сохранил другой сотрудник: доступна версия {selected.version}. Текущие несохранённые правки останутся на экране до загрузки новой версии.</span>
+            <button type="button" onClick={loadLatestVersion}
+              className="focus-ring min-h-9 rounded-[9px] border border-[var(--warning-border)] px-3 font-medium">Загрузить новую версию</button>
+          </div>}
           <div className="grid gap-3 p-4 lg:hidden">
             {draft.nodes.map((node, index) => <button key={node.id} type="button" onClick={() => setSelectedNodeId(node.id)}
               className={`focus-ring rounded-[14px] border p-4 text-left ${blockTone[node.kind]} ${node.id === selectedNodeId ? "ring-2 ring-[var(--accent)]" : ""}`}>
@@ -208,7 +236,7 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
         {selected && <div className="mt-4 grid gap-4">
           {currentNode ? <>
             <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Название блока<input value={currentNode.title} onChange={(event) => updateNode({ title: event.target.value })} disabled={!canEdit} maxLength={100} className="focus-ring h-10 min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 disabled:opacity-60" /></label>
-            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea value={currentNode.description} onChange={(event) => updateNode({ description: event.target.value })} disabled={!canEdit} maxLength={500} rows={3} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea aria-label="Описание блока" value={currentNode.description} onChange={(event) => updateNode({ description: event.target.value })} disabled={!canEdit} maxLength={500} rows={3} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
             {canEdit && <><div><p className="mb-2 text-xs text-[var(--text-secondary)]">Положение на карте</p><div className="flex flex-wrap gap-2">
               {[[ArrowLeft, -40, 0, "Влево"], [ArrowRight, 40, 0, "Вправо"], [ArrowUp, 0, -40, "Вверх"], [ArrowDown, 0, 40, "Вниз"]].map(([Icon, dx, dy, label]) => {
                 const MoveIcon = Icon as typeof ArrowLeft;
@@ -227,8 +255,8 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
             <button type="button" onClick={() => setSelectedNodeId(null)} className="focus-ring min-h-9 text-left text-xs text-[var(--muted)]">Вернуться к карте</button>
           </> : <>
             <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Название<input value={title} onChange={(event) => { setTitle(event.target.value); setDirty(true); }} disabled={!canEdit} maxLength={120} className="focus-ring h-10 min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 disabled:opacity-60" /></label>
-            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea value={description} onChange={(event) => { setDescription(event.target.value); setDirty(true); }} disabled={!canEdit} maxLength={1000} rows={4} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
-            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Общий регламент<textarea value={draft.regulations ?? ""} onChange={(event) => changeDraft({ ...draft, regulations: event.target.value })} disabled={!canEdit} maxLength={8000} rows={5} placeholder="Правила и критерии выполнения процесса" className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea aria-label="Описание" value={description} onChange={(event) => { setDescription(event.target.value); setDirty(true); }} disabled={!canEdit} maxLength={1000} rows={4} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
+            <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Общий регламент<textarea aria-label="Общий регламент" value={draft.regulations ?? ""} onChange={(event) => changeDraft({ ...draft, regulations: event.target.value })} disabled={!canEdit} maxLength={8000} rows={5} placeholder="Правила и критерии выполнения процесса" className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
             <p className="text-[10px] leading-4 text-[var(--muted)]">Последнее изменение: {new Date(selected.updatedAt).toLocaleString("ru-RU")} · {selected.updatedByName}</p>
             {canEdit && <div className="border-t border-[var(--line)] pt-4">{confirmArchive ? <div className="grid gap-2"><p className="text-xs text-[var(--text-secondary)]">Архивировать карту? Она исчезнет из списка.</p><button type="button" onClick={archiveMap} disabled={pending} className="focus-ring min-h-9 rounded-[9px] bg-[var(--danger)] px-3 text-xs text-white disabled:opacity-50">Подтвердить архивирование</button><button type="button" onClick={() => setConfirmArchive(false)} className="focus-ring min-h-9 text-xs">Отмена</button></div> : <button type="button" onClick={() => setConfirmArchive(true)} className="focus-ring flex min-h-9 items-center gap-2 text-xs text-[var(--muted)]"><Archive className="size-3.5" />В архив</button>}</div>}
           </>}
@@ -238,6 +266,7 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
           revisions={revisions} canWrite={canEdit} canReview={canReview}
           canPublish={canPublish} currentMemberId={currentMemberId} dirty={dirty} />}
         {selected && <WorkflowDiscussion mapId={selected.id} comments={comments} hasMore={commentsHasMore} canComment={canComment} />}
+        {selected && <WorkflowCollaboration mapId={selected.id} watching={watching} canWatch={canWatch} activity={activity} />}
         {feedback && <p role={feedback.error ? "alert" : "status"} className={`mt-5 rounded-[10px] border p-3 text-xs leading-5 ${feedback.error ? "border-[var(--danger)]/40 text-[var(--danger)]" : "border-[var(--success)]/40 text-[var(--success)]"}`}>{feedback.message}</p>}
       </aside>
     </div>

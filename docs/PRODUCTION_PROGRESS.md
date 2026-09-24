@@ -16,13 +16,20 @@ next product task after the current upload-reliability checkpoint. The scope is
 editable process maps, versions/review/publication, regulations and links to
 real CRM entities, collaboration, and bounded automations as defined in
 [section 10 of the plan](../PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md).
-WF-01–03 are installed in local Docker and verified in source and an isolated
-packaged runtime.
-WF-04–06 remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
+WF-01–03 are installed in local Docker. WF-04 is verified in source and an
+isolated packaged runtime, with local Docker installation pending. WF-05–06
+remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
 Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, Workflow WF-04 source acceptance:** migration 067 adds map
+  subscriptions and workflow events to the existing notification inbox.
+  Current permissions and overrides determine recipients; archived maps resolve
+  their notifications. Audit events appear in the map activity feed. Separate
+  browser sessions exercised notification navigation, concurrent edits, an
+  explicit conflict and loading the newer version. The 066→067 rehearsal
+  preserved counts in all 74 existing tables. Docker installation is next.
 - **2026-09-24, Workflow WF-03 local installation:** migration 066 adds
   audited append-only comments. Regulations, owners and CRM references are
   included in immutable map snapshots. Links to clients, orders and contracts

@@ -17,15 +17,15 @@ export class WorkflowContextTargetError extends Error {
   }
 }
 
-export function canReadWorkflowResource(member: AuthenticatedMember, resource: NonNullable<WorkflowNode["resource"]>) {
+export function canReadWorkflowResource(member: Pick<AuthenticatedMember, "role" | "permissionOverrides">, resource: NonNullable<WorkflowNode["resource"]>) {
   return hasPermission(member, resourcePermissions[resource.kind]);
 }
 
-export function canEditWorkflowContext(member: AuthenticatedMember, draft: WorkflowDraft) {
+export function canEditWorkflowContext(member: Pick<AuthenticatedMember, "role" | "permissionOverrides">, draft: WorkflowDraft) {
   return draft.nodes.every((node) => !node.resource || canReadWorkflowResource(member, node.resource));
 }
 
-export function visibleWorkflowDraft(member: AuthenticatedMember, draft: WorkflowDraft): WorkflowDraft {
+export function visibleWorkflowDraft(member: Pick<AuthenticatedMember, "role" | "permissionOverrides">, draft: WorkflowDraft): WorkflowDraft {
   return { ...draft, nodes: draft.nodes.map((node) => node.resource && !canReadWorkflowResource(member, node.resource)
     ? { ...node, resource: null } : node) };
 }

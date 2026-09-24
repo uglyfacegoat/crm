@@ -25,6 +25,8 @@ const workflow = await import("../src/server/workflow/repository.ts");
 const versions = await import("../src/server/workflow/versions-repository.ts");
 const context = await import("../src/server/workflow/context-repository.ts");
 const contextAccess = await import("../src/server/workflow/context-access.ts");
+const collaboration = await import("../src/server/workflow/collaboration-repository.ts");
+const notifications = await import("../src/server/notifications/repository.ts");
 const { saveWorkflowMapSchema } = await import("../src/server/workflow/schemas.ts");
 
 test("workflow maps are tenant scoped, permission gated and version safe", async (t) => {
@@ -49,7 +51,8 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
     const id = randomUUID();
     await sql`INSERT INTO organization_members (id, organization_id, display_name, email, role)
       VALUES (${id}, ${organization.id}, ${role}, ${`${id}@example.invalid`}, ${role})`;
-    return { organizationId: organization.id, memberId: id, role, permissionOverrides: {}, sessionId: null };
+    return { organizationId: organization.id, memberId: id, role, displayName: role,
+      permissionOverrides: {}, sessionId: null };
   }
 
   const owner = await member("admin");
@@ -203,7 +206,13 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
   assert.equal(olderComments.hasMore, false);
   assert.equal(new Set([...firstComments.comments, ...olderComments.comments].map((item) => item.id)).size, 56);
   await assert.rejects(context.listWorkflowComments(other, contextMapId), workflow.WorkflowMapNotFoundError);
+  const limitedReviewer = await member('manager', owner.organizationId);
+  await sql`INSERT INTO member_permission_overrides (organization_id, member_id, permission, allowed)
+    VALUES (${owner.organizationId}, ${limitedReviewer.memberId}, 'clients.read', false)`;
   await versions.requestWorkflowReview(owner, { id: contextMapId, expectedVersion: 2 });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM notifications
+    WHERE source_type = 'workflow' AND source_id = ${contextMapId}
+      AND recipient_member_id = ${limitedReviewer.memberId}`)[0].count, 0);
   await versions.approveWorkflowReview(reviewer, { id: contextMapId, expectedVersion: 2 });
   await versions.publishWorkflowRevision(owner, { id: contextMapId, expectedVersion: 2 });
   await workflow.saveWorkflowMap(owner, { id: contextMapId, expectedVersion: 2,
@@ -211,4 +220,60 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
   assert.equal((await versions.getWorkflowRevision(owner, { id: contextMapId, version: 2 })).draft.regulations,
     'Общий порядок выполнения');
   assert.equal((await workflow.getWorkflowWorkspace(owner, contextMapId)).selected?.publishedVersion, 2);
+
+  const collaborationMapId = randomUUID();
+  await workflow.createWorkflowMap(owner, { id: collaborationMapId, title: 'Совместная карта' });
+  assert.equal((await collaboration.getWorkflowCollaboration(owner, collaborationMapId)).watching, true);
+  await collaboration.watchWorkflowMap(reader, collaborationMapId, true);
+  await collaboration.watchWorkflowMap(reader, collaborationMapId, true);
+  assert.equal((await collaboration.getWorkflowCollaboration(reader, collaborationMapId)).watching, true);
+  await assert.rejects(collaboration.watchWorkflowMap(other, collaborationMapId, true),
+    collaboration.WorkflowCollaborationMapNotFoundError);
+  await workflow.saveWorkflowMap(owner, { id: collaborationMapId, expectedVersion: 1,
+    title: 'Совместная карта', description: '', draft });
+  let readerNotifications = await notifications.listNotifications(reader, { limit: 100, unreadOnly: false });
+  assert.equal(readerNotifications.items.some((item) => item.kind === 'workflow_update'
+    && item.href === `/workflow?map=${collaborationMapId}`), true);
+  const workflowNotice = readerNotifications.items.find((item) => item.sourceId === collaborationMapId);
+  await assert.rejects(notifications.markNotificationRead({ ...reader,
+    permissionOverrides: { 'workflow.read': false } }, workflowNotice.id), notifications.NotificationNotFoundError);
+  assert.equal((await notifications.listNotifications({ ...reader, permissionOverrides: { 'workflow.read': false } },
+    { limit: 100, unreadOnly: false })).items.some((item) => item.sourceId === collaborationMapId), false);
+  await versions.requestWorkflowReview(owner, { id: collaborationMapId, expectedVersion: 2 });
+  assert.equal((await notifications.listNotifications(reviewer, { limit: 100, unreadOnly: false })).items
+    .some((item) => item.sourceId === collaborationMapId && item.title === 'Карта ждёт согласования'), true);
+  await versions.approveWorkflowReview(reviewer, { id: collaborationMapId, expectedVersion: 2 });
+  assert.equal((await notifications.listNotifications(owner, { limit: 100, unreadOnly: false })).items
+    .some((item) => item.sourceId === collaborationMapId && item.title === 'Версия карты согласована'), true);
+  await versions.publishWorkflowRevision(owner, { id: collaborationMapId, expectedVersion: 2 });
+  assert.equal((await collaboration.getWorkflowCollaboration(reviewer, collaborationMapId)).watching, false);
+  await context.addWorkflowComment(reader, { id: randomUUID(), mapId: collaborationMapId,
+    body: 'Проверим уведомления всем участникам' });
+  assert.equal((await notifications.listNotifications(owner, { limit: 100, unreadOnly: false })).items
+    .some((item) => item.sourceId === collaborationMapId && item.title === 'Новое обсуждение карты'), true);
+  await sql`INSERT INTO member_permission_overrides (organization_id, member_id, permission, allowed)
+    VALUES (${reader.organizationId}, ${reader.memberId}, 'workflow.read', false)`;
+  const beforeRevokedSave = (await sql`SELECT count(*)::integer AS count FROM notifications
+    WHERE source_type = 'workflow' AND source_id = ${collaborationMapId} AND recipient_member_id = ${reader.memberId}`)[0].count;
+  await workflow.saveWorkflowMap(owner, { id: collaborationMapId, expectedVersion: 2,
+    title: 'Совместная карта', description: 'Новое описание', draft });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM notifications
+    WHERE source_type = 'workflow' AND source_id = ${collaborationMapId} AND recipient_member_id = ${reader.memberId}`)[0].count,
+    beforeRevokedSave);
+  await sql`DELETE FROM member_permission_overrides WHERE organization_id = ${reader.organizationId}
+    AND member_id = ${reader.memberId} AND permission = 'workflow.read'`;
+  await collaboration.watchWorkflowMap(reader, collaborationMapId, false);
+  assert.equal((await collaboration.getWorkflowCollaboration(reader, collaborationMapId)).watching, false);
+  readerNotifications = await notifications.listNotifications(reader, { limit: 100, unreadOnly: false });
+  assert.equal(readerNotifications.items.some((item) => item.sourceId === collaborationMapId), true);
+  const priorCount = (await sql`SELECT count(*)::integer AS count FROM notifications
+    WHERE source_type = 'workflow' AND source_id = ${collaborationMapId} AND recipient_member_id = ${reader.memberId}`)[0].count;
+  await workflow.saveWorkflowMap(owner, { id: collaborationMapId, expectedVersion: 3,
+    title: 'Совместная карта', description: 'Третья редакция', draft });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM notifications
+    WHERE source_type = 'workflow' AND source_id = ${collaborationMapId} AND recipient_member_id = ${reader.memberId}`)[0].count,
+    priorCount);
+  await workflow.archiveWorkflowMap(owner, { id: collaborationMapId, expectedVersion: 4 });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM notifications
+    WHERE source_type = 'workflow' AND source_id = ${collaborationMapId} AND resolved_at IS NULL`)[0].count, 0);
 });

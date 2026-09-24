@@ -3,7 +3,7 @@
 24 September 2026. The owner approved full implementation of the Workflow page.
 This document tracks the actual working scope, not the planned final scope.
 
-## Working now (WF-01–03 in local Docker)
+## Working now (WF-01–03 in local Docker; WF-04 verified in source)
 
 - `064_workflow_maps.sql` creates organization-scoped process maps. A draft stores
   validated visual nodes and directed connections. Each edit advances an
@@ -65,11 +65,26 @@ This document tracks the actual working scope, not the planned final scope.
   database upgrade rehearsal passed with all 73 existing table counts preserved.
   After local installation, a 066→066 rehearsal preserved counts in all 74
   existing tables.
+- `067_workflow_collaboration.sql` adds explicit map subscriptions and reuses
+  the CRM notification inbox. Map creators follow their map by default; other
+  members may opt in or out. A saved draft, new comment, review decision,
+  publication and restoration notify active followers. Review requests also
+  reach eligible reviewers who can read the map and its linked CRM resources.
+  Notifications are inserted in the same transaction as the change, filtered
+  by current permission overrides, hidden if `workflow.read` is later revoked,
+  and resolved when a map is archived. The page shows recent audited actions
+  and a refresh control. If another editor has saved a newer version, a banner
+  preserves local unsaved input until the user chooses to load the new version.
+- Repository tests covered explicit watch/unwatch, permission changes, review
+  recipient filtering, inbox visibility and archive resolution. The packaged
+  browser check used separate admin and manager sessions to verify notification
+  navigation, competing edits, conflict display and loading the newer draft.
+  It also found and fixed an accessible-label problem on filled textareas.
+  Typecheck, lint, build, 227 unit tests, migration tests and the 066→067
+  rehearsal passed; all 74 existing table counts were preserved.
 
 ## Still open
 
-- WF-04: collaboration permissions, change notifications and concurrent
-  editing experience beyond explicit version conflicts.
 - WF-05: tightly scoped, idempotent and audited automation through domain
   commands, with dry run and stop controls.
 - WF-06: end-to-end acceptance of the complete Workflow lifecycle and release.
