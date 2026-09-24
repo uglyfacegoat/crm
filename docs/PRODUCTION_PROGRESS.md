@@ -23,6 +23,17 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, UP-07 local acceptance (9/9 upload families):** the packaged
+  browser suite now aborts in-flight visit photo, signed act and group avatar
+  requests after verified file write, before commit. Both commit and forced
+  rollback paths passed on local and test S3 storage, extending the previous
+  six families to all nine. A committed retry leaves one domain record and
+  intact bytes; a rollback leaves no false business record and keeps the file
+  with an unresolved write operation for reconciliation. Visit and avatar
+  forms now explain that an existing file may have an unconfirmed result.
+  Typecheck, lint, build and the full browser suite passed; working Docker
+  installation is recorded separately. Load limits and unrelated database
+  faults remain in their own checklist items.
 - **2026-09-24, Workflow WF-06 local acceptance:** the packaged browser test
   completed the map/review/publication lifecycle, created an order through the
   actual form with automation enabled, ran the worker and found its task on

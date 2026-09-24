@@ -142,7 +142,7 @@ async function completeVisitActionImpl(_previous: CompleteVisitState, formData: 
       if (await visitCompletionExists(member, parsed.data.visitId, parsed.data.idempotencyKey)) {
         return { status: "success", message: "Выезд уже завершён, акт сохранён.", fieldErrors: {}, documentId: parsed.data.idempotencyKey };
       }
-      return { status: "error", message: "Эта загрузка уже обрабатывается. Закройте окно и повторите с новым файлом.", fieldErrors: {}, documentId: null };
+      return { status: "error", message: "Файл акта уже существует, но завершение выезда не подтверждено. Проверьте выезд и документы заказа; если акта нет, обратитесь к администратору для сверки файла.", fieldErrors: {}, documentId: null };
     }
     const rejected = error instanceof VisitVersionConflictError || error instanceof VisitNotFoundError
       || error instanceof VisitImmutableError || error instanceof AuthorizationError;
@@ -242,7 +242,7 @@ async function uploadAssignedVisitEvidenceActionImpl(
       if (await visitEvidenceExists(member, parsed.data.idempotencyKey)) {
         return { status: "success", message: "Этот материал уже сохранён.", fieldErrors: {} };
       }
-      return { status: "error", message: "Эта загрузка ещё обрабатывается. Подождите и повторите.", fieldErrors: {} };
+      return { status: "error", message: "Файл материала уже существует, но сохранение не подтверждено. Проверьте документы заказа; если материала нет, обратитесь к администратору для сверки файла.", fieldErrors: {} };
     }
     const rejected = error instanceof AuthorizationError || error instanceof VisitNotFoundError || error instanceof VisitImmutableError;
     if (storageKey && fileWritten && rejected) {

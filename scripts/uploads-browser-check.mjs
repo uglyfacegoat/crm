@@ -541,14 +541,14 @@ try {
       await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
       await page.waitForTimeout(1_300);
       if (await dialog.isVisible()) {
-        assert.match(await dialog.getByRole("status").innerText(), /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы (уже )?сохранены/i);
+        assert.match(await dialog.getByRole("status").innerText(), /Файл фото группы уже существует|Настройки уже изменились|Настройки группы (уже )?сохранены/i);
         await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
         await dialog.waitFor({ state: "hidden" });
       }
       if (interceptionError) throw interceptionError;
       assert.ok(duplicateOtherResponse, "Concurrent duplicate chat-avatar POST must run");
       assert.equal(duplicateOtherResponse.status, 200);
-      assert.match(duplicateOtherResponse.body, /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы (уже )?сохранены/i);
+      assert.match(duplicateOtherResponse.body, /Файл фото группы уже существует|Настройки уже изменились|Настройки группы (уже )?сохранены/i);
     } else {
       await submit(dialog, "Сохранить", { saved: "Настройки группы сохранены.", warning: "Настройки группы сохранены, но страницу не удалось обновить. Обновите её вручную." }, "avatar-warning.png");
     }
@@ -754,7 +754,15 @@ try {
     assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${key}`)[0].count, 0);
     assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${receiptId}`)[0].count, 0);
     await financeDialog.getByRole("button", { name: label, exact: true }).click();
-    await financeDialog.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      return !dialog || Array.from(dialog.querySelectorAll("button")).some((button) => button.textContent?.includes("Сохранено"));
+    });
+    if (await financeDialog.isVisible()) {
+      await financeDialog.getByRole("button", { name: "Сохранено" }).waitFor();
+      await financeDialog.getByRole("button", { name: "Отмена" }).click();
+      await financeDialog.waitFor({ state: "hidden" });
+    }
     const records = await sql`SELECT receipt_document_id, amount_minor FROM ${sql(table)} WHERE idempotency_key = ${key}`;
     assert.equal(records.length, 1);
     assert.equal(records[0].receipt_document_id, receiptId);
@@ -885,6 +893,15 @@ try {
     END $$`);
   await sql`CREATE TRIGGER block_chat_attachment_before_commit BEFORE INSERT ON chat_message_attachments
     FOR EACH ROW EXECUTE FUNCTION block_chat_attachment_before_commit()`;
+  await sql.unsafe(`CREATE FUNCTION block_chat_avatar_before_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM upload_abort_gate WHERE document_id = NEW.channel_id) THEN
+        PERFORM pg_advisory_xact_lock(927431, 9);
+      END IF;
+      RETURN NEW;
+    END $$`);
+  await sql`CREATE TRIGGER block_chat_avatar_before_commit BEFORE INSERT ON chat_channel_avatars
+    FOR EACH ROW EXECUTE FUNCTION block_chat_avatar_before_commit()`;
   const inFlightContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
   const inFlightPage = await inFlightContext.newPage();
   const inFlightErrors = [];
@@ -1334,14 +1351,14 @@ try {
       await dialog.getByRole("button", { name: "Добавить материал", exact: true }).click();
       await page.waitForTimeout(1_300);
       if (await dialog.isVisible()) {
-        assert.match(await dialog.getByRole("alert").innerText(), /Эта загрузка ещё обрабатывается|Этот материал уже сохранён|Материал сохранён в документах заказа/i);
+        assert.match(await dialog.getByRole("alert").innerText(), /Файл материала уже существует|Этот материал уже сохранён|Материал сохранён в документах заказа/i);
         await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
         await dialog.waitFor({ state: "hidden" });
       }
       if (interceptionError) throw interceptionError;
       assert.ok(duplicateOtherResponse, "Concurrent duplicate visit-photo POST must run");
       assert.equal(duplicateOtherResponse.status, 200);
-      assert.match(duplicateOtherResponse.body, /Эта загрузка ещё обрабатывается|Этот материал уже сохранён|Материал сохранён в документах заказа/i);
+      assert.match(duplicateOtherResponse.body, /Файл материала уже существует|Этот материал уже сохранён|Материал сохранён в документах заказа/i);
     } else {
       await submit(dialog, "Добавить материал", { saved: "Материал сохранён в документах заказа.", warning: "Материал сохранён, но страницу не удалось обновить. Обновите её вручную." }, "evidence-warning.png");
     }
@@ -1375,14 +1392,14 @@ try {
       await dialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
       await page.waitForTimeout(1_300);
       if (await dialog.isVisible()) {
-        assert.match(await dialog.getByRole("alert").innerText(), /Эта загрузка уже обрабатывается|Выезд уже завершён|Выезд завершён, акт добавлен в архив/i);
+        assert.match(await dialog.getByRole("alert").innerText(), /Файл акта уже существует|Выезд уже завершён|Выезд завершён, акт добавлен в архив/i);
         await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
         await dialog.waitFor({ state: "hidden" });
       }
       if (interceptionError) throw interceptionError;
       assert.ok(duplicateOtherResponse, "Concurrent duplicate visit-act POST must run");
       assert.equal(duplicateOtherResponse.status, 200);
-      assert.match(duplicateOtherResponse.body, /Эта загрузка уже обрабатывается|Выезд уже завершён|Выезд завершён, акт добавлен в архив/i);
+      assert.match(duplicateOtherResponse.body, /Файл акта уже существует|Выезд уже завершён|Выезд завершён, акт добавлен в архив/i);
     } else {
       await submit(dialog, "Завершить с актом", { saved: "Выезд завершён, акт добавлен в архив.", warning: "Выезд завершён, акт сохранён, но страницу не удалось обновить. Обновите её вручную." }, "closing-act-warning.png", "Выезд завершён");
     }
@@ -2395,6 +2412,228 @@ try {
       console.log(`aborted in-flight chat ${outcome}: ${outcome === "commit" ? "one message and attachment survived" : "no message committed; attachment and unresolved operation remained"}.`);
       await chatContext.close();
     }
+
+    for (const kind of ["photo", "act"]) for (const outcome of ["commit", "rollback"]) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+      const visitHour = 18 + (kind === "act" ? 2 : 0) + (outcome === "rollback" ? 1 : 0);
+      const [visit] = await sql`INSERT INTO service_visits (organization_id, order_id, object_id, assigned_master_id,
+        scheduled_start_at, scheduled_end_at, status, client_name_snapshot, object_name_snapshot, object_address_snapshot)
+        VALUES (${member.organization_id}, ${order.id}, ${object.id}, ${master.id},
+          (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') + (${visitHour} * interval '1 hour')) AT TIME ZONE 'Europe/Moscow',
+          (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') + (${visitHour + 1} * interval '1 hour')) AT TIME ZONE 'Europe/Moscow',
+          'planned', 'Upload customer', 'Upload object', 'Test address') RETURNING id`;
+      const visitContext = await browser.newContext({ storageState: masterStorageState, viewport: { width: 1440, height: 1000 } });
+      const visitPage = await visitContext.newPage();
+      const visitErrors = [];
+      visitPage.on("pageerror", (error) => visitErrors.push(error.message));
+      let abortRequest;
+      const abortSignal = new Promise((resolveAbort) => { abortRequest = resolveAbort; });
+      let resolveAborted;
+      const aborted = new Promise((resolveAbort) => { resolveAborted = resolveAbort; });
+      let upstream;
+      let intercept = true;
+      let documentId = null;
+      await visitPage.route("**/my-visits**", async (route) => {
+        if (!intercept || !documentId || route.request().method() !== "POST"
+          || !route.request().headers()["next-action"] || !route.request().postDataBuffer()?.includes(documentId)) return route.continue();
+        intercept = false;
+        upstream = route.fetch();
+        await abortSignal;
+        await route.abort("failed");
+        resolveAborted();
+        await upstream.catch(() => {});
+      });
+      await visitPage.goto(`${baseUrl}/my-visits`);
+      await visitPage.getByRole("button", { name: kind === "photo" ? "Материалы" : "Завершить", exact: true }).last().click();
+      const dialog = visitPage.getByRole("dialog", { name: kind === "photo" ? "Материалы выезда" : "Завершить выезд", exact: true });
+      assert.equal(await dialog.locator('input[name="visitId"]').inputValue(), visit.id);
+      const filename = `in-flight-visit-${kind}-${outcome}.${kind === "photo" ? "png" : "pdf"}`;
+      const bytes = kind === "photo" ? imageBytes : pdfFixture(`In-flight signed act ${outcome}`);
+      if (kind === "photo") await dialog.locator('textarea[name="note"]').fill(`In-flight photo ${outcome}`);
+      else {
+        await dialog.locator('input[name="actTitle"]').fill(`In-flight act ${outcome}`);
+        await dialog.locator('textarea[name="completionNotes"]').fill(`In-flight completion ${outcome}`);
+      }
+      await dialog.locator('input[name="file"]').setInputFiles({ name: filename,
+        mimeType: kind === "photo" ? "image/png" : "application/pdf", buffer: bytes });
+      documentId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+      const storageKey = `${member.organization_id}/${documentId}/v1.${kind === "photo" ? "png" : "pdf"}`;
+      await sql`INSERT INTO upload_abort_gate (document_id) VALUES (${documentId})`;
+      const gate = await sql.reserve();
+      let gateLocked = false;
+      try {
+        await gate`SELECT pg_advisory_lock(927431, 9)`;
+        gateLocked = true;
+        await dialog.getByRole("button", { name: kind === "photo" ? "Добавить материал" : "Завершить с актом", exact: true }).click();
+        let blockedPid = null;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const [activity] = await sql`SELECT pid FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event = 'advisory'
+              AND query LIKE '%INSERT INTO document_versions%' LIMIT 1`;
+          if (activity) { blockedPid = activity.pid; break; }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+        }
+        assert.ok(blockedPid, `Visit ${kind} ${outcome} must reach the database after writing its file`);
+        const stored = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(stored, bytes);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${documentId}`)[0].count, 0);
+        assert.deepEqual((await sql`SELECT status, completion_document_id FROM service_visits WHERE id = ${visit.id}`)[0],
+          { status: "planned", completion_document_id: null });
+        abortRequest();
+        await aborted;
+        await dialog.getByRole("alert").filter({ hasText: kind === "photo"
+          ? "Не удалось получить ответ сервера. Проверьте материалы выезда"
+          : "Не удалось получить ответ сервера. Проверьте статус выезда и акт" }).waitFor();
+        assert.equal(await dialog.locator('input[name="idempotencyKey"]').inputValue(), documentId);
+        assert.equal(await dialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), filename);
+        if (outcome === "rollback") {
+          const [terminated] = await sql`SELECT pg_terminate_backend(${blockedPid}) AS terminated`;
+          assert.equal(terminated.terminated, true);
+        }
+      } finally {
+        if (gateLocked) await gate`SELECT pg_advisory_unlock(927431, 9)`;
+        gate.release();
+      }
+      const response = await upstream;
+      assert.equal(response.status(), 200);
+      assert.match(await response.text(), outcome === "commit"
+        ? kind === "photo" ? /Материал сохранён в документах заказа/ : /Выезд завершён, акт добавлен в архив/
+        : kind === "photo" ? /Не удалось подтвердить сохранение материала/ : /Не удалось подтвердить завершение выезда/);
+      assert.deepEqual(visitErrors, []);
+      if (outcome === "commit") {
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${documentId}`)[0].count, 1);
+        await verifyVersion(documentId, 1, bytes, true);
+        if (kind === "act") assert.deepEqual((await sql`SELECT status, completion_document_id FROM service_visits WHERE id = ${visit.id}`)[0],
+          { status: "completed", completion_document_id: documentId });
+        await dialog.getByRole("button", { name: kind === "photo" ? "Добавить материал" : "Завершить с актом", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${documentId}`)[0].count, 1);
+      } else {
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${documentId}`)[0].count, 0);
+        assert.deepEqual((await sql`SELECT status, completion_document_id FROM service_visits WHERE id = ${visit.id}`)[0],
+          { status: "planned", completion_document_id: null });
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+        await dialog.getByRole("button", { name: kind === "photo" ? "Добавить материал" : "Завершить с актом", exact: true }).click();
+        await dialog.getByRole("alert").filter({ hasText: kind === "photo"
+          ? "Файл материала уже существует, но сохранение не подтверждено"
+          : "Файл акта уже существует, но завершение выезда не подтверждено" }).waitFor();
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${documentId}`)[0].count, 0);
+        const retained = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(retained, bytes);
+      }
+      console.log(`aborted in-flight visit ${kind} ${outcome}: ${outcome === "commit" ? "one document survived" : "no document committed; file and unresolved operation remained"}.`);
+      await visitContext.close();
+    }
+
+    for (const outcome of ["commit", "rollback"]) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation IN ('chat_action', 'chat_upload')`;
+      const [channel] = await sql`INSERT INTO chat_channels (organization_id, name, kind, audience_kind, created_by)
+        VALUES (${member.organization_id}, ${`In-flight avatar ${outcome}`}, 'group', 'office', ${member.id}) RETURNING id`;
+      await sql`INSERT INTO chat_channel_members (organization_id, channel_id, member_id, channel_role, joined_by)
+        VALUES (${member.organization_id}, ${channel.id}, ${member.id}, 'owner', ${member.id})`;
+      const avatarContext = await browser.newContext({ storageState: await archiveClient.storageState(), viewport: { width: 1440, height: 1000 } });
+      const avatarPage = await avatarContext.newPage();
+      const avatarErrors = [];
+      avatarPage.on("pageerror", (error) => avatarErrors.push(error.message));
+      let abortRequest;
+      const abortSignal = new Promise((resolveAbort) => { abortRequest = resolveAbort; });
+      let resolveAborted;
+      const aborted = new Promise((resolveAbort) => { resolveAborted = resolveAbort; });
+      let upstream;
+      let intercept = true;
+      const changedName = `In-flight avatar ${outcome} updated`;
+      await avatarPage.route("**/chat**", async (route) => {
+        if (!intercept || route.request().method() !== "POST" || !route.request().headers()["next-action"]
+          || !route.request().postDataBuffer()?.includes(changedName)) return route.continue();
+        intercept = false;
+        upstream = route.fetch();
+        await abortSignal;
+        await route.abort("failed");
+        resolveAborted();
+        await upstream.catch(() => {});
+      });
+      let avatarNavigation = await avatarPage.goto(`${baseUrl}/chat?channel=${channel.id}`);
+      if (avatarNavigation?.status() === 500) {
+        avatarNavigation = await avatarPage.reload();
+        assert.equal(avatarNavigation?.status(), 200, `Avatar ${outcome} page must recover after an injected PostgreSQL disconnect`);
+        avatarErrors.length = 0;
+      }
+      await avatarPage.getByRole("button", { name: "Настройки группы", exact: true }).click();
+      const dialog = avatarPage.getByRole("dialog", { name: "Настройки группы", exact: true });
+      await dialog.locator('input[name="name"]').fill(changedName);
+      await dialog.locator('textarea[name="description"]').fill(`In-flight description ${outcome}`);
+      const filename = `in-flight-avatar-${outcome}.png`;
+      await dialog.locator('input[name="avatar"]').setInputFiles({ name: filename, mimeType: "image/png", buffer: imageBytes });
+      const requestId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+      const storageKey = `${member.organization_id}/${channel.id}/v2.png`;
+      await sql`INSERT INTO upload_abort_gate (document_id) VALUES (${channel.id})`;
+      const gate = await sql.reserve();
+      let gateLocked = false;
+      try {
+        await gate`SELECT pg_advisory_lock(927431, 9)`;
+        gateLocked = true;
+        await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+        let blockedPid = null;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const [activity] = await sql`SELECT pid FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event = 'advisory'
+              AND query LIKE '%INSERT INTO chat_channel_avatars%' LIMIT 1`;
+          if (activity) { blockedPid = activity.pid; break; }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+        }
+        assert.ok(blockedPid, `Avatar ${outcome} must reach the database after writing its file`);
+        const stored = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: imageBytes.length, sha256: createHash("sha256").update(imageBytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(stored, imageBytes);
+        assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${channel.id}`)[0].version, 1);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${channel.id}`)[0].count, 0);
+        abortRequest();
+        await aborted;
+        await dialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте настройки группы" }).waitFor();
+        assert.equal(await dialog.locator('input[name="idempotencyKey"]').inputValue(), requestId);
+        assert.equal(await dialog.locator('input[name="avatar"]').evaluate((input) => input.files?.[0]?.name), filename);
+        if (outcome === "rollback") {
+          const [terminated] = await sql`SELECT pg_terminate_backend(${blockedPid}) AS terminated`;
+          assert.equal(terminated.terminated, true);
+        }
+      } finally {
+        if (gateLocked) await gate`SELECT pg_advisory_unlock(927431, 9)`;
+        gate.release();
+      }
+      const response = await upstream;
+      assert.equal(response.status(), 200);
+      assert.match(await response.text(), outcome === "commit" ? /Настройки группы сохранены/ : /Не удалось подтвердить сохранение настроек/);
+      assert.deepEqual(avatarErrors, []);
+      if (outcome === "commit") {
+        assert.deepEqual((await sql`SELECT name, description, version FROM chat_channels WHERE id = ${channel.id}`)[0],
+          { name: changedName, description: `In-flight description ${outcome}`, version: 2 });
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${channel.id}`)[0].count, 1);
+        await verifyStoredReference("chat_channel_avatars", "channel_id", channel.id, imageBytes);
+        await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+        assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${channel.id}`)[0].version, 2);
+      } else {
+        assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${channel.id}`)[0].version, 1);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${channel.id}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+        await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+        await dialog.getByRole("status").filter({ hasText: "Файл фото группы уже существует, но новые настройки не подтверждены" }).waitFor();
+        assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${channel.id}`)[0].version, 1);
+        const retained = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: imageBytes.length, sha256: createHash("sha256").update(imageBytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(retained, imageBytes);
+      }
+      console.log(`aborted in-flight avatar ${outcome}: ${outcome === "commit" ? "one group version and photo survived" : "no group update committed; file and unresolved operation remained"}.`);
+      await avatarContext.close();
+    }
   }
   if (objectStorage) {
     await s3Fixture.close();
@@ -2404,7 +2643,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 6 in-flight commits, 6 in-flight rollbacks, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 in-flight commits, 9 in-flight rollbacks, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

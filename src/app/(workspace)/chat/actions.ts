@@ -243,7 +243,7 @@ async function updateChatChannelSettingsActionImpl(_previous: ChatMutationState,
     if (error instanceof ChatChannelConflictError) return { status: "error", message: "Группа с таким названием уже существует.", fieldErrors: { name: ["Название уже используется"] }, entityId: null };
     if (error instanceof ChatChannelVersionConflictError) return { status: "error", message: "Настройки уже изменились. Обновите страницу.", fieldErrors: {}, entityId: null };
     if (error instanceof ChatChannelNotFoundError) return { status: "error", message: "Группа больше недоступна.", fieldErrors: {}, entityId: null };
-    if (errorCode(error) === "EEXIST") return { status: "error", message: "Фото группы уже обрабатывается. Обновите страницу и повторите.", fieldErrors: {}, entityId: null };
+    if (errorCode(error) === "EEXIST") return { status: "error", message: "Файл фото группы уже существует, но новые настройки не подтверждены. Проверьте группу; если фото не появилось, обратитесь к администратору для сверки файла.", fieldErrors: {}, entityId: null };
     markFileWriteUncertain();
     logUnexpected("chat.channel.settings_update", member.memberId, error);
     return { status: "error", message: "Не удалось подтвердить сохранение настроек. Обновите группу и проверьте результат перед повторным изменением.", fieldErrors: {}, entityId: null };
