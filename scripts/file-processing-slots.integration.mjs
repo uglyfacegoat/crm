@@ -17,7 +17,7 @@ const hooks = registerHooks({
 let selectedPool;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", sourceRoot), { namedExports: { getDatabase: () => selectedPool } });
-const { FileProcessingBusyError, withFileProcessingSlot } = await import("../src/server/file-scan/processing-slots.ts");
+const { FileProcessingBusyError, withFileProcessingSlot, withFileProcessingResponse } = await import("../src/server/file-scan/processing-slots.ts");
 
 function deferred() {
   let resolve;
@@ -57,4 +57,26 @@ test("file-processing permits are shared across database pools and released on s
   assert.equal(await withFileProcessingSlot(async () => "reused"), "reused");
   releaseSecond.resolve();
   assert.equal(await second, "second");
+});
+
+test("streamed responses retain a shared permit until consumed or cancelled", async (t) => {
+  const pool = postgres(databaseUrl, { max: 3 });
+  selectedPool = pool;
+  t.after(async () => { await pool.end(); });
+  const body = Buffer.alloc(192 * 1024, 7);
+  const first = await withFileProcessingResponse(async () => ({ body, init: { status: 200 } }));
+  const second = await withFileProcessingResponse(async () => ({ body, init: { status: 200 } }));
+  await assert.rejects(withFileProcessingSlot(async () => "unexpected"), FileProcessingBusyError);
+
+  const reader = first.body.getReader();
+  const chunk = await reader.read();
+  assert.equal(chunk.value.length, 64 * 1024);
+  await assert.rejects(withFileProcessingSlot(async () => "unexpected"), FileProcessingBusyError);
+  await reader.cancel();
+  assert.equal(await withFileProcessingSlot(async () => "reused after cancel"), "reused after cancel");
+
+  assert.equal(Buffer.from(await second.arrayBuffer()).length, body.length);
+  assert.equal(await withFileProcessingSlot(async () => "reused after completion"), "reused after completion");
+  await assert.rejects(withFileProcessingResponse(async () => { throw new Error("archive failed"); }), /archive failed/);
+  assert.equal(await withFileProcessingSlot(async () => "reused after failure"), "reused after failure");
 });

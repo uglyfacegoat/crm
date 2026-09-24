@@ -23,6 +23,13 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, UP-05 ZIP transfer checkpoint:** ZIP export now streams in
+  64 KiB chunks and retains its shared PostgreSQL permit until the application
+  stream is consumed or cancelled, with a five-minute total transfer cutoff. Packaging
+  and Response creation avoid two full archive copies. A real-PostgreSQL test
+  covered both concurrent permits, cancel, completion and preparation failure;
+  byte-exact ZIP and the packaged browser suite passed on local and test S3. Incoming body
+  buffering, ordinary downloads and representative server load remain open.
 - **2026-09-24, UP-05 read-side checkpoint:** the existing two PostgreSQL
   processing slots now cover verified document/version/template/chat attachment
   reads and DOCX preview conversion. When saturated, protected routes return

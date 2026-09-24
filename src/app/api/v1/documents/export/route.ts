@@ -9,7 +9,7 @@ import { documentBatchExportSchema } from "@/server/documents/schemas";
 import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 import type { DocumentExportFile } from "@/server/documents/types";
 import { InvalidJsonBodyError, readJsonBody, RequestBodyTooLargeError } from "@/server/http/json-body";
-import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
+import { FileProcessingBusyError, withFileProcessingResponse } from "@/server/file-scan/processing-slots";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
         throw new DocumentExportLimitError("Общий размер выбранных документов не должен превышать 50 МБ.");
       }
     }
-    const { archive, totalSizeBytes } = await withFileProcessingSlot(async () => {
+    return await withFileProcessingResponse(async () => {
       const hydratedFiles: Array<DocumentExportFile & { content: Buffer }> = [];
       for (const file of files) {
         try {
@@ -58,21 +58,21 @@ export async function POST(request: Request) {
           throw error;
         }
       }
-      return createDocumentExportArchive(hydratedFiles);
-    });
-    await recordDocumentBatchExport(member, files, totalSizeBytes);
-    const dateParts = new Intl.DateTimeFormat("en", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/Moscow" })
-      .formatToParts(new Date()).reduce<Record<string, string>>((result, part) => ({ ...result, [part.type]: part.value }), {});
-    if (!dateParts.year || !dateParts.month || !dateParts.day) throw new Error("Unable to format the export date.");
-    const date = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
-    return new Response(archive, {
-      headers: {
-        "Cache-Control": "private, no-store",
-        "Content-Disposition": `attachment; filename="crm-documents-${date}.zip"`,
-        "Content-Length": String(archive.length),
-        "Content-Type": "application/zip",
-        "X-Content-Type-Options": "nosniff",
-      },
+      const { archive, totalSizeBytes } = createDocumentExportArchive(hydratedFiles);
+      await recordDocumentBatchExport(member, files, totalSizeBytes);
+      const dateParts = new Intl.DateTimeFormat("en", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/Moscow" })
+        .formatToParts(new Date()).reduce<Record<string, string>>((result, part) => ({ ...result, [part.type]: part.value }), {});
+      if (!dateParts.year || !dateParts.month || !dateParts.day) throw new Error("Unable to format the export date.");
+      const date = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+      return { body: archive, init: {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "Content-Disposition": `attachment; filename="crm-documents-${date}.zip"`,
+          "Content-Length": String(archive.length),
+          "Content-Type": "application/zip",
+          "X-Content-Type-Options": "nosniff",
+        },
+      } };
     });
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для экспорта документов." } }, { status: 403 });
