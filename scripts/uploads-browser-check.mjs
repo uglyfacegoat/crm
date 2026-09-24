@@ -1544,6 +1544,55 @@ try {
     await verifyVersion(commitDocumentId, 2, commitVersionBytes);
     assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedSecondVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
     console.log("lost version COMMIT acknowledgement: both versions survived; retry did not duplicate or erase the durable unresolved operation.");
+
+    for (const kind of ["payment", "payout"]) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+      await commitPage.goto(`${baseUrl}/finance`);
+      if (kind === "payment") {
+        const summary = commitPage.locator("summary").filter({ hasText: "UPLOAD-1" }).first();
+        if (await summary.locator("..").getAttribute("open") === null) await summary.click();
+        await commitPage.getByRole("button", { name: "Добавить оплату", exact: true }).click();
+      } else {
+        await commitPage.getByRole("tab", { name: "Мастера", exact: true }).click();
+        await commitPage.getByRole("button", { name: "Провести выплату", exact: true }).click();
+      }
+      const label = kind === "payment" ? "Провести оплату" : "Провести выплату";
+      const commitFinanceDialog = commitPage.getByRole("dialog", { name: kind === "payment" ? "Оплата клиента" : "Выплата мастеру", exact: true });
+      await commitFinanceDialog.locator('input[name="amount"]').fill("100");
+      await commitFinanceDialog.locator('input[name="reference"]').fill(`Lost ${kind} COMMIT acknowledgement`);
+      await commitFinanceDialog.locator('textarea[name="note"]').fill(`Lost ${kind} COMMIT note`);
+      const commitReceiptBytes = pdfFixture(`Lost ${kind} COMMIT acknowledgement`);
+      await commitFinanceDialog.locator('input[name="receipt"]').setInputFiles({ name: `${kind}-commit-lost.pdf`, mimeType: "application/pdf", buffer: commitReceiptBytes });
+      const financeKey = await commitFinanceDialog.locator('input[name="idempotencyKey"]').inputValue();
+      const receiptId = await commitFinanceDialog.locator('input[name="receiptDocumentId"]').inputValue();
+      commitProxy.armNextCommit();
+      await commitFinanceDialog.getByRole("button", { name: label, exact: true }).click();
+      await commitFinanceDialog.getByRole("status").filter({ hasText: kind === "payment" ? "Не удалось подтвердить оплату" : "Не удалось подтвердить выплату" }).waitFor();
+      assert.equal(commitProxy.droppedCommits, kind === "payment" ? 3 : 4);
+      assert.deepEqual(commitProxy.errors, []);
+      const table = kind === "payment" ? "order_payments" : "order_master_payouts";
+      const [entry] = await sql`SELECT receipt_document_id, amount_minor FROM ${sql(table)} WHERE organization_id = ${member.organization_id} AND idempotency_key = ${financeKey}`;
+      assert.equal(entry.receipt_document_id, receiptId);
+      assert.equal(Number(entry.amount_minor), 10000);
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 1);
+      const [receiptVersion] = await sql`SELECT storage_key FROM document_versions WHERE document_id = ${receiptId}`;
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${receiptVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+      assert.equal(await commitFinanceDialog.locator('input[name="idempotencyKey"]').inputValue(), financeKey);
+      assert.equal(await commitFinanceDialog.locator('input[name="receiptDocumentId"]').inputValue(), receiptId);
+      assert.equal(await commitFinanceDialog.locator('input[name="amount"]').inputValue(), "100");
+      assert.equal(await commitFinanceDialog.locator('input[name="reference"]').inputValue(), `Lost ${kind} COMMIT acknowledgement`);
+      assert.equal(await commitFinanceDialog.locator('textarea[name="note"]').inputValue(), `Lost ${kind} COMMIT note`);
+      assert.equal(await commitFinanceDialog.locator('input[name="receipt"]').evaluate((input) => input.files?.[0]?.name), `${kind}-commit-lost.pdf`);
+      assert.deepEqual(commitPageErrors, []);
+      await commitFinanceDialog.getByRole("button", { name: label, exact: true }).click();
+      await commitFinanceDialog.waitFor({ state: "hidden" });
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${financeKey}`)[0].count, 1);
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 1);
+      await verifyVersion(receiptId, 1, commitReceiptBytes);
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${receiptVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+      console.log(`lost ${kind} COMMIT acknowledgement: one ledger entry and receipt survived; retry did not duplicate or erase the durable unresolved operation.`);
+    }
     await commitContext.close();
   }
   if (objectStorage) {
@@ -1554,7 +1603,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 2 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 4 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
