@@ -1389,6 +1389,7 @@ try {
   await verifyVersion(lostActId, 1, lostActBytes, true);
   console.log("lost signed act response after commit: form retained fields and file; replay and UI retry completed the visit only once.");
   await masterClient.dispose();
+  const masterStorageState = await masterContext.storageState();
   await masterContext.close();
   assert.equal(replaced, 9);
   assert.equal(interceptionError, null);
@@ -1651,7 +1652,115 @@ try {
     await verifyStoredReference("chat_message_attachments", "message_id", commitMessageId, commitChatBytes);
     assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedAttachment.storage_key} = ANY(storage_keys)`)[0].count, 1);
     console.log("lost chat COMMIT acknowledgement: one message and attachment survived; retry did not duplicate or erase the durable unresolved operation.");
+
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation IN ('chat_action', 'chat_upload')`;
+    const [commitAvatarChannel] = await sql`INSERT INTO chat_channels (organization_id, name, kind, audience_kind, created_by)
+      VALUES (${member.organization_id}, 'Lost COMMIT avatar group', 'group', 'office', ${member.id}) RETURNING id`;
+    await sql`INSERT INTO chat_channel_members (organization_id, channel_id, member_id, channel_role, joined_by)
+      VALUES (${member.organization_id}, ${commitAvatarChannel.id}, ${member.id}, 'owner', ${member.id})`;
+    await commitPage.goto(`${baseUrl}/chat?channel=${commitAvatarChannel.id}`);
+    await commitPage.getByRole("button", { name: "Настройки группы", exact: true }).click();
+    const commitAvatarDialog = commitPage.getByRole("dialog", { name: "Настройки группы", exact: true });
+    await commitAvatarDialog.locator('input[name="name"]').fill("Lost COMMIT avatar group updated");
+    await commitAvatarDialog.locator('textarea[name="description"]').fill("Description retained after lost COMMIT");
+    await commitAvatarDialog.locator('input[name="avatar"]').setInputFiles({ name: "avatar-commit-lost.png", mimeType: "image/png", buffer: imageBytes });
+    commitProxy.armNextCommit();
+    await commitAvatarDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+    await commitAvatarDialog.getByRole("status").filter({ hasText: "Не удалось подтвердить сохранение настроек" }).waitFor();
+    assert.equal(commitProxy.droppedCommits, 7);
+    assert.deepEqual(commitProxy.errors, []);
+    assert.deepEqual((await sql`SELECT name, description, version FROM chat_channels WHERE id = ${commitAvatarChannel.id}`)[0], {
+      name: "Lost COMMIT avatar group updated", description: "Description retained after lost COMMIT", version: 2,
+    });
+    const [committedAvatar] = await sql`SELECT storage_key FROM chat_channel_avatars WHERE channel_id = ${commitAvatarChannel.id}`;
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedAvatar.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await commitAvatarDialog.locator('input[name="name"]').inputValue(), "Lost COMMIT avatar group updated");
+    assert.equal(await commitAvatarDialog.locator('textarea[name="description"]').inputValue(), "Description retained after lost COMMIT");
+    assert.equal(await commitAvatarDialog.locator('input[name="avatar"]').evaluate((input) => input.files?.[0]?.name), "avatar-commit-lost.png");
+    assert.deepEqual(commitPageErrors, []);
+    await commitAvatarDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+    await commitAvatarDialog.getByRole("status").filter({ hasText: "Настройки уже изменились. Обновите страницу." }).waitFor();
+    assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${commitAvatarChannel.id}`)[0].version, 2);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${commitAvatarChannel.id}`)[0].count, 1);
+    await verifyStoredReference("chat_channel_avatars", "channel_id", commitAvatarChannel.id, imageBytes);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedAvatar.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    console.log("lost avatar COMMIT acknowledgement: one group version and photo survived; retry reported a safe version conflict without erasing the durable unresolved operation.");
     await commitContext.close();
+
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    const [commitVisit] = await sql`INSERT INTO service_visits (organization_id, order_id, object_id, assigned_master_id,
+      scheduled_start_at, scheduled_end_at, status, client_name_snapshot, object_name_snapshot, object_address_snapshot)
+      VALUES (${member.organization_id}, ${order.id}, ${object.id}, ${master.id},
+        (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') + interval '16 hours') AT TIME ZONE 'Europe/Moscow',
+        (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') + interval '17 hours') AT TIME ZONE 'Europe/Moscow',
+        'planned', 'Upload customer', 'Upload object', 'Test address') RETURNING id`;
+    const masterCommitContext = await browser.newContext({ storageState: masterStorageState, viewport: { width: 1440, height: 1000 } });
+    const masterCommitPage = await masterCommitContext.newPage();
+    const masterCommitErrors = [];
+    masterCommitPage.on("pageerror", (error) => masterCommitErrors.push(error.message));
+    await masterCommitPage.goto(`${baseUrl}/my-visits`);
+    await masterCommitPage.getByRole("button", { name: "Материалы", exact: true }).last().click();
+    const commitEvidenceDialog = masterCommitPage.getByRole("dialog", { name: "Материалы выезда", exact: true });
+    assert.equal(await commitEvidenceDialog.locator('input[name="visitId"]').inputValue(), commitVisit.id);
+    await commitEvidenceDialog.locator('textarea[name="note"]').fill("Lost visit photo COMMIT note");
+    await commitEvidenceDialog.locator('input[name="file"]').setInputFiles({ name: "visit-commit-lost.png", mimeType: "image/png", buffer: imageBytes });
+    const commitEvidenceId = await commitEvidenceDialog.locator('input[name="idempotencyKey"]').inputValue();
+    commitProxy.armNextCommit();
+    await commitEvidenceDialog.getByRole("button", { name: "Добавить материал", exact: true }).click();
+    await commitEvidenceDialog.getByRole("alert").filter({ hasText: "Не удалось подтвердить сохранение материала" }).waitFor();
+    assert.equal(commitProxy.droppedCommits, 8);
+    assert.deepEqual(commitProxy.errors, []);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${commitEvidenceId}`)[0].count, 1);
+    const [committedEvidenceVersion] = await sql`SELECT storage_key FROM document_versions WHERE document_id = ${commitEvidenceId}`;
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedEvidenceVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await commitEvidenceDialog.locator('input[name="idempotencyKey"]').inputValue(), commitEvidenceId);
+    assert.equal(await commitEvidenceDialog.locator('textarea[name="note"]').inputValue(), "Lost visit photo COMMIT note");
+    assert.equal(await commitEvidenceDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "visit-commit-lost.png");
+    assert.deepEqual(masterCommitErrors, []);
+    await commitEvidenceDialog.getByRole("button", { name: "Добавить материал", exact: true }).click();
+    await commitEvidenceDialog.waitFor({ state: "hidden" });
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${commitEvidenceId}`)[0].count, 1);
+    await verifyVersion(commitEvidenceId, 1, imageBytes, true);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedEvidenceVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    console.log("lost visit photo COMMIT acknowledgement: one document survived; retry did not duplicate or erase the durable unresolved operation.");
+
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    await masterCommitPage.goto(`${baseUrl}/my-visits`);
+    await masterCommitPage.getByRole("button", { name: "Завершить", exact: true }).last().click();
+    const commitActDialog = masterCommitPage.getByRole("dialog", { name: "Завершить выезд", exact: true });
+    assert.equal(await commitActDialog.locator('input[name="visitId"]').inputValue(), commitVisit.id);
+    await commitActDialog.locator('input[name="actTitle"]').fill("Lost COMMIT signed act");
+    await commitActDialog.locator('textarea[name="completionNotes"]').fill("Work completed before COMMIT acknowledgement was lost");
+    const commitActBytes = pdfFixture("Lost signed act COMMIT acknowledgement");
+    await commitActDialog.locator('input[name="file"]').setInputFiles({ name: "act-commit-lost.pdf", mimeType: "application/pdf", buffer: commitActBytes });
+    const commitActId = await commitActDialog.locator('input[name="idempotencyKey"]').inputValue();
+    commitProxy.armNextCommit();
+    await commitActDialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
+    await commitActDialog.getByRole("alert").filter({ hasText: "Не удалось подтвердить завершение выезда" }).waitFor();
+    assert.equal(commitProxy.droppedCommits, 9);
+    assert.deepEqual(commitProxy.errors, []);
+    const [committedVisit] = await sql`SELECT status, completion_document_id, version FROM service_visits WHERE id = ${commitVisit.id}`;
+    assert.equal(committedVisit.status, "completed");
+    assert.equal(committedVisit.completion_document_id, commitActId);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${commitActId}`)[0].count, 1);
+    const [committedActVersion] = await sql`SELECT storage_key FROM document_versions WHERE document_id = ${commitActId}`;
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedActVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await commitActDialog.locator('input[name="idempotencyKey"]').inputValue(), commitActId);
+    assert.equal(await commitActDialog.locator('input[name="actTitle"]').inputValue(), "Lost COMMIT signed act");
+    assert.equal(await commitActDialog.locator('textarea[name="completionNotes"]').inputValue(), "Work completed before COMMIT acknowledgement was lost");
+    assert.equal(await commitActDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "act-commit-lost.pdf");
+    assert.deepEqual(masterCommitErrors, []);
+    await commitActDialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
+    await commitActDialog.waitFor({ state: "hidden" });
+    assert.deepEqual((await sql`SELECT status, completion_document_id, version FROM service_visits WHERE id = ${commitVisit.id}`)[0], committedVisit);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${commitActId}`)[0].count, 1);
+    await verifyVersion(commitActId, 1, commitActBytes, true);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedActVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    console.log("lost signed act COMMIT acknowledgement: visit completed once and act survived; retry did not erase the durable unresolved operation.");
+    await masterCommitContext.close();
   }
   if (objectStorage) {
     await s3Fixture.close();
@@ -1661,7 +1770,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 6 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
