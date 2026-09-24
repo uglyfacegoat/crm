@@ -31,9 +31,12 @@ Git push remains on hold until the owner asks.
   intact bytes; a rollback leaves no false business record and keeps the file
   with an unresolved write operation for reconciliation. Visit and avatar
   forms now explain that an existing file may have an unconfirmed result.
-  Typecheck, lint, build and the full browser suite passed; working Docker
-  installation is recorded separately. Load limits and unrelated database
-  faults remain in their own checklist items.
+  Typecheck, lint, build, 232 unit tests and the full browser suite passed.
+  `crm-app:upload-up07-2447e5a` is installed for the web and Workflow worker;
+  all five Docker services and readiness are healthy. A 068→068 working-copy
+  upgrade rehearsal preserved counts in all 78 tables. No test upload was
+  made to the working database. Load limits and unrelated database faults
+  remain in their own checklist items.
 - **2026-09-24, Workflow WF-06 local acceptance:** the packaged browser test
   completed the map/review/publication lifecycle, created an order through the
   actual form with automation enabled, ran the worker and found its task on

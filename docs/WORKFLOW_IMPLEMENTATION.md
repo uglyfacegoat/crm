@@ -126,9 +126,9 @@ This document tracks the actual working scope, not the planned final scope.
 
 ## Working Docker installation
 
-On 24 September, `crm-app:workflow-wf05-2a54e88` was installed for both the
-`crm` web service and `workflow-worker`. The prior image is retained as
-`crm-app:before-workflow-wf05-engine-20260924`. Migration 068 is applied in the
+On 24 September, `crm-app:upload-up07-2447e5a` replaced the earlier WF-05
+image for both the `crm` web service and `workflow-worker`. The previous image
+is retained as `crm-app:before-upload-up07-20260924`. Migration 068 is applied in the
 working database. Web, PostgreSQL, reminder worker, backup worker and Workflow
 worker report healthy; `/api/v1/system/ready` returns 200 with
 `workflowWorker: available`. No automation is active in the working database,
