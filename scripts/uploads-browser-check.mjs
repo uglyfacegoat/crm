@@ -932,6 +932,60 @@ try {
     console.log(`lost ${kind} response after commit: form retained receipt and fields; replay and UI retry left one ledger entry.`);
     await financeContext.close();
   }
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  const templateContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const templatePage = await templateContext.newPage();
+  const templatePageErrors = [];
+  templatePage.on("pageerror", (error) => templatePageErrors.push(error.message));
+  let resolveTemplateResponse;
+  let rejectTemplateResponse;
+  const templateResponse = new Promise((resolve, reject) => { resolveTemplateResponse = resolve; rejectTemplateResponse = reject; });
+  const templateTimeout = setTimeout(() => rejectTemplateResponse(new Error("Lost template response was not intercepted")), 30_000);
+  let dropTemplateResponse = true;
+  await templatePage.route("**/settings**", async (route) => {
+    if (!dropTemplateResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+    dropTemplateResponse = false;
+    try {
+      const requestHeaders = route.request().headers();
+      const requestBody = route.request().postDataBuffer();
+      const response = await route.fetch();
+      resolveTemplateResponse({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+      await route.abort("failed");
+    } catch (error) { rejectTemplateResponse(error); }
+  });
+  await templatePage.goto(`${baseUrl}/settings`);
+  await templatePage.getByRole("tab", { name: "Шаблоны документов", exact: true }).click();
+  await templatePage.getByRole("button", { name: "Добавить шаблон", exact: true }).click();
+  const templateDialog = templatePage.getByRole("dialog", { name: "Шаблон закрывающего акта", exact: true });
+  await templateDialog.locator('input[name="title"]').fill("Lost response template");
+  await templateDialog.locator('textarea[name="description"]').fill("Description retained after lost response");
+  const lostTemplateBytes = pdfFixture("Lost template response after commit");
+  await templateDialog.locator('input[name="file"]').setInputFiles({ name: "lost-template.pdf", mimeType: "application/pdf", buffer: lostTemplateBytes });
+  const lostTemplateId = await templateDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await templateDialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+  const lostTemplate = await templateResponse;
+  clearTimeout(templateTimeout);
+  assert.equal(lostTemplate.status, 200);
+  assert.match(lostTemplate.body, /Шаблон акта опубликован/);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${lostTemplateId}`)[0].count, 1);
+  await templateDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте список шаблонов перед повторной отправкой." }).waitFor();
+  assert.equal(await templateDialog.locator('input[name="idempotencyKey"]').inputValue(), lostTemplateId);
+  assert.equal(await templateDialog.locator('input[name="title"]').inputValue(), "Lost response template");
+  assert.equal(await templateDialog.locator('textarea[name="description"]').inputValue(), "Description retained after lost response");
+  assert.equal(await templateDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "lost-template.pdf");
+  assert.equal(await templatePage.locator('[data-nextjs-dialog]').count(), 0);
+  assert.deepEqual(templatePageErrors, []);
+  await templatePage.screenshot({ path: join(artifacts, "template-lost-response.png") });
+  const templateReplay = await archiveClient.post(`${baseUrl}/settings`, { data: lostTemplate.requestBody, headers: lostTemplate.requestHeaders });
+  assert.equal(templateReplay.status(), 200);
+  assert.match(await templateReplay.text(), /Шаблон уже загружен/);
+  await templateDialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+  await templateDialog.waitFor({ state: "hidden" });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${lostTemplateId}`)[0].count, 1);
+  await verifyStoredReference("document_template_versions", "template_id", lostTemplateId, lostTemplateBytes);
+  console.log("lost template response after commit: form retained title, description, file and retry key; replay and UI retry kept one template version.");
+  await templateContext.close();
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -1157,7 +1211,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 4 lost post-commit responses, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 5 lost post-commit responses, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

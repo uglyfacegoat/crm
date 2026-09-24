@@ -2,7 +2,7 @@
 
 import { Check, Download, FileCheck2, FileUp, LoaderCircle, Plus, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useActionState, useCallback, useEffect, useState } from "react";
+import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import {
   type DocumentTemplateMutationState,
@@ -22,7 +22,8 @@ function Status({ state }: { state: DocumentTemplateMutationState }) {
 }
 
 function UploadTemplateForm({ requestKey, onComplete }: { requestKey: string; onComplete: () => void }) {
-  const [state, action, pending] = useActionState(uploadDocumentTemplateAction, initialState);
+  const [state, setState] = useState<DocumentTemplateMutationState>(initialState);
+  const [pending, startTransition] = useTransition();
   const router = useRouter();
   useEffect(() => {
     if (state.status !== "success" || state.refreshRequired) return;
@@ -32,7 +33,18 @@ function UploadTemplateForm({ requestKey, onComplete }: { requestKey: string; on
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    startTransition(() => action(formData));
+    startTransition(async () => {
+      try {
+        const result = await uploadDocumentTemplateAction(state, formData);
+        startTransition(() => setState(result));
+      } catch {
+        startTransition(() => setState({
+          status: "error",
+          message: "Не удалось получить ответ сервера. Проверьте список шаблонов перед повторной отправкой.",
+          fieldErrors: {},
+        }));
+      }
+    });
   };
   return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="idempotencyKey" value={requestKey} />
