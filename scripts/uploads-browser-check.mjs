@@ -467,7 +467,36 @@ try {
   await busyRetryDialog.waitFor({ state: "hidden" });
   await verifyVersion(busyDocumentId, 1, pdfFixture("busy retry"));
   assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${busyDocumentId}`)[0].count, 1);
-  console.log("processing slots: saturated export returned 429; upload kept its retry key and succeeded after release.");
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  await page.goto(`${baseUrl}/documents?document=${busyDocumentId}`);
+  await page.getByRole("button", { name: "Новая версия", exact: true }).click();
+  const busyVersionDialog = page.getByRole("dialog", { name: "Новая версия документа", exact: true });
+  await busyVersionDialog.locator('textarea[name="changeNote"]').fill("Retry after processing slots clear");
+  await busyVersionDialog.locator('input[name="file"]').setInputFiles({ name: "busy-version.pdf", mimeType: "application/pdf", buffer: pdfFixture("busy version retry") });
+  const busyVersionKey = await busyVersionDialog.locator('input[name="idempotencyKey"]').inputValue();
+  const versionFirstSlot = await sql.reserve();
+  const versionSecondSlot = await sql.reserve();
+  try {
+    await versionFirstSlot`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+    await versionSecondSlot`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+    await busyVersionDialog.getByRole("button", { name: "Сохранить версию 2", exact: true }).click();
+    await busyVersionDialog.getByRole("status").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+    assert.equal(await busyVersionDialog.locator('input[name="idempotencyKey"]').inputValue(), busyVersionKey);
+    assert.equal(await busyVersionDialog.locator('textarea[name="changeNote"]').inputValue(), "Retry after processing slots clear");
+    assert.equal(await busyVersionDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "busy-version.pdf");
+  } finally {
+    await versionFirstSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+    await versionSecondSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+    versionFirstSlot.release();
+    versionSecondSlot.release();
+  }
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${busyDocumentId}`)[0].count, 1);
+  await busyVersionDialog.getByRole("button", { name: "Сохранить версию 2", exact: true }).click();
+  await busyVersionDialog.waitFor({ state: "hidden" });
+  await verifyVersion(busyDocumentId, 2, pdfFixture("busy version retry"));
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${busyDocumentId}`)[0].count, 2);
+  console.log("processing slots: saturated export returned 429; document and version uploads retained their fields and succeeded after release.");
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -626,7 +655,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 20 real submissions, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 21 real submissions, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

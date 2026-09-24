@@ -2,7 +2,8 @@
 
 import { FileClock, RefreshCw, UploadCloud } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useState } from "react";
+import { startTransition, useActionState, useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { type DocumentUploadState, uploadDocumentVersionAction } from "@/app/(workspace)/documents/actions";
 import { OrderField, OrderFormFooter, OrderFormStatus, orderTextareaClass } from "@/components/orders/order-form-parts";
 import { Dialog } from "@/components/ui/dialog";
@@ -20,7 +21,13 @@ function UploadDocumentVersionForm({ document, requestKey, onComplete }: { docum
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status, state.refreshRequired]);
 
-  return <form action={formAction} className="flex min-h-full flex-1 flex-col">
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => formAction(formData));
+  };
+
+  return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="idempotencyKey" value={requestKey} />
     <input type="hidden" name="documentId" value={document.id} />
     <input type="hidden" name="expectedVersion" value={document.recordVersion} />
