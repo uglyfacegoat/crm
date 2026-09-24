@@ -142,6 +142,8 @@ try {
   let interceptionError = null;
   let duplicateDocumentPost = false;
   let duplicateDocumentResponse = null;
+  let duplicateFinancePost = false;
+  let duplicateFinanceResponse = null;
   // This injects the already-tested action state, not a backend cache failure.
   await page.route("**/*", async (route) => {
     if (duplicateDocumentPost && route.request().method() === "POST" && route.request().headers()["next-action"]
@@ -156,6 +158,22 @@ try {
           }),
         ]);
         duplicateDocumentResponse = { status: duplicate.status(), body: await duplicate.text() };
+        await route.fulfill({ response });
+      } catch (error) { interceptionError = error; await route.abort(); }
+      return;
+    }
+    if (duplicateFinancePost && route.request().method() === "POST" && route.request().headers()["next-action"]
+      && new URL(route.request().url()).pathname === "/finance") {
+      duplicateFinancePost = false;
+      try {
+        const [response, duplicate] = await Promise.all([
+          route.fetch(),
+          archiveClient.post(route.request().url(), {
+            data: route.request().postDataBuffer(),
+            headers: route.request().headers(),
+          }),
+        ]);
+        duplicateFinanceResponse = { status: duplicate.status(), body: await duplicate.text() };
         await route.fulfill({ response });
       } catch (error) { interceptionError = error; await route.abort(); }
       return;
@@ -322,7 +340,23 @@ try {
       const warning = kind === "payment"
         ? { saved: "Оплата проведена.", warning: "Оплата проведена, но страницу не удалось обновить. Обновите её вручную." }
         : { saved: "Выплата мастеру проведена.", warning: "Выплата проведена, но страницу не удалось обновить. Обновите её вручную." };
-      await submit(dialog, kind === "payment" ? "Провести оплату" : "Провести выплату", warn ? warning : null, `${kind}-warning.png`);
+      if (!warn) {
+        duplicateFinanceResponse = null;
+        duplicateFinancePost = true;
+        await dialog.getByRole("button", { name: kind === "payment" ? "Провести оплату" : "Провести выплату", exact: true }).click();
+        await page.waitForTimeout(1_300);
+        if (await dialog.isVisible()) {
+          assert.match(await dialog.getByRole("status").innerText(), /Файл этого запроса уже существует|Оплата проведена|Выплата мастеру проведена/i);
+          await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+          await dialog.waitFor({ state: "hidden" });
+        }
+        if (interceptionError) throw interceptionError;
+        assert.ok(duplicateFinanceResponse, `Concurrent duplicate ${kind} POST must run`);
+        assert.equal(duplicateFinanceResponse.status, 200);
+        assert.match(duplicateFinanceResponse.body, /Файл этого запроса уже существует|Оплата проведена|Выплата мастеру проведена/i);
+      } else {
+        await submit(dialog, kind === "payment" ? "Провести оплату" : "Провести выплату", warn ? warning : null, `${kind}-warning.png`);
+      }
       const table = kind === "payment" ? "order_payments" : "order_master_payouts";
       const records = await sql`SELECT receipt_document_id, amount_minor FROM ${sql(table)}
         WHERE organization_id = ${member.organization_id} AND idempotency_key = ${key}`;
@@ -330,6 +364,10 @@ try {
       assert.equal(records[0].receipt_document_id, receiptId);
       assert.equal(Number(records[0].amount_minor), 10000);
       await verifyVersion(receiptId, 1, receiptBytes);
+      if (!warn) {
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 1);
+        console.log(`concurrent ${kind}: two identical requests left one ledger entry and one receipt version.`);
+      }
       console.log(`${suffix}: ${kind} receipt, ledger amount, download and dialog behavior verified.`);
     }
 
