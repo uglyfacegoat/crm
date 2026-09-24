@@ -15,6 +15,7 @@
     "test:working-upgrade": "node scripts/working-upgrade-check.mjs",
     "test:file-drain": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-drain.integration.mjs",
     "test:file-recovery": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-recovery.integration.mjs",
+    "test:file-processing-slots": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/file-processing-slots.integration.mjs",
     "test:file-quarantine": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-quarantine.integration.mjs",
     "test:file-s3-export": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-s3-export.integration.mjs",
     "test:file-s3-quarantine": "node scripts/isolated-postgres-test.mjs --test scripts/file-write-s3-quarantine.integration.mjs",

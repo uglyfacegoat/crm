@@ -17,6 +17,9 @@ const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context);
 } });
 mock.module("server-only", { namedExports: {} });
+class FileProcessingBusyError extends Error {}
+const withFileProcessingSlot = mock.fn(async (work) => work());
+mock.module(new URL("server/file-scan/processing-slots.ts", root), { namedExports: { FileProcessingBusyError, withFileProcessingSlot } });
 const storageUrl = new URL("server/documents/storage.ts", root);
 const storage = await import(storageUrl.href);
 const readStoredFile = mock.fn(storage.readVerifiedDocumentFile);
@@ -81,13 +84,14 @@ test("all document readers bound file allocation and preserve access checks", as
   }));
   const docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   t.beforeEach(() => {
-    for (const fn of [getCurrentSession, consumeRequestLimit, getDocumentDownload, getDocumentVersionDownload, getDocumentTemplateDownload, getChatChannelAvatarDownload, getDocumentBatchExport, recordDocumentBatchExport, readStoredFile, log]) fn.mock.resetCalls();
+    for (const fn of [getCurrentSession, consumeRequestLimit, getDocumentDownload, getDocumentVersionDownload, getDocumentTemplateDownload, getChatChannelAvatarDownload, getDocumentBatchExport, recordDocumentBatchExport, readStoredFile, withFileProcessingSlot, log]) fn.mock.resetCalls();
     getCurrentSession.mock.mockImplementation(async () => member);
     consumeRequestLimit.mock.mockImplementation(async () => ({ allowed: true, retryAfterSeconds: 60 }));
     for (const [, , lookup] of endpoints) lookup.mock.mockImplementation(async () => file);
     getDocumentBatchExport.mock.mockImplementation(async () => [file]);
     recordDocumentBatchExport.mock.mockImplementation(async () => {});
     readStoredFile.mock.mockImplementation(storage.readVerifiedDocumentFile);
+    withFileProcessingSlot.mock.mockImplementation(async (work) => work());
   });
   for (const [name, handler, lookup, NotFound, limit] of endpoints) {
     await t.test(`${name}: rate limit prevents file access after authorization`, async () => {
@@ -177,6 +181,14 @@ test("all document readers bound file allocation and preserve access checks", as
       getDocumentBatchExport.mock.mockImplementation(async () => [file, { ...file, sizeBytes }]);
       assert.equal((await exportFiles()).status, 500);
     }
+    assert.equal(readStoredFile.mock.callCount(), 0);
+    assert.equal(recordDocumentBatchExport.mock.callCount(), 0);
+  });
+  await t.test("export returns a retry response while both processing slots are occupied", async () => {
+    withFileProcessingSlot.mock.mockImplementation(async () => { throw new FileProcessingBusyError(); });
+    const response = await exportFiles();
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get("retry-after"), "3");
     assert.equal(readStoredFile.mock.callCount(), 0);
     assert.equal(recordDocumentBatchExport.mock.callCount(), 0);
   });

@@ -11,6 +11,7 @@ import { StoredFileIntegrityError, validateFileExpectation, validateStorageKey }
 import { FileScanRejectedError, FileScanUnavailableError, scanFileBuffer } from "../file-scan/clamd.mjs";
 import { assertDecodableImage, InvalidImageError } from "../file-scan/image-check.mjs";
 import { assertReadablePdf, InvalidPdfError } from "../file-scan/pdf-check.mjs";
+import { FileProcessingBusyError, withFileProcessingSlot } from "../file-scan/processing-slots";
 import { DocumentFileValidationError } from "./file-validation";
 
 export { StoredFileIntegrityError };
@@ -69,6 +70,14 @@ export function createChatChannelAvatarStorageKey(organizationId: string, channe
 }
 
 export async function writeDocumentFile(storageKey: string, buffer: Buffer) {
+  try { return await withFileProcessingSlot(() => writeDocumentFileInsideSlot(storageKey, buffer)); }
+  catch (error) {
+    if (error instanceof FileProcessingBusyError) throw new DocumentFileValidationError("Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд.");
+    throw error;
+  }
+}
+
+async function writeDocumentFileInsideSlot(storageKey: string, buffer: Buffer) {
   if (buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
     try { await assertReadablePdf(buffer); }
     catch (error) {

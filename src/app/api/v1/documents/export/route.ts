@@ -9,6 +9,7 @@ import { documentBatchExportSchema } from "@/server/documents/schemas";
 import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 import type { DocumentExportFile } from "@/server/documents/types";
 import { InvalidJsonBodyError, readJsonBody, RequestBodyTooLargeError } from "@/server/http/json-body";
+import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,6 @@ export async function POST(request: Request) {
     const files = await getDocumentBatchExport(member, parsed.data.documentIds);
     const budget = await consumeRequestLimit(member, "document_export");
     if (!budget.allowed) return Response.json({ error: { code: "rate_limited", message: "Слишком много выгрузок. Повторите позже." } }, { status: 429, headers: { "Cache-Control": "private, no-store", "Retry-After": String(budget.retryAfterSeconds) } });
-    const hydratedFiles: Array<DocumentExportFile & { content: Buffer }> = [];
     let selectedSizeBytes = 0;
     for (const file of files) {
       if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes <= 0 || file.sizeBytes > MAX_DOCUMENT_SIZE_BYTES) {
@@ -48,15 +48,18 @@ export async function POST(request: Request) {
         throw new DocumentExportLimitError("Общий размер выбранных документов не должен превышать 50 МБ.");
       }
     }
-    for (const file of files) {
-      try {
-        hydratedFiles.push({ ...file, content: await readVerifiedDocumentFile(file.storageKey, file, MAX_DOCUMENT_SIZE_BYTES) });
-      } catch (error) {
-        if (error instanceof StoredFileIntegrityError) throw new DocumentExportIntegrityError(file.documentId);
-        throw error;
+    const { archive, totalSizeBytes } = await withFileProcessingSlot(async () => {
+      const hydratedFiles: Array<DocumentExportFile & { content: Buffer }> = [];
+      for (const file of files) {
+        try {
+          hydratedFiles.push({ ...file, content: await readVerifiedDocumentFile(file.storageKey, file, MAX_DOCUMENT_SIZE_BYTES) });
+        } catch (error) {
+          if (error instanceof StoredFileIntegrityError) throw new DocumentExportIntegrityError(file.documentId);
+          throw error;
+        }
       }
-    }
-    const { archive, totalSizeBytes } = createDocumentExportArchive(hydratedFiles);
+      return createDocumentExportArchive(hydratedFiles);
+    });
     await recordDocumentBatchExport(member, files, totalSizeBytes);
     const dateParts = new Intl.DateTimeFormat("en", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/Moscow" })
       .formatToParts(new Date()).reduce<Record<string, string>>((result, part) => ({ ...result, [part.type]: part.value }), {});
@@ -75,6 +78,7 @@ export async function POST(request: Request) {
     if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для экспорта документов." } }, { status: 403 });
     if (error instanceof DocumentNotFoundError) return Response.json({ error: { code: "not_found", message: "Один или несколько документов недоступны." } }, { status: 404 });
     if (error instanceof DocumentExportLimitError) return Response.json({ error: { code: "export_too_large", message: error.message } }, { status: 413 });
+    if (error instanceof FileProcessingBusyError) return Response.json({ error: { code: "processing_busy", message: "Сервер обрабатывает слишком много файлов. Повторите выгрузку через несколько секунд." } }, { status: 429, headers: { "Cache-Control": "private, no-store", "Retry-After": "3" } });
     if (error instanceof DocumentExportIntegrityError) {
       console.error(JSON.stringify({ operation: "documents.batch_export", category: "integrity_mismatch", memberId: member.memberId, documentId: error.documentId }));
       return Response.json({ error: { code: "file_integrity_error", message: "Целостность одного из файлов нарушена. Архив не создан." } }, { status: 500 });

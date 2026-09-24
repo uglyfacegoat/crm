@@ -203,6 +203,7 @@ jobs:
       - run: npm run test:visit-conflicts
       - run: npm run test:file-drain
       - run: npm run test:file-recovery
+      - run: npm run test:file-processing-slots
       - run: npm run test:file-quarantine
       - run: npm run test:file-s3-export
       - run: npm run test:file-s3-quarantine

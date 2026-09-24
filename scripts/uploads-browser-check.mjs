@@ -15,6 +15,7 @@ import { startS3Fixture } from "./fixtures/s3-server.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
 import { verifyRestoredFiles } from "./backup-integrity.mjs";
+import { FILE_PROCESSING_LOCK_CLASS, FILE_PROCESSING_SLOTS } from "../src/server/file-scan/processing-lock-key.mjs";
 import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
@@ -425,6 +426,47 @@ try {
   if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(corruptPdfId)));
   await corruptPdfDialog.getByRole("button", { name: "Отмена", exact: true }).click();
   console.log("PDF parser: header-only PDF was rejected before file and database writes.");
+  const [exportSource] = await sql`SELECT id FROM documents WHERE organization_id = ${member.organization_id} ORDER BY created_at LIMIT 1`;
+  assert.ok(exportSource);
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation IN ('document_upload', 'document_export')`;
+  assert.equal(FILE_PROCESSING_SLOTS, 2, "Browser saturation fixture must acquire every processing slot.");
+  const firstSlot = await sql.reserve();
+  const secondSlot = await sql.reserve();
+  let busyDocumentId;
+  try {
+    await firstSlot`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+    await secondSlot`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+    const blockedExport = await archiveClient.post(`${baseUrl}/api/v1/documents/export`, {
+      headers: { origin: baseUrl }, data: { documentIds: [exportSource.id] },
+    });
+    assert.equal(blockedExport.status(), 429);
+    assert.equal(blockedExport.headers()["retry-after"], "3");
+    await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+    const busyDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+    await busyDialog.locator('summary[aria-label="Заказ"]').click();
+    await busyDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+    await busyDialog.locator('input[name="title"]').fill("Busy upload retry");
+    await busyDialog.locator('input[name="file"]').setInputFiles({ name: "busy.pdf", mimeType: "application/pdf", buffer: pdfFixture("busy retry") });
+    busyDocumentId = await busyDialog.locator('input[name="idempotencyKey"]').inputValue();
+    await busyDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await busyDialog.getByRole("status").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+    assert.equal(await busyDialog.locator('input[name="idempotencyKey"]').inputValue(), busyDocumentId);
+  } finally {
+    await firstSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+    await secondSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+    firstSlot.release();
+    secondSlot.release();
+  }
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${busyDocumentId}`)[0].count, 0);
+  if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(busyDocumentId)));
+  const busyRetryDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+  await busyRetryDialog.locator('input[name="title"]').fill("Busy upload retry");
+  await busyRetryDialog.locator('input[name="file"]').setInputFiles({ name: "busy.pdf", mimeType: "application/pdf", buffer: pdfFixture("busy retry") });
+  await busyRetryDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await busyRetryDialog.waitFor({ state: "hidden" });
+  await verifyVersion(busyDocumentId, 1, pdfFixture("busy retry"));
+  console.log("processing slots: saturated export returned 429; upload kept its retry key and succeeded after release.");
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -583,7 +625,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 19 real submissions, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 20 real submissions, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

@@ -9,7 +9,10 @@ import { AuthorizationError } from "../src/server/auth/permissions.ts";
 
 const root = new URL("../src/", import.meta.url);
 const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
-  if (context.parentURL?.startsWith(root.href) && specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, root).href, context);
+  if (context.parentURL?.startsWith(root.href)) {
+    if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, root).href, context);
+    if (specifier.startsWith(".") && !/\.(ts|mjs)$/.test(specifier)) return nextResolve(`${specifier}.ts`, context);
+  }
   return nextResolve(specifier, context);
 } });
 mock.module("server-only", { namedExports: {} });
