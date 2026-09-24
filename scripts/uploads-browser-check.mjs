@@ -1593,6 +1593,64 @@ try {
       assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${receiptVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
       console.log(`lost ${kind} COMMIT acknowledgement: one ledger entry and receipt survived; retry did not duplicate or erase the durable unresolved operation.`);
     }
+
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    await commitPage.goto(`${baseUrl}/settings`);
+    await commitPage.getByRole("tab", { name: "Шаблоны документов", exact: true }).click();
+    await commitPage.getByRole("button", { name: "Добавить шаблон", exact: true }).click();
+    const commitTemplateDialog = commitPage.getByRole("dialog", { name: "Шаблон закрывающего акта", exact: true });
+    await commitTemplateDialog.locator('input[name="title"]').fill("Lost template COMMIT acknowledgement");
+    await commitTemplateDialog.locator('textarea[name="description"]').fill("Description retained after lost COMMIT");
+    const commitTemplateBytes = pdfFixture("Lost template COMMIT acknowledgement");
+    await commitTemplateDialog.locator('input[name="file"]').setInputFiles({ name: "template-commit-lost.pdf", mimeType: "application/pdf", buffer: commitTemplateBytes });
+    const commitTemplateId = await commitTemplateDialog.locator('input[name="idempotencyKey"]').inputValue();
+    commitProxy.armNextCommit();
+    await commitTemplateDialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+    await commitTemplateDialog.getByRole("status").filter({ hasText: "Не удалось подтвердить публикацию шаблона" }).waitFor();
+    assert.equal(commitProxy.droppedCommits, 5);
+    assert.deepEqual(commitProxy.errors, []);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${commitTemplateId}`)[0].count, 1);
+    const [committedTemplateVersion] = await sql`SELECT storage_key FROM document_template_versions WHERE template_id = ${commitTemplateId}`;
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedTemplateVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await commitTemplateDialog.locator('input[name="idempotencyKey"]').inputValue(), commitTemplateId);
+    assert.equal(await commitTemplateDialog.locator('input[name="title"]').inputValue(), "Lost template COMMIT acknowledgement");
+    assert.equal(await commitTemplateDialog.locator('textarea[name="description"]').inputValue(), "Description retained after lost COMMIT");
+    assert.equal(await commitTemplateDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "template-commit-lost.pdf");
+    assert.deepEqual(commitPageErrors, []);
+    await commitTemplateDialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+    await commitTemplateDialog.waitFor({ state: "hidden" });
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${commitTemplateId}`)[0].count, 1);
+    await verifyStoredReference("document_template_versions", "template_id", commitTemplateId, commitTemplateBytes);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedTemplateVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    console.log("lost template COMMIT acknowledgement: one version survived; retry did not duplicate or erase the durable unresolved operation.");
+
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation IN ('chat_message', 'chat_upload')`;
+    await commitPage.goto(`${baseUrl}/chat?channel=${lostChatChannel.id}`);
+    await commitPage.locator('textarea[name="body"]').fill("Message retained after lost COMMIT");
+    const commitChatBytes = pdfFixture("Lost chat COMMIT acknowledgement");
+    await commitPage.locator('input[name="file"]').setInputFiles({ name: "chat-commit-lost.pdf", mimeType: "application/pdf", buffer: commitChatBytes });
+    const commitMessageId = await commitPage.locator('input[name="idempotencyKey"]').inputValue();
+    commitProxy.armNextCommit();
+    await commitPage.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+    await commitPage.getByRole("alert").filter({ hasText: "Не удалось подтвердить отправку" }).waitFor();
+    assert.equal(commitProxy.droppedCommits, 6);
+    assert.deepEqual(commitProxy.errors, []);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${commitMessageId}`)[0].count, 1);
+    const [committedAttachment] = await sql`SELECT storage_key FROM chat_message_attachments WHERE message_id = ${commitMessageId}`;
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedAttachment.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await commitPage.locator('input[name="idempotencyKey"]').inputValue(), commitMessageId);
+    assert.equal(await commitPage.locator('textarea[name="body"]').inputValue(), "Message retained after lost COMMIT");
+    assert.equal(await commitPage.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "chat-commit-lost.pdf");
+    assert.deepEqual(commitPageErrors, []);
+    await commitPage.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+    await commitPage.waitForFunction((id) => document.querySelector('input[name="idempotencyKey"]')?.value !== id, commitMessageId);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${commitMessageId}`)[0].count, 1);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_message_attachments WHERE message_id = ${commitMessageId}`)[0].count, 1);
+    await verifyStoredReference("chat_message_attachments", "message_id", commitMessageId, commitChatBytes);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedAttachment.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    console.log("lost chat COMMIT acknowledgement: one message and attachment survived; retry did not duplicate or erase the durable unresolved operation.");
     await commitContext.close();
   }
   if (objectStorage) {
@@ -1603,7 +1661,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 4 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 6 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
