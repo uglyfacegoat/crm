@@ -494,7 +494,7 @@ try {
     if (!warn) {
       await page.waitForTimeout(1_300);
       if (await page.locator('input[name="idempotencyKey"]').inputValue() === messageId) {
-        await page.getByRole("alert").filter({ hasText: "Вложение ещё обрабатывается" }).waitFor();
+        await page.getByRole("alert").filter({ hasText: "отправка сообщения не подтверждена" }).waitFor();
         assert.equal(await page.locator('textarea[name="body"]').inputValue(), `Attachment ${suffix}`);
         assert.equal(await page.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "attachment.pdf");
         await page.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
@@ -502,7 +502,7 @@ try {
       if (interceptionError) throw interceptionError;
       assert.ok(duplicateOtherResponse, "Concurrent duplicate chat-attachment POST must run");
       assert.equal(duplicateOtherResponse.status, 200);
-      assert.match(duplicateOtherResponse.body, /Вложение ещё обрабатывается|"status":"success"/i);
+      assert.match(duplicateOtherResponse.body, /отправка сообщения не подтверждена|"status":"success"/i);
     }
     await page.waitForFunction((id) => document.querySelector('input[name="idempotencyKey"]')?.value !== id, messageId);
     assert.equal(await page.locator('textarea[name="body"]').inputValue(), "");
@@ -876,6 +876,15 @@ try {
     END $$`);
   await sql`CREATE TRIGGER block_template_before_commit BEFORE INSERT ON document_template_versions
     FOR EACH ROW EXECUTE FUNCTION block_template_before_commit()`;
+  await sql.unsafe(`CREATE FUNCTION block_chat_attachment_before_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM upload_abort_gate WHERE document_id = NEW.message_id) THEN
+        PERFORM pg_advisory_xact_lock(927431, 9);
+      END IF;
+      RETURN NEW;
+    END $$`);
+  await sql`CREATE TRIGGER block_chat_attachment_before_commit BEFORE INSERT ON chat_message_attachments
+    FOR EACH ROW EXECUTE FUNCTION block_chat_attachment_before_commit()`;
   const inFlightContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
   const inFlightPage = await inFlightContext.newPage();
   const inFlightErrors = [];
@@ -2277,6 +2286,115 @@ try {
       console.log(`aborted in-flight template ${outcome}: ${outcome === "commit" ? "one published version survived" : "no template committed; file and unresolved operation remained"}.`);
       await templateContext.close();
     }
+
+    for (const outcome of ["commit", "rollback"]) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation IN ('chat_message', 'chat_upload')`;
+      const chatContext = await browser.newContext({ storageState: await archiveClient.storageState(), viewport: { width: 1440, height: 1000 } });
+      const chatPage = await chatContext.newPage();
+      const chatErrors = [];
+      chatPage.on("pageerror", (error) => chatErrors.push(error.message));
+      let abortChatRequest;
+      const abortChatSignal = new Promise((resolveAbort) => { abortChatRequest = resolveAbort; });
+      let resolveChatAborted;
+      const chatAborted = new Promise((resolveAbort) => { resolveChatAborted = resolveAbort; });
+      let chatUpstream;
+      let abortFirstChat = true;
+      let messageId = null;
+      await chatPage.route("**/chat**", async (route) => {
+        if (!abortFirstChat || !messageId || route.request().method() !== "POST" || !route.request().headers()["next-action"] || !route.request().postDataBuffer()?.includes(messageId)) return route.continue();
+        abortFirstChat = false;
+        chatUpstream = route.fetch();
+        await abortChatSignal;
+        await route.abort("failed");
+        resolveChatAborted();
+        await chatUpstream.catch(() => {});
+      });
+      let chatNavigation = await chatPage.goto(`${baseUrl}/chat?channel=${lostChatChannel.id}`);
+      if (chatNavigation?.status() === 500) {
+        chatNavigation = await chatPage.reload();
+        assert.equal(chatNavigation?.status(), 200, `Chat ${outcome} must recover after the injected PostgreSQL disconnect`);
+        chatErrors.length = 0;
+        console.log(`Chat ${outcome}: recovered page after an injected PostgreSQL disconnect.`);
+      }
+      if (await chatPage.locator('textarea[name="body"]').count() === 0) {
+        const bodyText = (await chatPage.locator("body").innerText()).slice(0, 700);
+        throw new Error(`Chat ${outcome} composer unavailable: status=${chatNavigation?.status()} url=${chatPage.url()} body=${bodyText}`);
+      }
+      const body = `In-flight chat attachment ${outcome}`;
+      const filename = `in-flight-chat-${outcome}.pdf`;
+      const bytes = pdfFixture(body);
+      await chatPage.locator('textarea[name="body"]').fill(body);
+      await chatPage.locator('input[name="file"]').setInputFiles({ name: filename, mimeType: "application/pdf", buffer: bytes });
+      messageId = await chatPage.locator('input[name="idempotencyKey"]').inputValue();
+      const storageKey = `${member.organization_id}/${messageId}/v1.pdf`;
+      await sql`INSERT INTO upload_abort_gate (document_id) VALUES (${messageId})`;
+      const gate = await sql.reserve();
+      let gateLocked = false;
+      try {
+        await gate`SELECT pg_advisory_lock(927431, 9)`;
+        gateLocked = true;
+        await chatPage.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+        let blockedPid = null;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const [activity] = await sql`SELECT pid FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event = 'advisory'
+              AND query LIKE '%INSERT INTO chat_message_attachments%' LIMIT 1`;
+          if (activity) { blockedPid = activity.pid; break; }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+        }
+        assert.ok(blockedPid, `Chat ${outcome} must reach the database after writing its attachment`);
+        const stored = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(stored, bytes);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_message_attachments WHERE message_id = ${messageId}`)[0].count, 0);
+        abortChatRequest();
+        await chatAborted;
+        await chatPage.getByRole("alert").filter({ hasText: "Не удалось получить ответ сервера. Проверьте переписку перед повторной отправкой." }).waitFor();
+        assert.equal(await chatPage.locator('input[name="idempotencyKey"]').inputValue(), messageId);
+        assert.equal(await chatPage.locator('textarea[name="body"]').inputValue(), body);
+        assert.equal(await chatPage.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), filename);
+        if (outcome === "rollback") {
+          const [terminated] = await sql`SELECT pg_terminate_backend(${blockedPid}) AS terminated`;
+          assert.equal(terminated.terminated, true);
+        }
+      } finally {
+        if (gateLocked) await gate`SELECT pg_advisory_unlock(927431, 9)`;
+        gate.release();
+      }
+      const response = await chatUpstream;
+      assert.equal(response.status(), 200);
+      assert.match(await response.text(), outcome === "commit" ? /"status":"success"/ : /Не удалось подтвердить отправку/);
+      assert.deepEqual(chatErrors, []);
+      if (outcome === "commit") {
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 1);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_message_attachments WHERE message_id = ${messageId}`)[0].count, 1);
+        await verifyStoredReference("chat_message_attachments", "message_id", messageId, bytes);
+        await chatPage.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+        await chatPage.waitForFunction((id) => document.querySelector('input[name="idempotencyKey"]')?.value !== id, messageId);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 1);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_message_attachments WHERE message_id = ${messageId}`)[0].count, 1);
+      } else {
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_message_attachments WHERE message_id = ${messageId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+        await chatPage.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+        await chatPage.getByRole("alert").filter({ hasText: "Файл вложения уже существует, но отправка сообщения не подтверждена" }).waitFor();
+        assert.equal(await chatPage.locator('input[name="idempotencyKey"]').inputValue(), messageId);
+        assert.equal(await chatPage.locator('textarea[name="body"]').inputValue(), body);
+        assert.equal(await chatPage.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), filename);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+        const retained = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(retained, bytes);
+      }
+      console.log(`aborted in-flight chat ${outcome}: ${outcome === "commit" ? "one message and attachment survived" : "no message committed; attachment and unresolved operation remained"}.`);
+      await chatContext.close();
+    }
   }
   if (objectStorage) {
     await s3Fixture.close();
@@ -2286,7 +2404,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 5 in-flight commits, 5 in-flight rollbacks, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 6 in-flight commits, 6 in-flight rollbacks, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

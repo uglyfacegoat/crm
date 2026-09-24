@@ -166,7 +166,7 @@ async function sendChatMessageActionImpl(_previous: ChatMutationState, formData:
     if (error instanceof ChatEntityUnavailableError) return { status: "error", message: "Объект больше недоступен или у вас нет права его отправлять.", fieldErrors: { sharedEntityId: ["Выберите объект повторно"] }, entityId: null };
     if (errorCode(error) === "EEXIST") {
       if (await chatMessageExists(member, parsed.data.idempotencyKey, parsed.data.channelId)) return { status: "success", message: null, fieldErrors: {}, entityId: parsed.data.idempotencyKey };
-      return { status: "error", message: "Вложение ещё обрабатывается. Подождите и повторите.", fieldErrors: {}, entityId: null };
+      return { status: "error", message: "Файл вложения уже существует, но отправка сообщения не подтверждена. Проверьте переписку; если сообщения нет, обратитесь к администратору.", fieldErrors: {}, entityId: null };
     }
     markFileWriteUncertain();
     logUnexpected("chat.message.send", member.memberId, error);
