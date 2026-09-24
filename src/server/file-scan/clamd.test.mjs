@@ -53,8 +53,10 @@ test("required scan rejects a detected file and fails closed on scanner errors",
 
 test("required scan rejects an oversized expanded ZIP before sending it to a scanner that would say OK", async () => {
   const archive = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/document.xml": Buffer.alloc(26 * 1024 * 1024, 65) }));
+  const nestedArchive = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/embedded.zip": archive }));
   await withScanner("stream: OK", async (environment, received) => {
     await assert.rejects(scanFileBuffer(archive, environment), FileScanRejectedError);
+    await assert.rejects(scanFileBuffer(nestedArchive, environment), FileScanRejectedError);
     assert.equal(received().length, 0);
   });
 });

@@ -63,6 +63,18 @@ test("rejects malformed Office ZIPs and archives with excessive expanded size", 
   const bomb = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/document.xml": Buffer.alloc(26 * 1024 * 1024, 65) }));
   assert.ok(bomb.length < 100_000);
   assert.throws(() => validate(bomb), DocumentFileValidationError);
+  const nestedBomb = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/embedded.zip": zipSync({ "large.bin": Buffer.alloc(26 * 1024 * 1024, 65) }) }));
+  assert.ok(nestedBomb.length < 100_000);
+  assert.throws(() => validate(nestedBomb), DocumentFileValidationError);
+  const sharedInner = zipSync({ "medium.bin": Buffer.alloc(20 * 1024 * 1024, 65) });
+  const combinedBomb = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/a.zip": sharedInner, "word/b.zip": sharedInner, "word/c.zip": sharedInner, "word/d.zip": sharedInner }));
+  assert.throws(() => validate(combinedBomb), DocumentFileValidationError);
+});
+
+test("accepts a small nested Office ZIP within the shared expansion budget", () => {
+  const inner = zipSync({ "note.txt": Buffer.from("safe") });
+  const buffer = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/embedded.zip": inner }));
+  assert.equal(validateDocumentFile({ filename: "nested.docx", declaredMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer }).extension, "docx");
 });
 
 test("strips path fragments from the display name without using them as a storage key", () => {

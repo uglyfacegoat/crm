@@ -355,10 +355,13 @@ try {
     const eicar = Buffer.from("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
     const infectedOffice = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/eicar.com": eicar }));
     const expandedOffice = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/document.xml": Buffer.alloc(26 * 1024 * 1024, 65) }));
+    const nestedExpandedOffice = Buffer.from(zipSync({ "[Content_Types].xml": Buffer.from("<Types/>"), "word/embedded.zip": zipSync({ "large.bin": Buffer.alloc(26 * 1024 * 1024, 65) }) }));
     assert.ok(expandedOffice.length < 100_000);
+    assert.ok(nestedExpandedOffice.length < 100_000);
     for (const [title, filename, bytes, errorText] of [
       ["EICAR test", "eicar.docx", infectedOffice, "Файл не прошёл проверку безопасности."],
       ["Expanded ZIP test", "expanded.docx", expandedOffice, "Содержимое файла не соответствует заявленному типу."],
+      ["Nested expanded ZIP test", "nested-expanded.docx", nestedExpandedOffice, "Содержимое файла не соответствует заявленному типу."],
     ]) {
       await page.goto(`${baseUrl}/documents`);
       await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
@@ -374,7 +377,7 @@ try {
       if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(rejectedId)));
       await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
     }
-    console.log("scanner: EICAR and oversized Office ZIP were rejected before file and database writes.");
+    console.log("scanner: EICAR, oversized Office ZIP and nested ZIP were rejected before file and database writes.");
   }
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
