@@ -30,6 +30,9 @@ Git push remains on hold until the owner asks.
   covered both concurrent permits, cancel, completion and preparation failure;
   byte-exact ZIP and the packaged browser suite passed on local and test S3. Incoming body
   buffering, ordinary downloads and representative server load remain open.
+  Installed as `crm-app:zip-stream-up05-43b7913` for web and Workflow worker;
+  all five Docker services and readiness passed, and a 068→068 working-copy
+  rehearsal preserved all 78 table counts. No Git push.
 - **2026-09-24, UP-05 read-side checkpoint:** the existing two PostgreSQL
   processing slots now cover verified document/version/template/chat attachment
   reads and DOCX preview conversion. When saturated, protected routes return

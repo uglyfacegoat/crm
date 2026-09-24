@@ -126,9 +126,9 @@ This document tracks the actual working scope, not the planned final scope.
 
 ## Working Docker installation
 
-On 24 September, `crm-app:file-read-up05-5bfd743` replaced the earlier UP-07
+On 24 September, `crm-app:zip-stream-up05-43b7913` replaced the earlier UP-05 read-side
 image for both the `crm` web service and `workflow-worker`. The previous image
-is retained as `crm-app:before-file-read-up05-20260924`. Migration 068 is applied in the
+is retained as `crm-app:before-zip-stream-up05-20260924`. Migration 068 is applied in the
 working database. Web, PostgreSQL, reminder worker, backup worker and Workflow
 worker report healthy; `/api/v1/system/ready` returns 200 with
 `workflowWorker: available`. No automation is active in the working database,
