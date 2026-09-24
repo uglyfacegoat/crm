@@ -1,0 +1,115 @@
+import assert from "node:assert/strict";
+import { randomBytes, randomUUID } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { chromium } from "playwright-core";
+import postgres from "postgres";
+import { runMigrations } from "./migrate.mjs";
+
+const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+const runtime = process.env.WORKFLOW_CHECK_RUNTIME;
+if (!adminUrl || !runtime) throw new Error("Set isolated PostgreSQL and WORKFLOW_CHECK_RUNTIME to a built standalone server.js.");
+const baseUrl = "http://127.0.0.1:3102";
+const databaseName = `crm_workflow_browser_${randomUUID().replaceAll("-", "")}`;
+const databaseUrl = new URL(adminUrl);
+databaseUrl.pathname = `/${databaseName}`;
+const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
+const storageRoot = await mkdtemp(join(tmpdir(), "crm-workflow-browser-"));
+const artifacts = resolve("artifacts/workflow");
+await mkdir(artifacts, { recursive: true });
+const environment = {
+  ...process.env, DATABASE_URL: databaseUrl.toString(), AUTH_MODE: "required",
+  CRM_ALLOWED_ORIGINS: baseUrl, CRM_TRUST_PROXY: "false", AUTH_COOKIE_SECURE: "false",
+  AUTH_THROTTLE_SECRET: randomBytes(32).toString("hex"), CRM_WEBSITE_WEBHOOK_SECRET: randomBytes(32).toString("hex"),
+  AUTH_BOOTSTRAP_ADMIN_PASSWORD: randomBytes(32).toString("hex"), AUTH_BOOTSTRAP_ADMIN_EMAIL: "workflow@example.invalid",
+  AUTH_BOOTSTRAP_ADMIN_NAME: "Workflow tester", AUTH_BOOTSTRAP_ORGANIZATION_NAME: "Workflow test company",
+  AUTH_BOOTSTRAP_TIMEZONE: "Europe/Moscow", DOCUMENT_STORAGE_ROOT: storageRoot,
+  DOCUMENT_STORAGE_BACKEND: "local", CRM_FILE_SCAN_MODE: "off", NEXT_TELEMETRY_DISABLED: "1",
+  HOSTNAME: "127.0.0.1", PORT: "3102",
+};
+let created = false;
+let sql;
+let server;
+let browser;
+let page;
+try {
+  await admin`CREATE DATABASE ${admin(databaseName)}`;
+  created = true;
+  await runMigrations({ databaseUrl: environment.DATABASE_URL, onApplied: () => {} });
+  const bootstrap = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/create-admin.ts"], { env: environment, stdio: "inherit" });
+  assert.equal(bootstrap.status, 0);
+  sql = postgres(environment.DATABASE_URL, { max: 2 });
+  server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
+  server.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  await new Promise((resolveReady, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Workflow standalone startup exceeded 30 seconds")), 30_000);
+    server.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`Workflow standalone exited ${code}`)); });
+    server.stdout.on("data", (chunk) => { if (chunk.toString().includes("Ready in")) { clearTimeout(timeout); resolveReady(); } });
+  });
+  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
+  page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  const browserErrors = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  await page.goto(`${baseUrl}/login`);
+  await page.getByPlaceholder("Email или телефон").fill(environment.AUTH_BOOTSTRAP_ADMIN_EMAIL);
+  await page.getByPlaceholder("Пароль").fill(environment.AUTH_BOOTSTRAP_ADMIN_PASSWORD);
+  await page.getByRole("button", { name: "Войти в CRM", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.goto(`${baseUrl}/workflow`);
+  await page.getByText("Карт пока нет.", { exact: false }).waitFor();
+  await page.getByLabel("Название новой карты").fill("Путь заявки");
+  await page.getByRole("button", { name: "Создать карту" }).click();
+  await page.waitForURL((url) => url.pathname === "/workflow" && url.searchParams.has("map"));
+  const mapId = new URL(page.url()).searchParams.get("map");
+  await page.getByRole("button", { name: "Событие", exact: false }).first().focus();
+  await page.keyboard.press("Enter");
+  await page.getByLabel("Название блока").fill("Новая заявка");
+  await page.getByRole("button", { name: "Карточка CRM", exact: false }).first().click();
+  await page.getByLabel("Название блока").fill("Заказ в CRM");
+  await page.getByRole("button", { name: /Событие · 01 Новая заявка/ }).click();
+  await page.getByLabel("Следующий блок").selectOption({ label: "Заказ в CRM" });
+  await page.getByLabel("Подпись связи").fill("оформить");
+  await page.getByRole("button", { name: "Добавить связь" }).click();
+  await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Карта сохранена" }).waitFor();
+  assert.equal((await sql`SELECT version FROM workflow_maps WHERE id = ${mapId}`)[0].version, 2);
+  await page.reload();
+  await page.getByText("2 блоков · 1 связей").waitFor();
+  assert.equal(await page.getByRole("button", { name: /Событие · 01 Новая заявка/ }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: /Карточка CRM · 02 Заказ в CRM/ }).count(), 1);
+  await page.screenshot({ path: join(artifacts, "workflow-map-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "Workflow must not overflow the mobile viewport");
+  await page.screenshot({ path: join(artifacts, "workflow-map-mobile.png"), animations: "disabled", fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 960 });
+
+  const secondContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 960 } });
+  const secondPage = await secondContext.newPage();
+  await secondPage.goto(`${baseUrl}/workflow?map=${mapId}`);
+  await secondPage.getByLabel("Название", { exact: true }).fill("Изменение во второй вкладке");
+  await secondPage.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await secondPage.getByRole("status").filter({ hasText: "Карта сохранена" }).waitFor();
+  await page.getByLabel("Название", { exact: true }).fill("Устаревшее изменение");
+  await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Карту изменили в другой вкладке" }).waitFor();
+  assert.equal((await sql`SELECT title FROM workflow_maps WHERE id = ${mapId}`)[0].title, "Изменение во второй вкладке");
+  await secondPage.getByRole("button", { name: "В архив" }).click();
+  await secondPage.getByRole("button", { name: "Подтвердить архивирование" }).click();
+  await secondPage.waitForURL(`${baseUrl}/workflow`);
+  assert.equal((await sql`SELECT archived_at IS NOT NULL AS archived FROM workflow_maps WHERE id = ${mapId}`)[0].archived, true);
+  assert.deepEqual(browserErrors, []);
+  console.log("Workflow browser check passed: create, edit two nodes and a link, save/reload, stale version conflict, archive.");
+} catch (error) {
+  if (page) await page.screenshot({ path: join(artifacts, "workflow-failure.png") }).catch(() => {});
+  throw error;
+} finally {
+  await browser?.close();
+  if (server && server.exitCode === null) { server.kill("SIGTERM"); await once(server, "exit"); }
+  await sql?.end();
+  if (created) await admin`DROP DATABASE ${admin(databaseName)}`;
+  await admin.end();
+  await rm(storageRoot, { recursive: true, force: true });
+}

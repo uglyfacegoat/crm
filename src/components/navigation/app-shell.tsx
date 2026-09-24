@@ -66,7 +66,7 @@ const officeNavigation: NavigationItem[] = [
   { href: "/contracts", label: "Договоры", icon: FileSignature, permission: "contracts.read" },
   { href: "/finance", label: "Финансы", icon: WalletCards, permission: "finance.read" },
   { href: "/tasks", label: "Задачи", icon: CheckSquare2, permission: "tasks.read" },
-  { href: "/workflow", label: "Воркфлоу", icon: WorkflowIcon },
+  { href: "/workflow", label: "Воркфлоу", icon: WorkflowIcon, permission: "workflow.read" },
   { href: "/analytics", label: "Аналитика", icon: ChartNoAxesCombined, permission: "analytics.read" },
   { href: "/sites", label: "Сайты", icon: Globe2, permission: "sites.read" },
 ] as const;

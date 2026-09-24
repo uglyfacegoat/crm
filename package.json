@@ -41,6 +41,8 @@
     "test:s3-storage-audit": "STORAGE_AUDIT_TEST_S3=true node scripts/isolated-postgres-test.mjs --test scripts/storage-audit.integration.mjs",
     "storage:audit": "node scripts/storage-audit.mjs --check",
     "test:chat-access": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/chat-access.integration.mjs",
+    "test:workflow-maps": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/workflow-maps.integration.mjs",
+    "test:workflow-browser": "node scripts/isolated-postgres-test.mjs scripts/workflow-browser-check.mjs",
     "test:notifications-pagination": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/notifications-pagination.integration.mjs",
     "test:client-list-pagination": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/client-list-pagination.integration.mjs",
     "test:order-picker": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/order-picker.integration.mjs",

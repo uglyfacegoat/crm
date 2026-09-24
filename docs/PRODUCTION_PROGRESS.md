@@ -16,19 +16,24 @@ next product task after the current upload-reliability checkpoint. The scope is
 editable process maps, versions/review/publication, regulations and links to
 real CRM entities, collaboration, and bounded automations as defined in
 [section 10 of the plan](../PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md).
-The existing page is a read-only concept; no implementation or acceptance of
-this new scope is claimed yet. Git push remains on hold until the owner asks.
+WF-01 is now implemented and verified in an isolated packaged runtime;
+WF-02–06 remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
+Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, Workflow WF-01:** maps now persist per organization, with
+  configurable read/write permissions, version conflicts, audit, archive,
+  visual blocks and links. Isolated migrations, repository integration and
+  packaged browser checks passed; desktop and 390px mobile layouts were
+  inspected. [Scope and remaining stages](WORKFLOW_IMPLEMENTATION.md).
 - **2026-09-24, UP-07 chat attachment in-flight abort:** the packaged browser
   suite passed on local and test S3 storage. A client disconnect after file
   write but before database commit left one message and one matching attachment
   when the transaction committed. Forced rollback left no message or attachment
   row; the file and unresolved write operation remained for reconciliation,
   and a retry did not claim them. Six of nine upload families now have both
-  in-flight outcomes checked. The full Workflow page is next after this
-  upload-reliability checkpoint; it is not implemented yet.
+  in-flight outcomes checked.
 - **2026-09-24, UP-06 upload and webhook perimeter:** [The full entry matrix](UPLOAD_PERIMETER_MATRIX.md)
   covers document/version, visit act/photo, payment/payout receipt, template,
   chat attachment/avatar and website lead webhook. The packaged runtime was
