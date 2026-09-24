@@ -60,9 +60,25 @@ export const archiveWorkflowMapSchema = z.object({
   expectedVersion: z.number().int().positive(),
 }).strict();
 
+export const workflowVersionCommandSchema = archiveWorkflowMapSchema;
+export const rejectWorkflowReviewSchema = workflowVersionCommandSchema.extend({
+  reason: boundedText(2, 500),
+}).strict();
+export const restoreWorkflowRevisionSchema = workflowVersionCommandSchema.extend({
+  sourceVersion: z.number().int().positive(),
+}).strict();
+export const workflowRevisionLookupSchema = z.object({
+  id: uuid,
+  version: z.number().int().positive(),
+}).strict();
+
 export type WorkflowDraft = z.infer<typeof workflowDraftSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
 export type CreateWorkflowMapInput = z.infer<typeof createWorkflowMapSchema>;
 export type SaveWorkflowMapInput = z.infer<typeof saveWorkflowMapSchema>;
 export type ArchiveWorkflowMapInput = z.infer<typeof archiveWorkflowMapSchema>;
+export type WorkflowVersionCommandInput = z.infer<typeof workflowVersionCommandSchema>;
+export type RejectWorkflowReviewInput = z.infer<typeof rejectWorkflowReviewSchema>;
+export type RestoreWorkflowRevisionInput = z.infer<typeof restoreWorkflowRevisionSchema>;
+export type WorkflowRevisionLookupInput = z.infer<typeof workflowRevisionLookupSchema>;

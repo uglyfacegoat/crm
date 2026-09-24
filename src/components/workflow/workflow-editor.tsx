@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, GitBranch, Link2, Plus, Save, Trash2 } from "lucide-react";
 import { archiveWorkflowMapAction, createWorkflowMapAction, saveWorkflowMapAction } from "@/app/(workspace)/workflow/actions";
-import type { WorkflowMap, WorkflowMapSummary } from "@/server/workflow/repository";
+import { WorkflowLifecycle } from "./workflow-lifecycle";
+import type { WorkflowMap, WorkflowMapSummary, WorkflowRevisionSummary } from "@/server/workflow/repository";
 import type { WorkflowDraft, WorkflowNode } from "@/server/workflow/schemas";
 
 const blockKinds = [
@@ -20,10 +21,14 @@ const blockTone = Object.fromEntries(blockKinds.map((item) => [item.kind, item.t
 const nodeWidth = 196;
 const nodeHeight = 126;
 
-export function WorkflowEditor({ maps, selected, canWrite, preview }: {
+export function WorkflowEditor({ maps, selected, revisions, canWrite, canReview, canPublish, currentMemberId, preview }: {
   maps: WorkflowMapSummary[];
   selected: WorkflowMap | null;
+  revisions: WorkflowRevisionSummary[];
   canWrite: boolean;
+  canReview: boolean;
+  canPublish: boolean;
+  currentMemberId: string;
   preview: boolean;
 }) {
   const router = useRouter();
@@ -219,6 +224,10 @@ export function WorkflowEditor({ maps, selected, canWrite, preview }: {
             {canWrite && <div className="border-t border-[var(--line)] pt-4">{confirmArchive ? <div className="grid gap-2"><p className="text-xs text-[var(--text-secondary)]">Архивировать карту? Она исчезнет из списка.</p><button type="button" onClick={archiveMap} disabled={pending} className="focus-ring min-h-9 rounded-[9px] bg-[var(--danger)] px-3 text-xs text-white disabled:opacity-50">Подтвердить архивирование</button><button type="button" onClick={() => setConfirmArchive(false)} className="focus-ring min-h-9 text-xs">Отмена</button></div> : <button type="button" onClick={() => setConfirmArchive(true)} className="focus-ring flex min-h-9 items-center gap-2 text-xs text-[var(--muted)]"><Archive className="size-3.5" />В архив</button>}</div>}
           </>}
         </div>}
+        {selected && !currentNode && <WorkflowLifecycle map={selected} currentVersion={version}
+          currentTitle={title} currentDescription={description} currentDraft={draft}
+          revisions={revisions} canWrite={canWrite} canReview={canReview}
+          canPublish={canPublish} currentMemberId={currentMemberId} dirty={dirty} />}
         {feedback && <p role={feedback.error ? "alert" : "status"} className={`mt-5 rounded-[10px] border p-3 text-xs leading-5 ${feedback.error ? "border-[var(--danger)]/40 text-[var(--danger)]" : "border-[var(--success)]/40 text-[var(--success)]"}`}>{feedback.message}</p>}
       </aside>
     </div>

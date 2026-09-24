@@ -10,8 +10,17 @@ import {
   WorkflowMapConflictError, WorkflowMapNotFoundError,
 } from "@/server/workflow/repository";
 import {
+  approveWorkflowReview, getWorkflowRevision, publishWorkflowRevision,
+  rejectWorkflowReview, requestWorkflowReview, restoreWorkflowRevision,
+  WorkflowReviewStateError, type WorkflowRevision,
+} from "@/server/workflow/versions-repository";
+import {
   archiveWorkflowMapSchema, createWorkflowMapSchema, saveWorkflowMapSchema,
+  rejectWorkflowReviewSchema, restoreWorkflowRevisionSchema,
+  workflowRevisionLookupSchema, workflowVersionCommandSchema,
   type ArchiveWorkflowMapInput, type CreateWorkflowMapInput, type SaveWorkflowMapInput,
+  type RejectWorkflowReviewInput, type RestoreWorkflowRevisionInput,
+  type WorkflowRevisionLookupInput, type WorkflowVersionCommandInput,
 } from "@/server/workflow/schemas";
 
 type WorkflowActionResult = {
@@ -25,6 +34,17 @@ function failure(error: unknown, operation: string, memberId: string): WorkflowA
   if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для изменения карты.", id: null, version: null };
   if (error instanceof WorkflowMapNotFoundError) return { status: "error", message: "Карта недоступна или уже архивирована.", id: null, version: null };
   if (error instanceof WorkflowMapConflictError) return { status: "error", message: "Карту изменили в другой вкладке. Обновите страницу, чтобы увидеть актуальную версию.", id: null, version: null };
+  if (error instanceof WorkflowReviewStateError) {
+    const messages = {
+      empty: "Добавьте хотя бы один блок перед согласованием.",
+      not_requested: "Эта версия не ожидает согласования.",
+      self_review: "Согласовать карту должен другой сотрудник с соответствующим правом.",
+      not_approved: "Эта версия ещё не согласована.",
+      already_approved: "Эта версия уже согласована и готова к публикации.",
+      already_published: "Эта версия уже опубликована. Измените черновик для новой публикации.",
+    };
+    return { status: "error", message: messages[error.reason], id: null, version: null };
+  }
   console.error(JSON.stringify({ operation, category: "unexpected", memberId, errorCode: safeErrorCode(error) }));
   return { status: "error", message: "Не удалось сохранить карту. Попробуйте ещё раз.", id: null, version: null };
 }
@@ -63,4 +83,73 @@ export async function archiveWorkflowMapAction(input: ArchiveWorkflowMapInput): 
     revalidatePath("/workflow");
     return { status: "success", message: "Карта перенесена в архив.", id: parsed.data.id, version: parsed.data.expectedVersion + 1 };
   } catch (error) { return failure(error, "workflow.map.archive", member.memberId); }
+}
+
+export async function getWorkflowRevisionAction(input: WorkflowRevisionLookupInput): Promise<{ status: "success"; revision: WorkflowRevision } | { status: "error"; message: string }> {
+  if (getAuthMode() === "preview") return { status: "error", message: "История недоступна в предпросмотре." };
+  const member = await requireSession();
+  const parsed = workflowRevisionLookupSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная версия карты." };
+  try { return { status: "success", revision: await getWorkflowRevision(member, parsed.data) }; }
+  catch (error) { return { status: "error", message: failure(error, "workflow.revision.read", member.memberId).message }; }
+}
+
+export async function requestWorkflowReviewAction(input: WorkflowVersionCommandInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = workflowVersionCommandSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная версия карты.", id: null, version: null };
+  try {
+    await requestWorkflowReview(member, parsed.data);
+    revalidatePath("/workflow");
+    return { status: "success", message: "Версия отправлена на согласование.", id: input.id, version: input.expectedVersion };
+  } catch (error) { return failure(error, "workflow.review.request", member.memberId); }
+}
+
+export async function approveWorkflowReviewAction(input: WorkflowVersionCommandInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = workflowVersionCommandSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная версия карты.", id: null, version: null };
+  try {
+    await approveWorkflowReview(member, parsed.data);
+    revalidatePath("/workflow");
+    return { status: "success", message: "Версия согласована.", id: input.id, version: input.expectedVersion };
+  } catch (error) { return failure(error, "workflow.review.approve", member.memberId); }
+}
+
+export async function rejectWorkflowReviewAction(input: RejectWorkflowReviewInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = rejectWorkflowReviewSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Укажите причину отказа от 2 до 500 символов.", id: null, version: null };
+  try {
+    await rejectWorkflowReview(member, parsed.data);
+    revalidatePath("/workflow");
+    return { status: "success", message: "Версия возвращена на доработку.", id: input.id, version: input.expectedVersion };
+  } catch (error) { return failure(error, "workflow.review.reject", member.memberId); }
+}
+
+export async function publishWorkflowRevisionAction(input: WorkflowVersionCommandInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = workflowVersionCommandSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная версия карты.", id: null, version: null };
+  try {
+    await publishWorkflowRevision(member, parsed.data);
+    revalidatePath("/workflow");
+    return { status: "success", message: "Согласованная версия опубликована.", id: input.id, version: input.expectedVersion };
+  } catch (error) { return failure(error, "workflow.revision.publish", member.memberId); }
+}
+
+export async function restoreWorkflowRevisionAction(input: RestoreWorkflowRevisionInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = restoreWorkflowRevisionSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная версия карты.", id: null, version: null };
+  try {
+    const version = await restoreWorkflowRevision(member, parsed.data);
+    revalidatePath("/workflow");
+    return { status: "success", message: `Версия ${input.sourceVersion} восстановлена в новый черновик.`, id: input.id, version };
+  } catch (error) { return failure(error, "workflow.revision.restore", member.memberId); }
 }

@@ -42,6 +42,16 @@ try {
   const bootstrap = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/create-admin.ts"], { env: environment, stdio: "inherit" });
   assert.equal(bootstrap.status, 0);
   sql = postgres(environment.DATABASE_URL, { max: 2 });
+  const [adminMember] = await sql`SELECT id, organization_id FROM organization_members
+    WHERE email = ${environment.AUTH_BOOTSTRAP_ADMIN_EMAIL}`;
+  const reviewerEmail = "workflow-reviewer@example.invalid";
+  const reviewerPassword = randomBytes(32).toString("hex");
+  const createReviewer = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/create-member.ts"], {
+    env: { ...environment, AUTH_MEMBER_ORGANIZATION_ID: adminMember.organization_id,
+      AUTH_MEMBER_NAME: "Workflow reviewer", AUTH_MEMBER_EMAIL: reviewerEmail,
+      AUTH_MEMBER_PASSWORD: reviewerPassword, AUTH_MEMBER_ROLE: "manager" }, stdio: "inherit",
+  });
+  assert.equal(createReviewer.status, 0);
   server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", (chunk) => process.stderr.write(chunk));
   await new Promise((resolveReady, reject) => {
@@ -96,12 +106,45 @@ try {
   await page.getByRole("button", { name: "Сохранить", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Карту изменили в другой вкладке" }).waitFor();
   assert.equal((await sql`SELECT title FROM workflow_maps WHERE id = ${mapId}`)[0].title, "Изменение во второй вкладке");
+  await secondPage.getByRole("button", { name: "Отправить на согласование" }).click();
+  await secondPage.getByText("Согласовать должен другой сотрудник", { exact: false }).waitFor();
+  const reviewerContext = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const reviewerPage = await reviewerContext.newPage();
+  reviewerPage.on("pageerror", (error) => browserErrors.push(error.message));
+  await reviewerPage.goto(`${baseUrl}/login`);
+  await reviewerPage.getByPlaceholder("Email или телефон").fill(reviewerEmail);
+  await reviewerPage.getByPlaceholder("Пароль").fill(reviewerPassword);
+  await reviewerPage.getByRole("button", { name: "Войти в CRM", exact: true }).click();
+  await reviewerPage.waitForURL((url) => url.pathname === "/");
+  await reviewerPage.goto(`${baseUrl}/workflow?map=${mapId}`);
+  await reviewerPage.getByRole("button", { name: "Согласовать версию" }).click();
+  await reviewerPage.getByRole("status").filter({ hasText: "Версия согласована" }).waitFor();
+  assert.equal(await reviewerPage.getByRole("button", { name: "Опубликовать версию" }).count(), 0);
+  await secondPage.reload();
+  await secondPage.getByRole("button", { name: "Опубликовать версию" }).click();
+  await secondPage.getByText("Версия 3 опубликована.").waitFor();
+  assert.equal((await sql`SELECT published_version FROM workflow_maps WHERE id = ${mapId}`)[0].published_version, 3);
+  await secondPage.getByRole("button", { name: "Посмотреть опубликованную версию 3" }).click();
+  await secondPage.getByText("Содержимое версии 3").waitFor();
+  await secondPage.screenshot({ path: join(artifacts, "workflow-published.png"), animations: "disabled" });
+  await secondPage.getByLabel("Название", { exact: true }).fill("Следующий черновик");
+  await secondPage.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await secondPage.getByRole("status").filter({ hasText: "Карта сохранена" }).waitFor();
+  assert.equal((await sql`SELECT published_version FROM workflow_maps WHERE id = ${mapId}`)[0].published_version, 3);
+  assert.equal((await sql`SELECT title FROM workflow_map_revisions WHERE map_id = ${mapId} AND version = 3`)[0].title, "Изменение во второй вкладке");
+  await secondPage.getByTestId("workflow-revision-3").getByRole("button", { name: "Сравнить" }).click();
+  await secondPage.getByText("Версия 3 ↔ черновик 4").waitFor();
+  await secondPage.getByTestId("workflow-revision-2").getByRole("button", { name: "Восстановить" }).click();
+  await secondPage.getByRole("button", { name: "Подтвердить", exact: true }).click();
+  await secondPage.getByText("Черновик · версия 5", { exact: false }).waitFor();
+  assert.equal((await sql`SELECT title, published_version FROM workflow_maps WHERE id = ${mapId}`)[0].title, "Путь заявки");
+  assert.equal((await sql`SELECT published_version FROM workflow_maps WHERE id = ${mapId}`)[0].published_version, 3);
   await secondPage.getByRole("button", { name: "В архив" }).click();
   await secondPage.getByRole("button", { name: "Подтвердить архивирование" }).click();
   await secondPage.waitForURL(`${baseUrl}/workflow`);
   assert.equal((await sql`SELECT archived_at IS NOT NULL AS archived FROM workflow_maps WHERE id = ${mapId}`)[0].archived, true);
   assert.deepEqual(browserErrors, []);
-  console.log("Workflow browser check passed: create, edit two nodes and a link, save/reload, stale version conflict, archive.");
+  console.log("Workflow browser check passed: edit/save, two-tab conflict, separate reviewer, publication, immutable history, compare, restore and archive.");
 } catch (error) {
   if (page) await page.screenshot({ path: join(artifacts, "workflow-failure.png") }).catch(() => {});
   throw error;

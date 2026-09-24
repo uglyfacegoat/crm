@@ -16,12 +16,22 @@ next product task after the current upload-reliability checkpoint. The scope is
 editable process maps, versions/review/publication, regulations and links to
 real CRM entities, collaboration, and bounded automations as defined in
 [section 10 of the plan](../PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md).
-WF-01 is now implemented and verified in an isolated packaged runtime;
-WF-02–06 remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
+WF-01 and WF-02 are implemented and verified in an isolated packaged runtime;
+WF-03–06 remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
 Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, Workflow WF-02 source acceptance:** migration 065 adds
+  immutable revision snapshots and a backfill of the current WF-01 draft.
+  A different authorized reviewer must approve a saved version before an
+  authorized publisher can publish it. Editing or restoring creates a new
+  draft while the published snapshot remains unchanged. Isolated database
+  tests covered rights, tenant isolation, self-review rejection, approval,
+  publication, rejection, restoration and immutability; packaged browser
+  checks covered two accounts, publication, comparison and restore. The
+  working-database copy rehearsed 064→065 with all 72 previous table counts
+  preserved. Docker installation of WF-02 is still pending.
 - **2026-09-24, Workflow WF-01:** maps now persist per organization, with
   configurable read/write permissions, version conflicts, audit, archive,
   visual blocks and links. Isolated migrations, repository integration and

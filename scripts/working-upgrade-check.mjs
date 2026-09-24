@@ -57,11 +57,27 @@ const safeColumns = new Set([
   "support_requests.category", "website_daily_metrics.provider", "website_health_snapshots.source",
   "website_integrations.provider", "website_sync_runs.provider", "website_hosting_profiles.provider",
   "masters.service_zone", "chat_message_reactions.emoji",
+  "workflow_map_revisions.change_kind",
 ]);
 
 function replacement(table, column, type) {
   const key = `${table}.${column}`;
   if (safeColumns.has(key)) return null;
+  if ((table === "workflow_maps" || table === "workflow_map_revisions") && column === "draft") {
+    // Keep graph IDs, positions and topology; redact only text in the private copy.
+    return `jsonb_build_object(
+      'nodes', coalesce((SELECT jsonb_agg(node.value || jsonb_build_object(
+        'title', 'Anonymized node ' || node.ordinality::text,
+        'description', CASE WHEN node.value->>'description' = '' THEN '' ELSE 'Anonymized description' END)
+        ORDER BY node.ordinality)
+        FROM jsonb_array_elements(coalesce(t.draft->'nodes', '[]'::jsonb))
+          WITH ORDINALITY AS node(value, ordinality)), '[]'::jsonb),
+      'edges', coalesce((SELECT jsonb_agg(edge.value || jsonb_build_object(
+        'label', CASE WHEN edge.value->>'label' = '' THEN '' ELSE 'Anonymized link' END)
+        ORDER BY edge.ordinality)
+        FROM jsonb_array_elements(coalesce(t.draft->'edges', '[]'::jsonb))
+          WITH ORDINALITY AS edge(value, ordinality)), '[]'::jsonb))`;
+  }
   if (type === "jsonb") return "'{}'::jsonb";
   if (type === "ARRAY") return "ARRAY[]::text[]";
   if (column === "skills") return "ARRAY[]::text[]";
@@ -113,15 +129,23 @@ async function anonymize(sql) {
     fingerprints.push({ table: column.table_name, column: column.column_name });
   }
   const fingerprint = async ({ table, column }) => (await sql.unsafe(
-    `SELECT count(${q(column)})::integer AS populated,
+    `SELECT ${((table === "workflow_maps" || table === "workflow_map_revisions") && column === "draft")
+      ? "count(*) FILTER (WHERE jsonb_array_length(coalesce(draft->'nodes', '[]'::jsonb)) > 0 OR jsonb_array_length(coalesce(draft->'edges', '[]'::jsonb)) > 0)::integer"
+      : `count(${q(column)})::integer`} AS populated,
       md5(coalesce(string_agg(${q(column)}::text, '|' ORDER BY ${q(column)}::text), '')) AS digest
       FROM ${q(table)}`))[0];
   const before = await Promise.all(fingerprints.map(fingerprint));
-  for (const [table, assignments] of byTable) {
-    const statement = `WITH numbered AS (SELECT ctid, row_number() OVER (ORDER BY ctid) AS rn FROM ${q(table)})
-      UPDATE ${q(table)} AS t SET ${assignments.join(", ")} FROM numbered AS n WHERE t.ctid = n.ctid`;
-    try { await sql.unsafe(statement); }
-    catch (error) { error.safeTable = table; throw error; }
+  const revisionTableExists = byTable.has("workflow_map_revisions");
+  if (revisionTableExists) await sql`ALTER TABLE workflow_map_revisions DISABLE TRIGGER workflow_map_revisions_immutable`;
+  try {
+    for (const [table, assignments] of byTable) {
+      const statement = `WITH numbered AS (SELECT ctid, row_number() OVER (ORDER BY ctid) AS rn FROM ${q(table)})
+        UPDATE ${q(table)} AS t SET ${assignments.join(", ")} FROM numbered AS n WHERE t.ctid = n.ctid`;
+      try { await sql.unsafe(statement); }
+      catch (error) { error.safeTable = table; throw error; }
+    }
+  } finally {
+    if (revisionTableExists) await sql`ALTER TABLE workflow_map_revisions ENABLE TRIGGER workflow_map_revisions_immutable`;
   }
   const after = await Promise.all(fingerprints.map(fingerprint));
   for (const [index, entry] of fingerprints.entries()) {
@@ -143,7 +167,11 @@ try {
   stage = "baseline";
   const beforeCounts = await tableCounts(sql);
   const beforeHistory = await sql`SELECT name, checksum, applied_at FROM schema_migrations ORDER BY name`;
-  assert.equal(beforeHistory.length, 55, "Expected the current 55-migration working schema");
+  const filenames = (await readdir("db/migrations")).filter((name) => name.endsWith(".sql")).sort();
+  assert.ok(beforeHistory.length >= 55 && beforeHistory.length <= filenames.length,
+    "Working migration history must be a known release between the inspected baseline and current source");
+  assert.deepEqual(beforeHistory.map((row) => row.name), filenames.slice(0, beforeHistory.length),
+    "Working migration history must be a contiguous prefix of current source");
   stage = "anonymize";
   const { maskedColumns, populatedMaskedColumns } = await anonymize(sql);
   stage = "mask-counts";
@@ -165,7 +193,6 @@ try {
       throw error;
     }
   }
-  const filenames = (await readdir("db/migrations")).filter((name) => name.endsWith(".sql")).sort();
   stage = "migration-count";
   assert.equal(afterHistory.length, filenames.length, "Not all migrations were applied");
   stage = "row-counts";

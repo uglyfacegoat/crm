@@ -22,6 +22,7 @@ let sql;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", sourceRoot), { namedExports: { getDatabase: () => sql } });
 const workflow = await import("../src/server/workflow/repository.ts");
+const versions = await import("../src/server/workflow/versions-repository.ts");
 const { saveWorkflowMapSchema } = await import("../src/server/workflow/schemas.ts");
 
 test("workflow maps are tenant scoped, permission gated and version safe", async (t) => {
@@ -61,6 +62,8 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
   await assert.rejects(workflow.createWorkflowMap(other, { id, title: "Чужой ключ" }), workflow.WorkflowMapConflictError);
   const deniedOwner = { ...owner, permissionOverrides: { "workflow.write": false } };
   await assert.rejects(workflow.createWorkflowMap(deniedOwner, { id: randomUUID(), title: "Запрещено настройкой" }), AuthorizationError);
+  const unreadableOwner = { ...owner, permissionOverrides: { "workflow.read": false } };
+  await assert.rejects(workflow.saveWorkflowMap(unreadableOwner, { id, expectedVersion: 1, title: "Не читать", description: "", draft: { nodes: [], edges: [] } }), AuthorizationError);
   assert.equal((await workflow.getWorkflowWorkspace(reader, id)).selected?.title, "Путь заявки");
   assert.equal((await workflow.getWorkflowWorkspace(other, id)).selected, null);
   assert.deepEqual((await workflow.getWorkflowWorkspace(other, null)).maps, []);
@@ -85,4 +88,52 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
   assert.equal((await workflow.getWorkflowWorkspace(owner, id)).selected, null);
   await assert.rejects(workflow.saveWorkflowMap(owner, { id, expectedVersion: 3, title: "Вернуть", description: "", draft }), workflow.WorkflowMapNotFoundError);
   assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_maps WHERE id = ${id} AND archived_at IS NOT NULL`)[0].count, 1);
+
+  const reviewer = await member("manager", owner.organizationId);
+  const versionMapId = randomUUID();
+  await workflow.createWorkflowMap(owner, { id: versionMapId, title: "Согласование процесса" });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_map_revisions WHERE map_id = ${versionMapId}`)[0].count, 1);
+  await workflow.saveWorkflowMap(owner, { id: versionMapId, expectedVersion: 1, title: "Процесс до публикации", description: "Описание", draft });
+  await versions.requestWorkflowReview(owner, { id: versionMapId, expectedVersion: 2 });
+  await assert.rejects(versions.approveWorkflowReview(owner, { id: versionMapId, expectedVersion: 2 }),
+    (error) => error instanceof versions.WorkflowReviewStateError && error.reason === "self_review");
+  await assert.rejects(versions.publishWorkflowRevision(reviewer, { id: versionMapId, expectedVersion: 2 }), AuthorizationError);
+  await assert.rejects(versions.publishWorkflowRevision(owner, { id: versionMapId, expectedVersion: 2 }),
+    (error) => error instanceof versions.WorkflowReviewStateError && error.reason === "not_approved");
+  await versions.approveWorkflowReview(reviewer, { id: versionMapId, expectedVersion: 2 });
+  await assert.rejects(versions.requestWorkflowReview(owner, { id: versionMapId, expectedVersion: 2 }),
+    (error) => error instanceof versions.WorkflowReviewStateError && error.reason === "already_approved");
+  await versions.publishWorkflowRevision(owner, { id: versionMapId, expectedVersion: 2 });
+  await versions.publishWorkflowRevision(owner, { id: versionMapId, expectedVersion: 2 });
+  assert.equal((await sql`SELECT published_version FROM workflow_maps WHERE id = ${versionMapId}`)[0].published_version, 2);
+  assert.equal((await workflow.getWorkflowWorkspace(reader, versionMapId)).selected?.publishedVersion, 2);
+  const published = await versions.getWorkflowRevision(reader, { id: versionMapId, version: 2 });
+  assert.equal(published.title, "Процесс до публикации");
+  assert.deepEqual(published.draft, draft);
+  await assert.rejects(versions.getWorkflowRevision(other, { id: versionMapId, version: 2 }), workflow.WorkflowMapNotFoundError);
+  await assert.rejects(sql`UPDATE workflow_map_revisions SET title = 'Mutated' WHERE map_id = ${versionMapId} AND version = 2`);
+
+  await workflow.saveWorkflowMap(owner, { id: versionMapId, expectedVersion: 2, title: "Новый черновик", description: "После публикации", draft });
+  const afterSave = (await workflow.getWorkflowWorkspace(owner, versionMapId)).selected;
+  assert.equal(afterSave?.publishedVersion, 2);
+  assert.equal(afterSave?.reviewVersion, null);
+  assert.equal(afterSave?.approvedVersion, null);
+  assert.equal((await versions.getWorkflowRevision(owner, { id: versionMapId, version: 2 })).title, "Процесс до публикации");
+  await versions.requestWorkflowReview(owner, { id: versionMapId, expectedVersion: 3 });
+  await versions.rejectWorkflowReview(reviewer, { id: versionMapId, expectedVersion: 3, reason: "Уточнить развилку" });
+  assert.equal((await workflow.getWorkflowWorkspace(owner, versionMapId)).selected?.reviewVersion, null);
+  await versions.requestWorkflowReview(owner, { id: versionMapId, expectedVersion: 3 });
+  await versions.approveWorkflowReview(reviewer, { id: versionMapId, expectedVersion: 3 });
+  const restoredVersion = await versions.restoreWorkflowRevision(owner, { id: versionMapId, expectedVersion: 3, sourceVersion: 1 });
+  assert.equal(restoredVersion, 4);
+  const restored = (await workflow.getWorkflowWorkspace(owner, versionMapId)).selected;
+  assert.equal(restored?.version, 4);
+  assert.equal(restored?.title, "Согласование процесса");
+  assert.deepEqual(restored?.draft, { nodes: [], edges: [] });
+  assert.equal(restored?.reviewVersion, null);
+  assert.equal(restored?.publishedVersion, 2);
+  assert.equal((await versions.getWorkflowRevision(owner, { id: versionMapId, version: 4 })).sourceVersion, 1);
+  await assert.rejects(versions.publishWorkflowRevision(owner, { id: versionMapId, expectedVersion: 4 }),
+    (error) => error instanceof versions.WorkflowReviewStateError && error.reason === "not_approved");
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_map_revisions WHERE map_id = ${versionMapId}`)[0].count, 4);
 });

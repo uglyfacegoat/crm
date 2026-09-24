@@ -3,7 +3,7 @@
 24 September 2026. The owner approved full implementation of the Workflow page.
 This document tracks the actual working scope, not the planned final scope.
 
-## Working now (WF-01)
+## Working now (WF-01 and WF-02 in source)
 
 - `064_workflow_maps.sql` creates organization-scoped process maps. A draft stores
   validated visual nodes and directed connections. Each edit advances an
@@ -27,11 +27,27 @@ This document tracks the actual working scope, not the planned final scope.
   Desktop and 390px mobile screenshots were inspected; the mobile viewport has
   no document-level horizontal overflow. Typecheck, lint and production build
   passed.
+- `065_workflow_versions.sql` keeps every saved state as an immutable revision.
+  Existing WF-01 maps get a baseline snapshot of their current state; earlier
+  edits cannot be reconstructed. Review and publication point at an exact
+  revision. Review approval requires another member with `workflow.review`;
+  publication requires `workflow.publish`. Manager can review by default;
+  admin and developer can review and publish. Changes to a draft clear its
+  pending approval but retain the previously published snapshot.
+- The page shows review state, version author/time, comparison against the
+  current draft, and the complete content of any selected snapshot. Restoring
+  an older snapshot creates a new draft version. Review decisions, publication
+  and restoration are audited. An empty map cannot be submitted for review.
+- Isolated repository tests exercised tenant boundaries, permission overrides,
+  self-review rejection, rejection with a reason, approval, publication,
+  immutable snapshots and restoration. The packaged browser check used admin
+  and manager accounts to run the full review/publish path and confirmed that
+  later edits do not alter the published snapshot. `npm run
+  test:working-upgrade` passed 064→065 on an anonymized copy of the working
+  database, preserving counts in all 72 pre-existing tables.
 
 ## Still open
 
-- WF-02: immutable revisions, review and publication, comparison and rollback
-  via a fresh draft.
 - WF-03: regulations, comments, owners and permission-checked links to live
   CRM entities.
 - WF-04: collaboration permissions, change notifications and concurrent
