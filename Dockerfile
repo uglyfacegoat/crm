@@ -9,6 +9,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
+RUN find .next/standalone -type f -name '*.test.*' -delete
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
