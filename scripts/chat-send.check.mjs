@@ -11,7 +11,7 @@ const hooks = registerHooks({
       return nextResolve("next/cache.js", context);
     }
     if (context.parentURL === actionUrl.href && specifier.startsWith("@/")) {
-      return nextResolve(new URL(`${specifier.slice(2)}.ts`, sourceRoot).href, context);
+      return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, sourceRoot).href, context);
     }
     return nextResolve(specifier, context);
   },

@@ -10,7 +10,7 @@ if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to an isolat
 const root = new URL("../src/", import.meta.url);
 const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
   if (context.parentURL?.startsWith(root.href) && specifier.startsWith("@/")) {
-    return nextResolve(new URL(`${specifier.slice(2)}.ts`, root).href, context);
+    return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, root).href, context);
   }
   return nextResolve(specifier, context);
 } });

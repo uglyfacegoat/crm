@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const baseUrl = process.env.SMOKE_BASE_URL;
 const databaseUrl = process.env.DATABASE_URL;
@@ -61,7 +62,7 @@ try {
       await exhaust(operation, width === 390);
       const draft = `Preserved ${operation} ${width}`;
       await text.fill(draft);
-      await file.setInputFiles({ name: "fixture.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") });
+      await file.setInputFiles({ name: "fixture.pdf", mimeType: "application/pdf", buffer: pdfFixture("fixture") });
       const requestKey = await key.inputValue();
       const filesBefore = (await readdir(storageRoot, { recursive: true })).sort();
       await submit();
@@ -85,7 +86,7 @@ try {
   const requestKey = await key.inputValue();
   const draft = "Keep this draft when another message arrives";
   await text.fill(draft);
-  await file.setInputFiles({ name: "fixture.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") });
+  await file.setInputFiles({ name: "fixture.pdf", mimeType: "application/pdf", buffer: pdfFixture("fixture") });
   const [peer] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
     VALUES (${member.organization_id}, 'Chat test peer', 'chat-peer@example.invalid', 'dispatcher') RETURNING id`;
   await sql`INSERT INTO chat_channel_members (organization_id, channel_id, member_id, channel_role, joined_by)

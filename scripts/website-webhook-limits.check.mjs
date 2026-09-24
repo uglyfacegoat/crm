@@ -8,7 +8,7 @@ const routeUrl = new URL("../src/app/api/v1/webhooks/website-leads/route.ts", im
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
     if (context.parentURL === routeUrl.href && specifier.startsWith("@/")) {
-      return nextResolve(new URL(`${specifier.slice(2)}.ts`, sourceRoot).href, context);
+      return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, sourceRoot).href, context);
     }
     return nextResolve(specifier, context);
   },

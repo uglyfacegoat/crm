@@ -10,6 +10,7 @@ import { setFileWriteMode } from "./file-write-drain.mjs";
 import { quarantineFileWrite } from "./file-write-quarantine.mjs";
 import { exportQuarantineCopy } from "./file-write-quarantine-export.mjs";
 import { reviewOrResolveFileWrite } from "./file-write-recovery.mjs";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
@@ -36,7 +37,7 @@ test("local quarantine preserves unreferenced bytes across copy/unlink interrupt
   const key = `${organizationId}/${randomUUID()}/v1.pdf`;
   const operationId = randomUUID();
   const sourcePath = join(storageRoot, key);
-  const bytes = Buffer.from("%PDF-1.4\nQuarantine fixture\n");
+  const bytes = pdfFixture("Quarantine fixture");
   await mkdir(dirname(sourcePath), { recursive: true });
   await writeFile(sourcePath, bytes, { mode: 0o600 });
   await sql`INSERT INTO file_write_operations (id, storage_keys) VALUES (${operationId}, ${[key]})`;

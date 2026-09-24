@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "node:test";
 import { AuthorizationError } from "../src/server/auth/permissions.ts";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const sourceRoot = new URL("../src/", import.meta.url);
 const documentsUrl = new URL("app/(workspace)/documents/actions.ts", sourceRoot);
@@ -13,7 +14,7 @@ const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
     if ([documentsUrl.href, financeUrl.href].includes(context.parentURL)) {
       if (specifier === "next/cache") return nextResolve("next/cache.js", context);
-      if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}.ts`, sourceRoot).href, context);
+      if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, sourceRoot).href, context);
     }
     return nextResolve(specifier, context);
   },
@@ -57,7 +58,7 @@ mock.module(new URL("server/documents/storage.ts", sourceRoot), { namedExports: 
 const { uploadDocumentAction, uploadDocumentVersionAction } = await import(documentsUrl.href);
 const { createPaymentAction, createPayoutAction } = await import(financeUrl.href);
 const previous = { status: "idle", message: null, fieldErrors: {} };
-const content = Buffer.from("%PDF-1.4\nRetained evidence\n");
+const content = pdfFixture("Retained evidence");
 
 function form() {
   const result = new FormData();
@@ -191,7 +192,7 @@ test("file mutations distinguish persistence from post-commit cache failures", a
       assert.equal(removeDocumentFile.mock.callCount(), 1);
       await assert.rejects(readFile(path), { code: "ENOENT" });
     });
-    for (const [description, existing] of [["matching", content], ["different", Buffer.from("%PDF-1.4\nDifferent evidence\n")]]) {
+    for (const [description, existing] of [["matching", content], ["different", pdfFixture("Different evidence")]]) {
       await t.test(`${name}: existing unconfirmed ${description} bytes are neither reused nor deleted`, async () => {
         await writeFile(path, existing);
         const result = await action(previous, form());

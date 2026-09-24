@@ -18,6 +18,7 @@ import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 import { createS3AuditStorage } from "./s3-audit-storage.mjs";
 import { auditStorage as auditFiles } from "./storage-audit.mjs";
 import { inspectStorageTransfer, transferDocumentStorage } from "./storage-transfer.mjs";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
@@ -145,7 +146,7 @@ test("storage transfer resumes all retained references in both directions withou
   await assert.rejects(sql`DELETE FROM file_storage_transfers WHERE id = ${forwardId}`, /append-only/);
   let newKey;
   let verifyRollbackHttp;
-  const newBytes = Buffer.from("%PDF-1.4\nNew file uploaded after S3 cutover\n");
+  const newBytes = pdfFixture("New file uploaded after S3 cutover");
   const newSha = createHash("sha256").update(newBytes).digest("hex");
 
   if (process.env.STORAGE_CUTOVER_TEST_RUNTIME && process.env.STORAGE_CUTOVER_TEST_IMAGE) {

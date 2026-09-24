@@ -15,6 +15,7 @@ import { startS3Fixture } from "./fixtures/s3-server.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
 import { verifyRestoredFiles } from "./backup-integrity.mjs";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 const runtime = process.env.UPLOAD_CHECK_RUNTIME;
@@ -229,7 +230,7 @@ try {
   for (const warn of [false, true]) {
     await page.setViewportSize(warn ? { width: 390, height: 844 } : { width: 1440, height: 1000 });
     const suffix = warn ? "warning" : "normal";
-    const documentBytes = Buffer.from(`%PDF-1.4\nDocument ${suffix}\n`);
+    const documentBytes = pdfFixture(`Document ${suffix}`);
     await page.goto(`${baseUrl}/documents`);
     await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
     let dialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
@@ -262,7 +263,7 @@ try {
     await page.goto(`${baseUrl}/documents?document=${documentId}`);
     await page.getByRole("button", { name: "Новая версия", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Новая версия документа", exact: true });
-    const versionBytes = Buffer.from(`%PDF-1.4\nVersion two ${suffix}\n`);
+    const versionBytes = pdfFixture(`Version two ${suffix}`);
     await dialog.locator('input[name="file"]').setInputFiles({ name: "version.pdf", mimeType: "application/pdf", buffer: versionBytes });
     await submit(dialog, "Сохранить версию 2", warn ? { saved: "Версия 2 сохранена. Предыдущие файлы доступны в истории.", warning: "Новая версия сохранена, но страницу не удалось обновить. Обновите её вручную." } : null, "version-warning.png");
     await verifyVersion(documentId, 1, documentBytes);
@@ -290,7 +291,7 @@ try {
         await page.getByRole("button", { name: "Провести выплату", exact: true }).click();
       }
       dialog = page.getByRole("dialog", { name: kind === "payment" ? "Оплата клиента" : "Выплата мастеру", exact: true });
-      const receiptBytes = Buffer.from(`%PDF-1.4\nReceipt ${kind} ${suffix}\n`);
+      const receiptBytes = pdfFixture(`Receipt ${kind} ${suffix}`);
       await dialog.locator('input[name="amount"]').fill("100");
       await dialog.locator('input[name="receipt"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: receiptBytes });
       const receiptId = await dialog.locator('input[name="receiptDocumentId"]').inputValue();
@@ -411,10 +412,22 @@ try {
   if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(corruptImageId)));
   await corruptImageDialog.getByRole("button", { name: "Отмена", exact: true }).click();
   console.log("image decoder: PNG header without pixels was rejected before file and database writes.");
+  await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const corruptPdfDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+  await corruptPdfDialog.locator('summary[aria-label="Заказ"]').click();
+  await corruptPdfDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+  await corruptPdfDialog.locator('input[name="title"]').fill("Corrupt PDF test");
+  await corruptPdfDialog.locator('input[name="file"]').setInputFiles({ name: "corrupt.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n") });
+  const corruptPdfId = await corruptPdfDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await corruptPdfDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await corruptPdfDialog.getByRole("status").filter({ hasText: "PDF-файл повреждён или не содержит читаемых страниц." }).waitFor();
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${corruptPdfId}`)[0].count, 0);
+  if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(corruptPdfId)));
+  await corruptPdfDialog.getByRole("button", { name: "Отмена", exact: true }).click();
+  console.log("PDF parser: header-only PDF was rejected before file and database writes.");
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
-  const boundaryBytes = Buffer.alloc(15 * 1024 * 1024, 0x20);
-  boundaryBytes.write("%PDF-1.4\n", 0, "ascii");
+  const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
   await page.goto(`${baseUrl}/documents`);
   await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
   const boundaryDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
@@ -437,7 +450,7 @@ try {
     await pausedDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
     await pausedDialog.locator('input[name="title"]').fill("Paused upload must not persist");
     await pausedDialog.locator('input[name="file"]').setInputFiles({
-      name: "paused.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nPaused upload\n"),
+      name: "paused.pdf", mimeType: "application/pdf", buffer: pdfFixture("Paused upload"),
     });
     await pausedDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
     await pausedDialog.getByRole("status").filter({ hasText: "Загрузка файлов временно остановлена" }).waitFor();
@@ -479,7 +492,7 @@ try {
     await page.getByRole("button", { name: "Завершить", exact: true }).last().click();
     dialog = page.getByRole("dialog", { name: "Завершить выезд", exact: true });
     await dialog.locator('textarea[name="completionNotes"]').fill("Work completed and signed by customer");
-    const actBytes = Buffer.from(`%PDF-1.4\nSigned act ${warn}\n`);
+    const actBytes = pdfFixture(`Signed act ${warn}`);
     await dialog.locator('input[name="file"]').setInputFiles({ name: "act.pdf", mimeType: "application/pdf", buffer: actBytes });
     const actId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
     await submit(dialog, "Завершить с актом", warn ? { saved: "Выезд завершён, акт добавлен в архив.", warning: "Выезд завершён, акт сохранён, но страницу не удалось обновить. Обновите её вручную." } : null, "closing-act-warning.png", "Выезд завершён");
@@ -512,7 +525,7 @@ try {
     await stalledDialog.locator('summary[aria-label="Заказ"]').click();
     await stalledDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
     await stalledDialog.locator('input[name="title"]').fill("Scanner timeout test");
-    await stalledDialog.locator('input[name="file"]').setInputFiles({ name: "timeout.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nTimeout test\n") });
+    await stalledDialog.locator('input[name="file"]').setInputFiles({ name: "timeout.pdf", mimeType: "application/pdf", buffer: pdfFixture("Timeout test") });
     const stalledId = await stalledDialog.locator('input[name="idempotencyKey"]').inputValue();
     await stalledDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
     await stalledDialog.getByRole("status").filter({ hasText: "Проверка файла временно недоступна." }).waitFor();
@@ -544,7 +557,7 @@ try {
     await unavailableDialog.locator('summary[aria-label="Заказ"]').click();
     await unavailableDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
     await unavailableDialog.locator('input[name="title"]').fill("Scanner outage test");
-    await unavailableDialog.locator('input[name="file"]').setInputFiles({ name: "outage.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nOutage test\n") });
+    await unavailableDialog.locator('input[name="file"]').setInputFiles({ name: "outage.pdf", mimeType: "application/pdf", buffer: pdfFixture("Outage test") });
     const unavailableId = await unavailableDialog.locator('input[name="idempotencyKey"]').inputValue();
     await unavailableDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
     await unavailableDialog.getByRole("status").filter({ hasText: "Проверка файла временно недоступна." }).waitFor();

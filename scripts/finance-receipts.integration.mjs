@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 import { startCommitLossProxy } from "./fixtures/postgres-commit-proxy.mjs";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must identify an isolated test PostgreSQL instance.");
@@ -17,7 +18,7 @@ const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
     if (context.parentURL?.startsWith(sourceRoot.href)) {
       if (specifier === "next/cache") return nextResolve("next/cache.js", context);
-      if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}.ts`, sourceRoot).href, context);
+      if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, sourceRoot).href, context);
       if (specifier.startsWith(".") && !/\.(ts|mjs)$/.test(specifier)) return nextResolve(`${specifier}.ts`, context);
     }
     return nextResolve(specifier, context);
@@ -42,7 +43,7 @@ const { AuthorizationError } = await import("../src/server/auth/permissions.ts")
 const storage = await import("../src/server/documents/storage.ts");
 const { closeFileWriteGate, withFileWriteLease } = await import("../src/server/file-writes/gate.mjs");
 const previous = { status: "idle", message: null, fieldErrors: {} };
-const content = Buffer.from("%PDF-1.4\nFinance receipt evidence\n");
+const content = pdfFixture("Finance receipt evidence");
 
 test("uploads retain committed bytes and finance retries preserve file ownership", { timeout: 60_000 }, async (t) => {
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
@@ -297,7 +298,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
         title: "Commit loss evidence", description: "",
       })) payload.set(field, value);
       payload.set("file", new File([content], "evidence.pdf", { type: "application/pdf" }));
-      const revisedContent = Buffer.from("%PDF-1.4\nRevised commit loss evidence\n");
+      const revisedContent = pdfFixture("Revised commit loss evidence");
       if (versionUpload) {
         assert.equal((await documentActions.uploadDocumentAction(previous, payload)).status, "success");
         payload.set("idempotencyKey", randomUUID());

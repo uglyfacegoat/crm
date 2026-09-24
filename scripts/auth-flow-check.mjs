@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const browserCandidates = process.platform === "win32"
   ? ["C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"]
@@ -236,7 +237,7 @@ try {
   await documentDialog.locator('input[name="file"]').setInputFiles({
     name: `act-${suffix}.pdf`,
     mimeType: "application/pdf",
-    buffer: Buffer.from("%PDF-1.7\nCRM verification document\n%%EOF", "ascii"),
+    buffer: pdfFixture("CRM verification document"),
   });
   await documentDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
   await documentDialog.waitFor({ state: "hidden" });
@@ -351,7 +352,7 @@ try {
   await completionDialog.locator('input[name="file"]').setInputFiles({
     name: `closing-act-${suffix}.pdf`,
     mimeType: "application/pdf",
-    buffer: Buffer.from("%PDF-1.7\nCRM closing act verification\n%%EOF", "ascii"),
+    buffer: pdfFixture("CRM closing act verification"),
   });
   await completionDialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
   await completionDialog.getByText("Выезд завершён, акт добавлен в архив.", { exact: true }).waitFor();

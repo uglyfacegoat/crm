@@ -14,6 +14,7 @@ import { exportS3Versions } from "./file-write-s3-export.mjs";
 import { createS3VersionRemover, quarantineS3Versions } from "./file-write-s3-quarantine.mjs";
 import { createS3RestoreTarget, restoreS3QuarantineArchive } from "./file-write-s3-restore.mjs";
 import { reviewOrResolveFileWrite } from "./file-write-recovery.mjs";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
@@ -41,8 +42,8 @@ test("versioned S3 quarantine resumes partial removal only after verified privat
   await runMigrations({ databaseUrl, onApplied: () => {} });
   const operationId = randomUUID();
   const storageKey = `${randomUUID()}/${randomUUID()}/v1.pdf`;
-  const bytes = [Buffer.from("%PDF-1.4\nS3 quarantine first\n"),
-    Buffer.from("%PDF-1.4\nS3 quarantine second\n")];
+  const bytes = [pdfFixture("S3 quarantine first"),
+    pdfFixture("S3 quarantine second")];
   await sql`INSERT INTO file_write_operations (id, storage_keys) VALUES (${operationId}, ${[storageKey]})`;
   await fixture.client.send(new PutBucketVersioningCommand({ Bucket: fixture.bucket,
     VersioningConfiguration: { Status: "Enabled" } }));

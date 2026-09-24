@@ -10,6 +10,7 @@ import { createS3Storage } from "../storage/s3-store.mjs";
 import { StoredFileIntegrityError, validateFileExpectation, validateStorageKey } from "../storage/file-integrity.mjs";
 import { FileScanRejectedError, FileScanUnavailableError, scanFileBuffer } from "../file-scan/clamd.mjs";
 import { assertDecodableImage, InvalidImageError } from "../file-scan/image-check.mjs";
+import { assertReadablePdf, InvalidPdfError } from "../file-scan/pdf-check.mjs";
 import { DocumentFileValidationError } from "./file-validation";
 
 export { StoredFileIntegrityError };
@@ -68,6 +69,13 @@ export function createChatChannelAvatarStorageKey(organizationId: string, channe
 }
 
 export async function writeDocumentFile(storageKey: string, buffer: Buffer) {
+  if (buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
+    try { await assertReadablePdf(buffer); }
+    catch (error) {
+      if (error instanceof InvalidPdfError) throw new DocumentFileValidationError("PDF-файл повреждён или не содержит читаемых страниц.");
+      throw error;
+    }
+  }
   try { await assertDecodableImage(buffer); }
   catch (error) {
     if (error instanceof InvalidImageError) throw new DocumentFileValidationError("Изображение повреждено или слишком велико.");

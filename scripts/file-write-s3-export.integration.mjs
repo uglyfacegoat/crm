@@ -12,6 +12,7 @@ import { setFileWriteMode } from "./file-write-drain.mjs";
 import { startS3Fixture } from "./fixtures/s3-server.mjs";
 import { createS3AuditStorage } from "./s3-audit-storage.mjs";
 import { exportS3Versions, verifyS3ExportCopy } from "./file-write-s3-export.mjs";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
@@ -39,8 +40,8 @@ test("S3 version export preserves every object version and delete marker without
   await sql`INSERT INTO file_write_operations (id, storage_keys) VALUES (${operationId}, ${[storageKey]})`;
   await fixture.client.send(new PutBucketVersioningCommand({ Bucket: fixture.bucket,
     VersioningConfiguration: { Status: "Enabled" } }));
-  const first = Buffer.from("%PDF-1.4\nFirst historical S3 version\n");
-  const second = Buffer.from("%PDF-1.4\nSecond historical S3 version\n");
+  const first = pdfFixture("First historical S3 version");
+  const second = pdfFixture("Second historical S3 version");
   await fixture.client.send(new PutObjectCommand({ Bucket: fixture.bucket, Key: storageKey, Body: first }));
   await fixture.client.send(new PutObjectCommand({ Bucket: fixture.bucket, Key: storageKey, Body: second }));
   await fixture.client.send(new DeleteObjectCommand({ Bucket: fixture.bucket, Key: storageKey }));

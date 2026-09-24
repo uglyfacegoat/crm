@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "node:test";
 import { AuthorizationError } from "../src/server/auth/permissions.ts";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const root = new URL("../src/", import.meta.url);
 const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
   if (context.parentURL?.startsWith(new URL("app/", root).href)) {
     if (specifier === "next/cache") return nextResolve("next/cache.js", context);
-    if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}.ts`, root).href, context);
+    if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, root).href, context);
   }
   return nextResolve(specifier, context);
 } });
@@ -55,7 +56,7 @@ const templates = await import("../src/app/(workspace)/settings/template-actions
 const chat = await import("../src/app/(workspace)/chat/actions.ts");
 const previous = { status: "idle", message: null, fieldErrors: {}, entityId: null, documentId: null };
 const id = "d81478c4-9807-44b4-befb-5819bbfbad22";
-const pdf = Buffer.from("%PDF-1.4\nLifecycle test\n");
+const pdf = pdfFixture("Lifecycle test");
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 test("remaining upload actions preserve committed and uncertain files", async (t) => {

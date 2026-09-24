@@ -9,6 +9,7 @@ import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
 import { reviewOrResolveFileWrite } from "./file-write-recovery.mjs";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
@@ -80,7 +81,7 @@ test("local and S3 file-write recovery review bytes and record only audited, pau
   const key = `${organization.id}/${template.id}/v1.pdf`;
   const path = join(storageRoot, key);
   await mkdir(dirname(path), { recursive: true });
-  const bytes = Buffer.from("%PDF-1.4\nRecovery fixture\n");
+  const bytes = pdfFixture("Recovery fixture");
   await writeFile(path, bytes);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const referencedOperationId = randomUUID();
