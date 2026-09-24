@@ -2,7 +2,7 @@
 
 import { FileClock, RefreshCw, UploadCloud } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useActionState, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { type DocumentUploadState, uploadDocumentVersionAction } from "@/app/(workspace)/documents/actions";
 import { OrderField, OrderFormFooter, OrderFormStatus, orderTextareaClass } from "@/components/orders/order-form-parts";
@@ -13,7 +13,8 @@ import type { DocumentListItem } from "@/server/documents/types";
 const initialState: DocumentUploadState = { status: "idle", message: null, fieldErrors: {} };
 
 function UploadDocumentVersionForm({ document, requestKey, onComplete }: { document: DocumentListItem; requestKey: string; onComplete: () => void }) {
-  const [state, formAction, pending] = useActionState(uploadDocumentVersionAction, initialState);
+  const [state, setState] = useState<DocumentUploadState>(initialState);
+  const [pending, startTransition] = useTransition();
   const router = useRouter();
   useEffect(() => {
     if (state.status !== "success" || state.refreshRequired) return;
@@ -24,7 +25,18 @@ function UploadDocumentVersionForm({ document, requestKey, onComplete }: { docum
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    startTransition(() => formAction(formData));
+    startTransition(async () => {
+      try {
+        const result = await uploadDocumentVersionAction(state, formData);
+        startTransition(() => setState(result));
+      } catch {
+        startTransition(() => setState({
+          status: "error",
+          message: "Не удалось получить ответ сервера. Проверьте историю документа перед повторной отправкой.",
+          fieldErrors: {},
+        }));
+      }
+    });
   };
 
   return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">

@@ -810,6 +810,58 @@ try {
   assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostDocumentId}`)[0].count, 1);
   console.log("lost response after commit: form retained file and retry key; replay and UI retry kept one document.");
   await lostContext.close();
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  const versionContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const versionPage = await versionContext.newPage();
+  const versionPageErrors = [];
+  versionPage.on("pageerror", (error) => versionPageErrors.push(error.message));
+  let resolveVersionResponse;
+  let rejectVersionResponse;
+  const versionResponse = new Promise((resolve, reject) => { resolveVersionResponse = resolve; rejectVersionResponse = reject; });
+  const versionTimeout = setTimeout(() => rejectVersionResponse(new Error("Lost version response was not intercepted")), 30_000);
+  let dropVersionResponse = true;
+  await versionPage.route("**/documents**", async (route) => {
+    if (!dropVersionResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+    dropVersionResponse = false;
+    try {
+      const requestHeaders = route.request().headers();
+      const requestBody = route.request().postDataBuffer();
+      const response = await route.fetch();
+      resolveVersionResponse({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+      await route.abort("failed");
+    } catch (error) { rejectVersionResponse(error); }
+  });
+  await versionPage.goto(`${baseUrl}/documents?document=${lostDocumentId}`);
+  await versionPage.getByRole("button", { name: "Новая версия", exact: true }).click();
+  const versionDialog = versionPage.getByRole("dialog", { name: "Новая версия документа", exact: true });
+  await versionDialog.locator('textarea[name="changeNote"]').fill("Lost response version note");
+  const lostVersionBytes = pdfFixture("Lost document version response after commit");
+  await versionDialog.locator('input[name="file"]').setInputFiles({ name: "lost-version.pdf", mimeType: "application/pdf", buffer: lostVersionBytes });
+  const versionKey = await versionDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await versionDialog.getByRole("button", { name: "Сохранить версию 2", exact: true }).click();
+  const lostVersion = await versionResponse;
+  clearTimeout(versionTimeout);
+  assert.equal(lostVersion.status, 200);
+  assert.match(lostVersion.body, /Версия 2 сохранена/);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostDocumentId}`)[0].count, 2);
+  await versionDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте историю документа перед повторной отправкой." }).waitFor();
+  assert.equal(await versionDialog.locator('input[name="idempotencyKey"]').inputValue(), versionKey);
+  assert.equal(await versionDialog.locator('textarea[name="changeNote"]').inputValue(), "Lost response version note");
+  assert.equal(await versionDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "lost-version.pdf");
+  assert.equal(await versionPage.locator('[data-nextjs-dialog]').count(), 0);
+  assert.deepEqual(versionPageErrors, []);
+  await versionPage.screenshot({ path: join(artifacts, "version-lost-response.png") });
+  const versionReplay = await archiveClient.post(`${baseUrl}/documents`, { data: lostVersion.requestBody, headers: lostVersion.requestHeaders });
+  assert.equal(versionReplay.status(), 200);
+  assert.match(await versionReplay.text(), /Эта версия уже загружена/);
+  await versionDialog.getByRole("button", { name: "Сохранить версию 2", exact: true }).click();
+  await versionDialog.waitFor({ state: "hidden" });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostDocumentId}`)[0].count, 2);
+  await verifyVersion(lostDocumentId, 1, lostBytes);
+  await verifyVersion(lostDocumentId, 2, lostVersionBytes);
+  console.log("lost version response after commit: form retained note, file and retry key; replay and UI retry kept two intact versions.");
+  await versionContext.close();
   for (const kind of ["payment", "payout"]) {
     await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
       WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
@@ -1105,7 +1157,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 3 lost post-commit responses, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 4 lost post-commit responses, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
