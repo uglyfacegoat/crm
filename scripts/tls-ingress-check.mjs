@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { request } from "node:https";
@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const project = `crm-tls-check-${randomUUID().slice(0, 8)}`;
 const directory = await mkdtemp(join(tmpdir(), `${project}-`));
@@ -90,6 +91,28 @@ try {
     outgoing.on("timeout", () => outgoing.destroy(new Error("TLS request timed out")));
     outgoing.end(body);
   });
+  async function holdMultipartUploads() {
+    const uploads = [];
+    try {
+      for (let index = 0; index < 4; index += 1) {
+        const upload = request(new URL("/documents", origin), {
+          ca, servername: "localhost", family: 4, method: "POST", timeout: 10_000,
+          headers: { origin, "content-type": "multipart/form-data; boundary=crm-ingress-check",
+            "content-length": String(15 * 1024 * 1024), "next-action": "invalid-ingress-check" },
+        });
+        upload.on("error", () => {});
+        upload.on("response", (response) => response.resume());
+        uploads.push(upload);
+        await new Promise((resolveWritten, rejectWritten) => upload.write(Buffer.alloc(128 * 1024, 0x58),
+          (error) => error ? rejectWritten(error) : resolveWritten()));
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+      return uploads;
+    } catch (error) {
+      for (const upload of uploads) upload.destroy();
+      throw error;
+    }
+  }
 
   const redirect = await fetch(`http://127.0.0.1:${httpPort}/login?next=%2Ftasks`, { redirect: "manual" });
   assert.equal(redirect.status, 308);
@@ -118,6 +141,25 @@ try {
   assert.equal((await send("/api/v1/auth/login", { method: "POST", headers: { origin, "content-length": String(33 * 1024) }, body: "x".repeat(33 * 1024) })).status, 413);
   assert.equal((await send("/api/v1/documents/export", { method: "POST", headers: { origin, "content-length": String(17 * 1024 * 1024), expect: "100-continue" } })).status, 413);
 
+  const heldUploads = await holdMultipartUploads();
+  try {
+    const rejected = await send("/documents", { method: "POST", headers: { origin,
+      "content-type": "multipart/form-data; boundary=crm-ingress-check", "next-action": "invalid-ingress-check" },
+      body: "--crm-ingress-check--\r\n" });
+    assert.equal(rejected.status, 429, "Fifth concurrent multipart body must be rejected before Next");
+    assert.equal((await send("/api/v1/system/live")).status, 200, "Read-only health traffic must stay available during upload saturation");
+    const gatewayLogs = await compose(["logs", "--no-color", "gateway"], { quiet: true });
+    assert.ok((gatewayLogs.match(/client request body is buffered to a temporary file/g) ?? []).length >= 4,
+      "Four multipart bodies must spill to gateway temporary files");
+  } finally {
+    for (const upload of heldUploads) upload.destroy();
+  }
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  const reopened = await send("/documents", { method: "POST", headers: { origin,
+    "content-type": "multipart/form-data; boundary=crm-ingress-check", "next-action": "invalid-ingress-check" },
+    body: "--crm-ingress-check--\r\n" });
+  assert.notEqual(reopened.status, 429, "Multipart capacity must recover after clients disconnect");
+
   const login = await send("/api/v1/auth/login", {
     method: "POST", headers: { origin, "content-type": "application/json", "x-real-ip": "203.0.113.99", "x-forwarded-for": "203.0.113.99" },
     body: JSON.stringify({ identity: environment.AUTH_BOOTSTRAP_ADMIN_EMAIL, password: environment.AUTH_BOOTSTRAP_ADMIN_PASSWORD }),
@@ -141,6 +183,73 @@ try {
   await page.waitForURL(`${origin}/tasks`);
   await page.getByRole("heading", { name: "Задачи", exact: true }).waitFor();
   assert.deepEqual(errors, []);
+
+  await compose(["exec", "-T", "database", "psql", "-U", environment.CRM_DB_USER, "-d", environment.CRM_DB_NAME,
+    "-v", "ON_ERROR_STOP=1", "-c", `
+      WITH member AS (SELECT organization_id FROM organization_members WHERE email = 'tls@example.invalid'),
+      client AS (INSERT INTO clients (organization_id, legal_name)
+        SELECT organization_id, 'Ingress client' FROM member RETURNING id, organization_id),
+      obj AS (INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+        SELECT organization_id, id, 'Ingress object', 'Office', 'Test address' FROM client RETURNING id, organization_id),
+      master AS (INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+        SELECT organization_id, 'Ingress master', '+70000000001', '+70000000001', 'Test region', 'Test zone'
+        FROM member RETURNING id)
+      INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+        client_name_snapshot, object_name_snapshot, object_address_snapshot, assigned_master_id,
+        master_name_snapshot, agreed_total_minor, master_payment_snapshot_minor)
+      SELECT member.organization_id, client.id, obj.id, 'INGRESS-1', 'new', 'RUB',
+        'Ingress client', 'Ingress object', 'Test address', master.id, 'Ingress master', 100000, 100000
+      FROM member, client, obj, master`], { quiet: true });
+  await page.goto(`${origin}/documents`);
+  await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const uploadDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+  await uploadDialog.locator('summary[aria-label="Заказ"]').click();
+  await uploadDialog.getByRole("button", { name: /INGRESS-1/ }).click();
+  await uploadDialog.locator('input[name="title"]').fill("Повтор после ограничения шлюза");
+  await uploadDialog.locator('input[name="file"]').setInputFiles({
+    name: "ingress-retry.pdf", mimeType: "application/pdf", buffer: pdfFixture("ingress retry"),
+  });
+  const retryKey = await uploadDialog.locator('input[name="idempotencyKey"]').inputValue();
+  const uiHeldUploads = await holdMultipartUploads();
+  try {
+    await uploadDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await uploadDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера" }).waitFor({ timeout: 10_000 });
+    assert.equal(await uploadDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "ingress-retry.pdf");
+    assert.equal(await uploadDialog.locator('input[name="title"]').inputValue(), "Повтор после ограничения шлюза");
+    assert.equal(await uploadDialog.locator('input[name="idempotencyKey"]').inputValue(), retryKey);
+    const beforeRetry = await compose(["exec", "-T", "database", "psql", "-U", environment.CRM_DB_USER,
+      "-d", environment.CRM_DB_NAME, "-t", "-A", "-c",
+      "SELECT count(*) FROM documents WHERE title = 'Повтор после ограничения шлюза'"], { quiet: true });
+    assert.equal(beforeRetry.trim(), "0");
+  } finally {
+    for (const upload of uiHeldUploads) upload.destroy();
+  }
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  await uploadDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await uploadDialog.waitFor({ state: "hidden", timeout: 15_000 });
+  const afterRetry = await compose(["exec", "-T", "database", "psql", "-U", environment.CRM_DB_USER,
+    "-d", environment.CRM_DB_NAME, "-t", "-A", "-c",
+    "SELECT count(*) FROM documents WHERE title = 'Повтор после ограничения шлюза'"], { quiet: true });
+  assert.equal(afterRetry.trim(), "1");
+  console.log("Ingress overload: document form retained file, fields and retry key; one retry saved one document.");
+
+  const boundaryBytes = pdfFixture("gateway 15 MiB boundary", 15 * 1024 * 1024);
+  await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const boundaryDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+  await boundaryDialog.locator('summary[aria-label="Заказ"]').click();
+  await boundaryDialog.getByRole("button", { name: /INGRESS-1/ }).click();
+  await boundaryDialog.locator('input[name="title"]').fill("PDF через шлюз 15 МиБ");
+  await boundaryDialog.locator('input[name="file"]').setInputFiles({
+    name: "gateway-boundary.pdf", mimeType: "application/pdf", buffer: boundaryBytes,
+  });
+  await boundaryDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await boundaryDialog.waitFor({ state: "hidden", timeout: 30_000 });
+  const boundaryRecord = await compose(["exec", "-T", "database", "psql", "-U", environment.CRM_DB_USER,
+    "-d", environment.CRM_DB_NAME, "-t", "-A", "-F", "|", "-c",
+    `SELECT dv.size_bytes, dv.sha256 FROM document_versions dv JOIN documents d ON d.id = dv.document_id
+      WHERE d.title = 'PDF через шлюз 15 МиБ' ORDER BY dv.version_number DESC LIMIT 1`], { quiet: true });
+  assert.equal(boundaryRecord.trim(), `${boundaryBytes.length}|${createHash("sha256").update(boundaryBytes).digest("hex")}`);
+  console.log("Ingress boundary: verified 15 MiB PDF and SHA-256 passed HTTPS gateway unchanged.");
 
   const redirectPage = await browser.newPage({ ignoreHTTPSErrors: true });
   await redirectPage.goto(`${origin}/login?next=${encodeURIComponent("/\\untrusted.invalid")}`);

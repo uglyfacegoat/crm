@@ -23,6 +23,17 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-25, UP-05 HTTPS ingress admission checkpoint:** the existing
+  Nginx gateway now admits at most four concurrent multipart POSTs before
+  Next, with a configured 64 KiB body buffer and temporary files for larger
+  bodies. An isolated TLS/Compose run held four incomplete requests, saw the
+  fifth rejected with 429, confirmed Nginx temporary-body logging and
+  recovered capacity after disconnect. In the browser, a document form kept
+  its file, fields and retry key after this early 429; one retry saved one
+  document. A 15 MiB PDF passed the gateway with matching length and SHA-256.
+  Existing TLS, secure-cookie, host/origin, rate-limit and outage checks passed.
+  Only `compose.https.yaml` uses this gateway; local direct HTTP is unchanged.
+  Temporary-disk budget and representative server resource load remain open.
 - **2026-09-25, UP-05 incoming-body profile:** a repeatable optional browser
   profile submitted four concurrent 15 MiB multipart bodies through the
   packaged Next proxy on an isolated database. Two Mac runs raised web RSS

@@ -60,6 +60,12 @@ still required and is not proven by `nginx -t`.
 
 - All request bodies: at most 16 MiB at ingress; login API and login Server Action:
   32 KiB. Application-level validation and file-specific limits remain necessary.
+- Multipart POSTs share four concurrent gateway permits before Next.js receives
+  a body; a fifth returns 429. The configured body buffer is 64 KiB and
+  larger bodies spill to `/var/cache/nginx/client_temp`, with a 30-second gap
+  timeout while reading. Nginx removes temporary files after
+  processing. Provision and monitor enough disk space for up to four 16 MiB
+  bodies plus other traffic; the Docker overlay has no separate disk quota.
 - Login POSTs: 5/min per source IP with burst 5; generic dynamic traffic: 20/s with
   burst 80. Static Next.js chunks are exempt. Denials return 429.
 - These are initial ingress limits, not a complete per-member/organization quota
@@ -84,9 +90,13 @@ it creates a random project, disposable database/storage, test account
 and one-day localhost certificate. It checks resolved port isolation, certificate
 verification, TLS protocols, redirects, secure cookies, login via Server Action,
 unsafe return URLs, host/origin rejection, body limits and spoof-resistant ingress
-rate limiting. The browser ignores the self-signed certificate only after the Node
-HTTPS client has verified it with its explicit CA; TLS verification is not globally
-disabled. The test removes only its own project volumes and temporary files.
+rate limiting. It also holds four incomplete multipart bodies, verifies the
+fifth receives 429, and checks that a document form retains its file, fields
+and retry key before a successful retry. A real 15 MiB PDF passes through the
+gateway with matching length and SHA-256. The browser ignores the self-signed
+certificate only after the Node HTTPS client has verified it with its explicit
+CA; TLS verification is not globally disabled. The test removes only its own
+project volumes and temporary files.
 
 This rehearsal does not prove real certificate renewal, public DNS/firewall rules,
 offsite recovery, high availability, or the remaining production launch gates.

@@ -1,5 +1,10 @@
 limit_req_zone $binary_remote_addr zone=crm_login:10m rate=5r/m;
 limit_req_zone $binary_remote_addr zone=crm_dynamic:10m rate=20r/s;
+map "$request_method:$http_content_type" $crm_multipart_slot {
+    default "";
+    ~*^POST:multipart/form-data crm_upload;
+}
+limit_conn_zone $crm_multipart_slot zone=crm_multipart:1m;
 
 server {
     listen 80;
@@ -17,6 +22,11 @@ server {
     ssl_session_timeout 10m;
     add_header Strict-Transport-Security "max-age=31536000" always;
     client_max_body_size 16m;
+    client_body_buffer_size 64k;
+    client_body_temp_path /var/cache/nginx/client_temp;
+    client_body_timeout 30s;
+    limit_conn crm_multipart 4;
+    limit_conn_status 429;
     limit_req_status 429;
 
     if ($host != "${CRM_PUBLIC_HOST}") { return 421; }
@@ -28,6 +38,7 @@ server {
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header Forwarded "";
     proxy_http_version 1.1;
+    proxy_request_buffering on;
     proxy_read_timeout 60s;
 
     location = /api/v1/auth/login {
