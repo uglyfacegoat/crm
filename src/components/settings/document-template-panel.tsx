@@ -2,7 +2,8 @@
 
 import { Check, Download, FileCheck2, FileUp, LoaderCircle, Plus, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useState } from "react";
+import { startTransition, useActionState, useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import {
   type DocumentTemplateMutationState,
   updateDocumentTemplateStatusAction,
@@ -28,7 +29,12 @@ function UploadTemplateForm({ requestKey, onComplete }: { requestKey: string; on
     const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 650);
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status, state.refreshRequired]);
-  return <form action={action} className="flex min-h-full flex-1 flex-col">
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => action(formData));
+  };
+  return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="idempotencyKey" value={requestKey} />
     <div className="flex-1 space-y-5 p-5 sm:p-7">
       <OrderField label="Название формы" required errors={state.fieldErrors.title}><input name="title" required minLength={2} maxLength={240} placeholder="Акт выполненных работ — стандартный" className={orderInputClass} /></OrderField>

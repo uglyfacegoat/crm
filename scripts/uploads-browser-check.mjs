@@ -340,8 +340,23 @@ try {
     await dialog.locator('input[name="title"]').fill(`Template ${suffix}`);
     await dialog.locator('input[name="file"]').setInputFiles({ name: "template.pdf", mimeType: "application/pdf", buffer: documentBytes });
     const templateId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+    if (!warn) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+      await dialog.locator('textarea[name="description"]').fill("Template retry after overload");
+      await withProcessingSlotsHeld(async () => {
+        await dialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+        await dialog.getByRole("status").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+        assert.equal(await dialog.locator('input[name="idempotencyKey"]').inputValue(), templateId);
+        assert.equal(await dialog.locator('input[name="title"]').inputValue(), `Template ${suffix}`);
+        assert.equal(await dialog.locator('textarea[name="description"]').inputValue(), "Template retry after overload");
+        assert.equal(await dialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "template.pdf");
+      });
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${templateId}`)[0].count, 0);
+    }
     await submit(dialog, "Опубликовать шаблон", warn ? { saved: "Шаблон акта опубликован.", warning: "Шаблон опубликован, но страницу не удалось обновить. Обновите её вручную." } : null, "template-warning.png");
     await verifyStoredReference("document_template_versions", "template_id", templateId, documentBytes);
+    if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${templateId}`)[0].count, 1);
     const templateDownload = await archiveClient.get(`${baseUrl}/api/v1/document-templates/${templateId}/download`);
     assert.equal(templateDownload.status(), 200);
     assert.deepEqual(await templateDownload.body(), documentBytes);
@@ -354,6 +369,18 @@ try {
     await page.locator('textarea[name="body"]').fill(`Attachment ${suffix}`);
     await page.locator('input[name="file"]').setInputFiles({ name: "attachment.pdf", mimeType: "application/pdf", buffer: documentBytes });
     const messageId = await page.locator('input[name="idempotencyKey"]').inputValue();
+    if (!warn) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation IN ('chat_message', 'chat_upload')`;
+      await withProcessingSlotsHeld(async () => {
+        await page.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+        await page.getByRole("alert").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+        assert.equal(await page.locator('input[name="idempotencyKey"]').inputValue(), messageId);
+        assert.equal(await page.locator('textarea[name="body"]').inputValue(), `Attachment ${suffix}`);
+        assert.equal(await page.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "attachment.pdf");
+      });
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 0);
+    }
     const messageWarning = "Сообщение отправлено, но переписку не удалось обновить. Обновите страницу вручную.";
     warningResponse = warn ? { saved: null, warning: messageWarning } : null;
     await page.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
@@ -365,14 +392,36 @@ try {
       await page.screenshot({ path: join(artifacts, "chat-send-warning.png") });
     }
     await verifyStoredReference("chat_message_attachments", "message_id", messageId, documentBytes);
+    if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 1);
     await page.getByRole("button", { name: "Настройки группы", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Настройки группы", exact: true });
     await dialog.locator('input[name="avatar"]').setInputFiles({ name: "avatar.png", mimeType: "image/png", buffer: imageBytes });
+    if (!warn) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation IN ('chat_upload', 'chat_action')`;
+      await dialog.locator('input[name="name"]').fill("Upload normal updated");
+      await dialog.locator('textarea[name="description"]').fill("Avatar retry after overload");
+      await withProcessingSlotsHeld(async () => {
+        await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+        await dialog.getByRole("status").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+        assert.equal(await dialog.locator('input[name="name"]').inputValue(), "Upload normal updated");
+        assert.equal(await dialog.locator('textarea[name="description"]').inputValue(), "Avatar retry after overload");
+        assert.equal(await dialog.locator('input[name="avatar"]').evaluate((input) => input.files?.[0]?.name), "avatar.png");
+      });
+      const [unchangedChannel] = await sql`SELECT name, description FROM chat_channels WHERE id = ${channel.id}`;
+      assert.equal(unchangedChannel.name, "Upload normal");
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${channel.id}`)[0].count, 0);
+    }
     await submit(dialog, "Сохранить", warn ? { saved: "Настройки группы сохранены.", warning: "Настройки группы сохранены, но страницу не удалось обновить. Обновите её вручную." } : null, "avatar-warning.png");
     await verifyStoredReference("chat_channel_avatars", "channel_id", channel.id, imageBytes);
+    if (!warn) {
+      const [updatedChannel] = await sql`SELECT name, description FROM chat_channels WHERE id = ${channel.id}`;
+      assert.deepEqual(updatedChannel, { name: "Upload normal updated", description: "Avatar retry after overload" });
+    }
     const avatarDownload = await archiveClient.get(`${baseUrl}/api/v1/chat/channels/${channel.id}/avatar`);
     assert.equal(avatarDownload.status(), 200);
     assert.deepEqual(await avatarDownload.body(), imageBytes);
+    if (!warn) console.log("processing slots: template, chat attachment and group photo retained their files and fields; retries persisted once.");
     if (!warn) {
       const audioBytes = await readFile(new URL("../src/server/file-scan/fixtures/tone.wav", import.meta.url));
       await page.locator('textarea[name="body"]').fill("Readable audio");

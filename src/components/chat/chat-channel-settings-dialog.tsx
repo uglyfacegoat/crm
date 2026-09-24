@@ -2,7 +2,8 @@
 
 import { Bell, BellOff, Camera, LoaderCircle, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useState } from "react";
+import { startTransition, useActionState, useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { type ChatMutationState, updateChatChannelSettingsAction } from "@/app/(workspace)/chat/actions";
 import { Dialog } from "@/components/ui/dialog";
 import type { ChatChannel } from "@/server/chat/types";
@@ -19,7 +20,12 @@ function SettingsForm({ channel, editableDetails, onComplete }: { channel: ChatC
     const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 500);
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status, state.refreshRequired]);
-  return <form action={action} className="flex min-h-full flex-1 flex-col">
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => action(formData));
+  };
+  return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="channelId" value={channel.id} />
     <input type="hidden" name="expectedVersion" value={channel.version} />
     <div className="flex-1 space-y-5 p-5 sm:p-7">
