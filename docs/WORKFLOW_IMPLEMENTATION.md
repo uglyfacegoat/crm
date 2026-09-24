@@ -3,7 +3,7 @@
 24 September 2026. The owner approved full implementation of the Workflow page.
 This document tracks the actual working scope, not the planned final scope.
 
-## Working now (WF-01–03 in local Docker; WF-04 verified in source)
+## Working now (WF-01–04 in local Docker)
 
 - `064_workflow_maps.sql` creates organization-scoped process maps. A draft stores
   validated visual nodes and directed connections. Each edit advances an
@@ -92,12 +92,13 @@ This document tracks the actual working scope, not the planned final scope.
 
 ## Working Docker installation
 
-On 24 September, `crm-app:workflow-wf03-7ad89a4` was built from local commit
-`7ad89a4` and installed as the `crm` web service. The previous WF-02 image is
-retained as `crm-app:before-workflow-wf03-20260924`. Migration 066 is recorded
-in the working database. The earlier WF-01 and WF-02 installations were
-verified separately. Upgrade rehearsals passed before and after WF-03
-installation on anonymized, disposable copies of the working database.
+On 24 September, `crm-app:workflow-wf04-acb2002` was built from local commit
+`acb2002` and installed as the `crm` web service. The previous WF-03 image is
+retained as `crm-app:before-workflow-wf04-20260924`. Migration 067 is recorded
+in the working database. The earlier WF-01–03 installations were verified
+separately. Upgrade rehearsals passed before and after WF-04 installation on
+anonymized, disposable copies of the working database; the 067→067 rehearsal
+preserved counts in all 75 existing tables.
 The web container, database, reminder worker and backup worker report healthy;
 `/api/v1/system/ready` reports all dependencies available. Unauthenticated
 `/workflow` redirects to login and `/login` responds 200. Authenticated map
