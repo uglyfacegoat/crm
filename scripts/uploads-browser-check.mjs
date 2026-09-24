@@ -349,6 +349,24 @@ try {
     const avatarDownload = await archiveClient.get(`${baseUrl}/api/v1/chat/channels/${channel.id}/avatar`);
     assert.equal(avatarDownload.status(), 200);
     assert.deepEqual(await avatarDownload.body(), imageBytes);
+    if (!warn) {
+      const audioBytes = await readFile(new URL("../src/server/file-scan/fixtures/tone.wav", import.meta.url));
+      await page.locator('textarea[name="body"]').fill("Readable audio");
+      await page.locator('input[name="file"]').setInputFiles({ name: "voice.wav", mimeType: "audio/wav", buffer: audioBytes });
+      const audioMessageId = await page.locator('input[name="idempotencyKey"]').inputValue();
+      await page.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+      await page.waitForFunction((id) => document.querySelector('input[name="idempotencyKey"]')?.value !== id, audioMessageId);
+      await verifyStoredReference("chat_message_attachments", "message_id", audioMessageId, audioBytes);
+
+      await page.locator('textarea[name="body"]').fill("Corrupt audio");
+      await page.locator('input[name="file"]').setInputFiles({ name: "corrupt.wav", mimeType: "audio/wav", buffer: audioBytes.subarray(0, 12) });
+      const corruptAudioId = await page.locator('input[name="idempotencyKey"]').inputValue();
+      await page.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+      await page.getByText("Аудиофайл повреждён или не содержит читаемой записи.", { exact: true }).waitFor();
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${corruptAudioId}`)[0].count, 0);
+      if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(corruptAudioId)));
+      console.log("audio metadata: valid WAV persisted; bare RIFF header rejected before file and database writes.");
+    }
     console.log(`${suffix}: template, chat attachment and avatar persisted; template/avatar downloads and warning states verified.`);
   }
   if (environment.CRM_FILE_SCAN_MODE === "required") {
@@ -552,7 +570,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 18 real submissions, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 19 real submissions, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

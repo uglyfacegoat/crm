@@ -31,6 +31,7 @@ import { chatChannelIdSchema, createChatChannelSchema, createDirectChatSchema, s
 import { MAX_CHAT_ATTACHMENT_BYTES, MAX_CHAT_AVATAR_BYTES, validateChatAttachment, validateChatAvatar } from "@/server/chat/file-validation";
 import { DocumentFileValidationError } from "@/server/documents/file-validation";
 import { createChatAttachmentStorageKey, createChatChannelAvatarStorageKey, removeDocumentFile, writeDocumentFile } from "@/server/documents/storage";
+import { assertReadableAudio, InvalidAudioError } from "@/server/file-scan/audio-check.mjs";
 
 export type ChatMutationState = {
   status: "idle" | "success" | "error";
@@ -133,6 +134,13 @@ async function sendChatMessageActionImpl(_previous: ChatMutationState, formData:
       if (!uploadBudget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${uploadBudget.retryAfterSeconds} сек. Черновик сохранён.`, fieldErrors: {}, entityId: null };
       const buffer = Buffer.from(await uploadedFile.arrayBuffer());
       const file = validateChatAttachment({ filename: uploadedFile.name, declaredMimeType: uploadedFile.type, buffer });
+      if (["webm", "m4a", "mp3", "wav"].includes(file.extension)) {
+        try { await assertReadableAudio(buffer, file.extension); }
+        catch (error) {
+          if (error instanceof InvalidAudioError) throw new DocumentFileValidationError("Аудиофайл повреждён или не содержит читаемой записи.");
+          throw error;
+        }
+      }
       storageKey = createChatAttachmentStorageKey(member.organizationId, parsed.data.idempotencyKey, file.extension);
       await writeDocumentFile(storageKey, buffer);
       fileWritten = true;
