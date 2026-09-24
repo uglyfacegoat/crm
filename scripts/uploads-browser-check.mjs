@@ -830,7 +830,23 @@ try {
       });
       assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${evidenceId}`)[0].count, 0);
     }
-    await submit(dialog, "Добавить материал", warn ? { saved: "Материал сохранён в документах заказа.", warning: "Материал сохранён, но страницу не удалось обновить. Обновите её вручную." } : null, "evidence-warning.png");
+    if (!warn) {
+      duplicateOtherResponse = null;
+      duplicateOtherPost = "/my-visits";
+      await dialog.getByRole("button", { name: "Добавить материал", exact: true }).click();
+      await page.waitForTimeout(1_300);
+      if (await dialog.isVisible()) {
+        assert.match(await dialog.getByRole("alert").innerText(), /Эта загрузка ещё обрабатывается|Этот материал уже сохранён|Материал сохранён в документах заказа/i);
+        await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+      }
+      if (interceptionError) throw interceptionError;
+      assert.ok(duplicateOtherResponse, "Concurrent duplicate visit-photo POST must run");
+      assert.equal(duplicateOtherResponse.status, 200);
+      assert.match(duplicateOtherResponse.body, /Эта загрузка ещё обрабатывается|Этот материал уже сохранён|Материал сохранён в документах заказа/i);
+    } else {
+      await submit(dialog, "Добавить материал", { saved: "Материал сохранён в документах заказа.", warning: "Материал сохранён, но страницу не удалось обновить. Обновите её вручную." }, "evidence-warning.png");
+    }
     await verifyVersion(evidenceId, 1, imageBytes, true);
     if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${evidenceId}`)[0].count, 1);
     await page.getByRole("button", { name: "Завершить", exact: true }).last().click();
@@ -855,12 +871,31 @@ try {
       const [beforeRetry] = await sql`SELECT status, completion_document_id FROM service_visits WHERE id = ${visit.id}`;
       assert.deepEqual(beforeRetry, { status: "planned", completion_document_id: null });
     }
-    await submit(dialog, "Завершить с актом", warn ? { saved: "Выезд завершён, акт добавлен в архив.", warning: "Выезд завершён, акт сохранён, но страницу не удалось обновить. Обновите её вручную." } : null, "closing-act-warning.png", "Выезд завершён");
+    if (!warn) {
+      duplicateOtherResponse = null;
+      duplicateOtherPost = "/my-visits";
+      await dialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
+      await page.waitForTimeout(1_300);
+      if (await dialog.isVisible()) {
+        assert.match(await dialog.getByRole("alert").innerText(), /Эта загрузка уже обрабатывается|Выезд уже завершён|Выезд завершён, акт добавлен в архив/i);
+        await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+      }
+      if (interceptionError) throw interceptionError;
+      assert.ok(duplicateOtherResponse, "Concurrent duplicate visit-act POST must run");
+      assert.equal(duplicateOtherResponse.status, 200);
+      assert.match(duplicateOtherResponse.body, /Эта загрузка уже обрабатывается|Выезд уже завершён|Выезд завершён, акт добавлен в архив/i);
+    } else {
+      await submit(dialog, "Завершить с актом", { saved: "Выезд завершён, акт добавлен в архив.", warning: "Выезд завершён, акт сохранён, но страницу не удалось обновить. Обновите её вручную." }, "closing-act-warning.png", "Выезд завершён");
+    }
     await verifyVersion(actId, 1, actBytes, true);
     if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${actId}`)[0].count, 1);
     const [completed] = await sql`SELECT status, completion_document_id FROM service_visits WHERE id = ${visit.id}`;
     assert.deepEqual(completed, { status: "completed", completion_document_id: actId });
-    if (!warn) console.log("processing slots: visit photo and signed act retained their fields; retries wrote one file each and completed the visit once.");
+    if (!warn) {
+      console.log("processing slots: visit photo and signed act retained their fields; retries wrote one file each and completed the visit once.");
+      console.log("concurrent visit uploads: two photo and two act requests left one file each and completed the visit once.");
+    }
     console.log(`${warn ? "warning" : "normal"}: master photo and signed act persisted; visit completed.`);
   }
   assert.equal(replaced, 9);
