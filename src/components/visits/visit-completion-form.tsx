@@ -1,7 +1,8 @@
 "use client";
 
 import { AlertTriangle, Check, FileCheck2, LoaderCircle, ShieldCheck, Upload } from "lucide-react";
-import { useActionState, useEffect, useState } from "react";
+import { startTransition, useActionState, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { completeVisitAction, type CompleteVisitState } from "@/app/(workspace)/calendar/actions";
 import type { ServiceVisit } from "@/server/visits/types";
 import { OrderField, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
@@ -29,7 +30,13 @@ export function VisitCompletionForm({ visit, requestKey, onClose }: { visit: Ser
 
   const defaultTitle = `Акт выполненных работ · ${visit.orderNumber ?? "выезд"} · ${visitDate(visit)}`;
 
-  return <form action={action} className="flex min-h-0 flex-1 flex-col">
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => action(formData));
+  };
+
+  return <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
     <input type="hidden" name="idempotencyKey" value={requestKey} />
     <input type="hidden" name="visitId" value={visit.id} />
     <input type="hidden" name="expectedVersion" value={visit.version} />

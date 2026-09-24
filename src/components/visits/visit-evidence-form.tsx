@@ -1,7 +1,8 @@
 "use client";
 
 import { Camera, Check, FileSignature, ImageIcon, LoaderCircle, Upload } from "lucide-react";
-import { useActionState, useEffect, useState } from "react";
+import { startTransition, useActionState, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import {
   uploadAssignedVisitEvidenceAction,
   type VisitEvidenceState,
@@ -36,8 +37,14 @@ export function VisitEvidenceForm({
     return () => window.clearTimeout(timeout);
   }, [onClose, state.status, state.refreshRequired]);
 
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => action(formData));
+  };
+
   return (
-    <form action={action} className="flex min-h-0 flex-1 flex-col">
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <input type="hidden" name="idempotencyKey" value={requestKey} />
       <input type="hidden" name="visitId" value={visit.id} />
       <input type="hidden" name="kind" value={kind} />

@@ -214,6 +214,28 @@ try {
     assert.deepEqual(await download.body(), bytes);
   }
 
+  async function withProcessingSlotsHeld(work) {
+    const first = await sql.reserve();
+    const second = await sql.reserve();
+    let firstLocked = false;
+    let secondLocked = false;
+    try {
+      await first`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+      firstLocked = true;
+      await second`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+      secondLocked = true;
+      await work();
+    } finally {
+      try {
+        if (secondLocked) await second`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+        if (firstLocked) await first`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+      } finally {
+        second.release();
+        first.release();
+      }
+    }
+  }
+
   async function verifyStoredReference(table, column, id, bytes) {
     const references = await sql`SELECT storage_key, size_bytes, sha256 FROM ${sql(table)}
       WHERE organization_id = ${member.organization_id} AND ${sql(column)} = ${id}`;
@@ -613,18 +635,50 @@ try {
     let dialog = page.getByRole("dialog", { name: "Материалы выезда", exact: true });
     await dialog.locator('input[name="file"]').setInputFiles({ name: "evidence.png", mimeType: "image/png", buffer: imageBytes });
     const evidenceId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+    if (!warn) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+      await dialog.locator('textarea[name="note"]').fill("Photo retry after overload");
+      await withProcessingSlotsHeld(async () => {
+        await dialog.getByRole("button", { name: "Добавить материал", exact: true }).click();
+        await dialog.getByRole("alert").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+        assert.equal(await dialog.locator('input[name="idempotencyKey"]').inputValue(), evidenceId);
+        assert.equal(await dialog.locator('textarea[name="note"]').inputValue(), "Photo retry after overload");
+        assert.equal(await dialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "evidence.png");
+      });
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${evidenceId}`)[0].count, 0);
+    }
     await submit(dialog, "Добавить материал", warn ? { saved: "Материал сохранён в документах заказа.", warning: "Материал сохранён, но страницу не удалось обновить. Обновите её вручную." } : null, "evidence-warning.png");
     await verifyVersion(evidenceId, 1, imageBytes, true);
+    if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${evidenceId}`)[0].count, 1);
     await page.getByRole("button", { name: "Завершить", exact: true }).last().click();
     dialog = page.getByRole("dialog", { name: "Завершить выезд", exact: true });
     await dialog.locator('textarea[name="completionNotes"]').fill("Work completed and signed by customer");
     const actBytes = pdfFixture(`Signed act ${warn}`);
     await dialog.locator('input[name="file"]').setInputFiles({ name: "act.pdf", mimeType: "application/pdf", buffer: actBytes });
     const actId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+    if (!warn) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+      await dialog.locator('input[name="actTitle"]').fill("Signed act after overload");
+      await withProcessingSlotsHeld(async () => {
+        await dialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
+        await dialog.getByRole("alert").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+        assert.equal(await dialog.locator('input[name="idempotencyKey"]').inputValue(), actId);
+        assert.equal(await dialog.locator('input[name="actTitle"]').inputValue(), "Signed act after overload");
+        assert.equal(await dialog.locator('textarea[name="completionNotes"]').inputValue(), "Work completed and signed by customer");
+        assert.equal(await dialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "act.pdf");
+      });
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${actId}`)[0].count, 0);
+      const [beforeRetry] = await sql`SELECT status, completion_document_id FROM service_visits WHERE id = ${visit.id}`;
+      assert.deepEqual(beforeRetry, { status: "planned", completion_document_id: null });
+    }
     await submit(dialog, "Завершить с актом", warn ? { saved: "Выезд завершён, акт добавлен в архив.", warning: "Выезд завершён, акт сохранён, но страницу не удалось обновить. Обновите её вручную." } : null, "closing-act-warning.png", "Выезд завершён");
     await verifyVersion(actId, 1, actBytes, true);
+    if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${actId}`)[0].count, 1);
     const [completed] = await sql`SELECT status, completion_document_id FROM service_visits WHERE id = ${visit.id}`;
     assert.deepEqual(completed, { status: "completed", completion_document_id: actId });
+    if (!warn) console.log("processing slots: visit photo and signed act retained their fields; retries wrote one file each and completed the visit once.");
     console.log(`${warn ? "warning" : "normal"}: master photo and signed act persisted; visit completed.`);
   }
   assert.equal(replaced, 9);
