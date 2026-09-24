@@ -497,6 +497,60 @@ try {
   await verifyVersion(busyDocumentId, 2, pdfFixture("busy version retry"));
   assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${busyDocumentId}`)[0].count, 2);
   console.log("processing slots: saturated export returned 429; document and version uploads retained their fields and succeeded after release.");
+  for (const kind of ["payment", "payout"]) {
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    await page.goto(`${baseUrl}/finance`);
+    if (kind === "payment") {
+      const summary = page.locator("summary").filter({ hasText: "UPLOAD-1" }).first();
+      if (await summary.locator("..").getAttribute("open") === null) await summary.click();
+      await page.getByRole("button", { name: "Добавить оплату", exact: true }).click();
+    } else {
+      await page.getByRole("tab", { name: "Мастера", exact: true }).click();
+      await page.getByRole("button", { name: "Провести выплату", exact: true }).click();
+    }
+    const title = kind === "payment" ? "Оплата клиента" : "Выплата мастеру";
+    const label = kind === "payment" ? "Провести оплату" : "Провести выплату";
+    const financeDialog = page.getByRole("dialog", { name: title, exact: true });
+    await financeDialog.locator('input[name="amount"]').fill("100");
+    await financeDialog.locator('input[name="reference"]').fill(`Busy ${kind} reference`);
+    await financeDialog.locator('textarea[name="note"]').fill(`Busy ${kind} note`);
+    const receiptBytes = pdfFixture(`Busy ${kind} receipt`);
+    await financeDialog.locator('input[name="receipt"]').setInputFiles({ name: `busy-${kind}.pdf`, mimeType: "application/pdf", buffer: receiptBytes });
+    const key = await financeDialog.locator('input[name="idempotencyKey"]').inputValue();
+    const receiptId = await financeDialog.locator('input[name="receiptDocumentId"]').inputValue();
+    const firstFinanceSlot = await sql.reserve();
+    const secondFinanceSlot = await sql.reserve();
+    try {
+      await firstFinanceSlot`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+      await secondFinanceSlot`SELECT pg_advisory_lock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+      await financeDialog.getByRole("button", { name: label, exact: true }).click();
+      await financeDialog.getByRole("status").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
+      assert.equal(await financeDialog.locator('input[name="idempotencyKey"]').inputValue(), key);
+      assert.equal(await financeDialog.locator('input[name="receiptDocumentId"]').inputValue(), receiptId);
+      assert.equal(await financeDialog.locator('input[name="amount"]').inputValue(), "100");
+      assert.equal(await financeDialog.locator('input[name="reference"]').inputValue(), `Busy ${kind} reference`);
+      assert.equal(await financeDialog.locator('textarea[name="note"]').inputValue(), `Busy ${kind} note`);
+      assert.equal(await financeDialog.locator('input[name="receipt"]').evaluate((input) => input.files?.[0]?.name), `busy-${kind}.pdf`);
+    } finally {
+      await firstFinanceSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
+      await secondFinanceSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
+      firstFinanceSlot.release();
+      secondFinanceSlot.release();
+    }
+    const table = kind === "payment" ? "order_payments" : "order_master_payouts";
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${key}`)[0].count, 0);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${receiptId}`)[0].count, 0);
+    await financeDialog.getByRole("button", { name: label, exact: true }).click();
+    await financeDialog.waitFor({ state: "hidden" });
+    const records = await sql`SELECT receipt_document_id, amount_minor FROM ${sql(table)} WHERE idempotency_key = ${key}`;
+    assert.equal(records.length, 1);
+    assert.equal(records[0].receipt_document_id, receiptId);
+    assert.equal(Number(records[0].amount_minor), 10000);
+    await verifyVersion(receiptId, 1, receiptBytes);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 1);
+    console.log(`processing slots: ${kind} receipt and form fields survived rejection; retry committed one ledger entry and matching bytes.`);
+  }
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -655,7 +709,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 21 real submissions, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 23 real submissions, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
