@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/patch-postgres-null-socket.mjs",
     "dev": "next dev",
     "build": "next build",
     "audit:unused": "knip",

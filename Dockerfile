@@ -1,6 +1,7 @@
 FROM node:22-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY scripts/patch-postgres-null-socket.mjs ./scripts/patch-postgres-null-socket.mjs
 RUN npm ci
 
 FROM node:22-alpine AS builder

@@ -45,6 +45,12 @@ let databaseCreated = false;
 let sql;
 let server;
 let serverExit;
+let serverStderr = "";
+function forwardServerStderr(chunk) {
+  const message = chunk.toString();
+  serverStderr += message;
+  process.stderr.write(chunk);
+}
 let browser;
 let page;
 let archiveClient;
@@ -98,7 +104,7 @@ try {
   sql = postgres(environment.DATABASE_URL, { max: 2 });
   server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   serverExit = once(server, "exit");
-  server.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  server.stderr.on("data", forwardServerStderr);
   await new Promise((resolveReady, reject) => {
     const timeout = setTimeout(() => reject(new Error("Standalone startup exceeded 30 seconds")), 30_000);
     server.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`Standalone exited ${code}`)); });
@@ -1569,7 +1575,7 @@ try {
       env: { ...environment, DATABASE_URL: commitProxy.databaseUrl }, stdio: ["ignore", "pipe", "pipe"],
     });
     serverExit = once(server, "exit");
-    server.stderr.on("data", (chunk) => process.stderr.write(chunk));
+    server.stderr.on("data", forwardServerStderr);
     await new Promise((resolveReady, reject) => {
       const timeout = setTimeout(() => reject(new Error("Commit-loss standalone startup exceeded 30 seconds")), 30_000);
       server.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`Commit-loss standalone exited ${code}`)); });
@@ -1856,6 +1862,7 @@ try {
 
     await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
       WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    const rollbackStderrStart = serverStderr.length;
     const rollbackContext = await browser.newContext({ storageState: await archiveClient.storageState(), viewport: { width: 1440, height: 1000 } });
     const rollbackPage = await rollbackContext.newPage();
     const rollbackPageErrors = [];
@@ -1933,6 +1940,9 @@ try {
       ? await objectStorage.readVerified(rollbackStorageKey, { sizeBytes: rollbackBytes.length, sha256: createHash("sha256").update(rollbackBytes).digest("hex") }, 15 * 1024 * 1024)
       : await readFile(join(directory, rollbackStorageKey));
     assert.deepEqual(retained, rollbackBytes);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+    assert.doesNotMatch(serverStderr.slice(rollbackStderrStart), /Cannot read properties of null \(reading 'write'\)/);
+    assert.equal(server.exitCode, null, "Standalone server must survive PostgreSQL connection loss");
     console.log("aborted in flight with forced database rollback: no document committed; file and unresolved operation remained, and retry did not adopt the uncertain bytes.");
     await rollbackContext.close();
   }
