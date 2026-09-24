@@ -478,7 +478,24 @@ try {
     }
     const messageWarning = "Сообщение отправлено, но переписку не удалось обновить. Обновите страницу вручную.";
     warningResponse = warn ? { saved: null, warning: messageWarning } : null;
+    if (!warn) {
+      duplicateOtherResponse = null;
+      duplicateOtherPost = "/chat";
+    }
     await page.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+    if (!warn) {
+      await page.waitForTimeout(1_300);
+      if (await page.locator('input[name="idempotencyKey"]').inputValue() === messageId) {
+        await page.getByRole("alert").filter({ hasText: "Вложение ещё обрабатывается" }).waitFor();
+        assert.equal(await page.locator('textarea[name="body"]').inputValue(), `Attachment ${suffix}`);
+        assert.equal(await page.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "attachment.pdf");
+        await page.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+      }
+      if (interceptionError) throw interceptionError;
+      assert.ok(duplicateOtherResponse, "Concurrent duplicate chat-attachment POST must run");
+      assert.equal(duplicateOtherResponse.status, 200);
+      assert.match(duplicateOtherResponse.body, /Вложение ещё обрабатывается|"status":"success"/i);
+    }
     await page.waitForFunction((id) => document.querySelector('input[name="idempotencyKey"]')?.value !== id, messageId);
     assert.equal(await page.locator('textarea[name="body"]').inputValue(), "");
     assert.equal(await page.locator('input[name="file"]').inputValue(), "");
@@ -487,7 +504,10 @@ try {
       await page.screenshot({ path: join(artifacts, "chat-send-warning.png") });
     }
     await verifyStoredReference("chat_message_attachments", "message_id", messageId, documentBytes);
-    if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 1);
+    if (!warn) {
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${messageId}`)[0].count, 1);
+      console.log("concurrent chat attachment: two identical requests left one message and one matching file.");
+    }
     await page.getByRole("button", { name: "Настройки группы", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Настройки группы", exact: true });
     await dialog.locator('input[name="avatar"]').setInputFiles({ name: "avatar.png", mimeType: "image/png", buffer: imageBytes });
@@ -507,11 +527,29 @@ try {
       assert.equal(unchangedChannel.name, "Upload normal");
       assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${channel.id}`)[0].count, 0);
     }
-    await submit(dialog, "Сохранить", warn ? { saved: "Настройки группы сохранены.", warning: "Настройки группы сохранены, но страницу не удалось обновить. Обновите её вручную." } : null, "avatar-warning.png");
+    if (!warn) {
+      duplicateOtherResponse = null;
+      duplicateOtherPost = "/chat";
+      await dialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+      await page.waitForTimeout(1_300);
+      if (await dialog.isVisible()) {
+        assert.match(await dialog.getByRole("status").innerText(), /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы сохранены/i);
+        await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+      }
+      if (interceptionError) throw interceptionError;
+      assert.ok(duplicateOtherResponse, "Concurrent duplicate chat-avatar POST must run");
+      assert.equal(duplicateOtherResponse.status, 200);
+      assert.match(duplicateOtherResponse.body, /Фото группы уже обрабатывается|Настройки уже изменились|Настройки группы сохранены/i);
+    } else {
+      await submit(dialog, "Сохранить", { saved: "Настройки группы сохранены.", warning: "Настройки группы сохранены, но страницу не удалось обновить. Обновите её вручную." }, "avatar-warning.png");
+    }
     await verifyStoredReference("chat_channel_avatars", "channel_id", channel.id, imageBytes);
     if (!warn) {
-      const [updatedChannel] = await sql`SELECT name, description FROM chat_channels WHERE id = ${channel.id}`;
-      assert.deepEqual(updatedChannel, { name: "Upload normal updated", description: "Avatar retry after overload" });
+      const [updatedChannel] = await sql`SELECT name, description, version FROM chat_channels WHERE id = ${channel.id}`;
+      assert.deepEqual(updatedChannel, { name: "Upload normal updated", description: "Avatar retry after overload", version: 2 });
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${channel.id}`)[0].count, 1);
+      console.log("concurrent group photo: two identical updates left one channel version and one matching avatar.");
     }
     const avatarDownload = await archiveClient.get(`${baseUrl}/api/v1/chat/channels/${channel.id}/avatar`);
     assert.equal(avatarDownload.status(), 200);
