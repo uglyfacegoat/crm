@@ -1465,14 +1465,8 @@ try {
     assert.equal(verified.verifiedFileBytes, snapshot.snapshotFileBytes);
     for (const count of Object.values(snapshot.snapshotFileCounts)) assert.ok(count > 0);
     console.log("S3 backup staging matches all four reference families and historical checksums; no local upload fallback.");
-    await s3Fixture.close();
-    const unavailable = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
-    assert.equal(unavailable.status, 503, "S3 outage must make readiness fail while PostgreSQL remains available");
-    assert.deepEqual(await unavailable.json(), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable", scanner: process.env.CRM_FILE_SCAN_MODE === "required" ? "available" : "disabled" });
-    assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
-    console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  if (storageMode === "local" && environment.CRM_FILE_SCAN_MODE !== "required") {
+  if (environment.CRM_FILE_SCAN_MODE !== "required") {
     await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
       WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
     server.kill("SIGTERM");
@@ -1522,6 +1516,14 @@ try {
     assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
     console.log("lost database COMMIT acknowledgement: committed document and file survived; retry did not duplicate or erase the durable unresolved operation.");
     await commitContext.close();
+  }
+  if (objectStorage) {
+    await s3Fixture.close();
+    const unavailable = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });
+    assert.equal(unavailable.status, 503, "S3 outage must make readiness fail while PostgreSQL remains available");
+    assert.deepEqual(await unavailable.json(), { status: "unavailable", service: "crm-web", database: "available", storage: "unavailable", scanner: process.env.CRM_FILE_SCAN_MODE === "required" ? "available" : "disabled" });
+    assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
+    console.log("S3 outage makes readiness fail while liveness remains available.");
   }
   console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
