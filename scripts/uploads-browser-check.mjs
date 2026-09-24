@@ -2046,6 +2046,128 @@ try {
       console.log(`aborted in-flight version ${outcome}: previous version stayed intact and retry ${outcome === "commit" ? "found one saved version" : "preserved the unresolved file"}.`);
       await versionContext.close();
     }
+
+    for (const kind of ["payment", "payout"]) {
+      for (const outcome of ["commit", "rollback"]) {
+        await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+          WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+        const financeContext = await browser.newContext({ storageState: await archiveClient.storageState(), viewport: { width: 1440, height: 1000 } });
+        const financePage = await financeContext.newPage();
+        const financeErrors = [];
+        financePage.on("pageerror", (error) => financeErrors.push(error.message));
+        let abortFinanceRequest;
+        const abortFinanceSignal = new Promise((resolveAbort) => { abortFinanceRequest = resolveAbort; });
+        let resolveFinanceAborted;
+        const financeAborted = new Promise((resolveAbort) => { resolveFinanceAborted = resolveAbort; });
+        let financeUpstream;
+        let abortFirstFinance = true;
+        await financePage.route("**/finance", async (route) => {
+          if (!abortFirstFinance || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+          abortFirstFinance = false;
+          financeUpstream = route.fetch();
+          await abortFinanceSignal;
+          await route.abort("failed");
+          resolveFinanceAborted();
+          await financeUpstream.catch(() => {});
+        });
+        await financePage.goto(`${baseUrl}/finance`);
+        if (kind === "payment") {
+          const summary = financePage.locator("summary").filter({ hasText: "UPLOAD-1" }).first();
+          if (await summary.locator("..").getAttribute("open") === null) await summary.click();
+          await financePage.getByRole("button", { name: "Добавить оплату", exact: true }).click();
+        } else {
+          await financePage.getByRole("tab", { name: "Мастера", exact: true }).click();
+          await financePage.getByRole("button", { name: "Провести выплату", exact: true }).click();
+        }
+        const label = kind === "payment" ? "Провести оплату" : "Провести выплату";
+        const title = kind === "payment" ? "Оплата клиента" : "Выплата мастеру";
+        const history = kind === "payment" ? "оплат" : "выплат";
+        const table = kind === "payment" ? "order_payments" : "order_master_payouts";
+        const operation = kind === "payment" ? "finance.payment.create" : "finance.payout.create";
+        const dialog = financePage.getByRole("dialog", { name: title, exact: true });
+        const reference = `In-flight ${kind} ${outcome}`;
+        const filename = `in-flight-${kind}-${outcome}.pdf`;
+        const bytes = pdfFixture(reference);
+        await dialog.locator('input[name="amount"]').fill("100");
+        await dialog.locator('input[name="reference"]').fill(reference);
+        await dialog.locator('textarea[name="note"]').fill(reference);
+        await dialog.locator('input[name="receipt"]').setInputFiles({ name: filename, mimeType: "application/pdf", buffer: bytes });
+        const requestKey = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+        const receiptId = await dialog.locator('input[name="receiptDocumentId"]').inputValue();
+        const storageKey = `${member.organization_id}/${receiptId}/v1.pdf`;
+        await sql`INSERT INTO upload_abort_gate (document_id) VALUES (${receiptId})`;
+        const gate = await sql.reserve();
+        let gateLocked = false;
+        try {
+          await gate`SELECT pg_advisory_lock(927431, 9)`;
+          gateLocked = true;
+          await dialog.getByRole("button", { name: label, exact: true }).click();
+          let blockedPid = null;
+          for (let attempt = 0; attempt < 100; attempt += 1) {
+            const [activity] = await sql`SELECT pid FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event = 'advisory'
+                AND query LIKE '%INSERT INTO document_versions%' LIMIT 1`;
+            if (activity) { blockedPid = activity.pid; break; }
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+          }
+          assert.ok(blockedPid, `${kind} ${outcome} must reach the database after writing its receipt`);
+          const stored = objectStorage
+            ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+            : await readFile(join(directory, storageKey));
+          assert.deepEqual(stored, bytes);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${requestKey}`)[0].count, 0);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${receiptId}`)[0].count, 0);
+          abortFinanceRequest();
+          await financeAborted;
+          await dialog.getByRole("status").filter({ hasText: `Не удалось получить ответ сервера. Проверьте историю ${history} перед повторной отправкой.` }).waitFor();
+          assert.equal(await dialog.locator('input[name="idempotencyKey"]').inputValue(), requestKey);
+          assert.equal(await dialog.locator('input[name="receiptDocumentId"]').inputValue(), receiptId);
+          assert.equal(await dialog.locator('input[name="amount"]').inputValue(), "100");
+          assert.equal(await dialog.locator('input[name="reference"]').inputValue(), reference);
+          assert.equal(await dialog.locator('textarea[name="note"]').inputValue(), reference);
+          assert.equal(await dialog.locator('input[name="receipt"]').evaluate((input) => input.files?.[0]?.name), filename);
+          if (outcome === "rollback") {
+            const [terminated] = await sql`SELECT pg_terminate_backend(${blockedPid}) AS terminated`;
+            assert.equal(terminated.terminated, true);
+          }
+        } finally {
+          if (gateLocked) await gate`SELECT pg_advisory_unlock(927431, 9)`;
+          gate.release();
+        }
+        const response = await financeUpstream;
+        assert.equal(response.status(), 200);
+        assert.match(await response.text(), outcome === "commit"
+          ? (kind === "payment" ? /Оплата проведена/ : /Выплата мастеру проведена/)
+          : (kind === "payment" ? /Не удалось подтвердить оплату/ : /Не удалось подтвердить выплату/));
+        assert.deepEqual(financeErrors, []);
+        if (outcome === "commit") {
+          const [entry] = await sql`SELECT receipt_document_id, amount_minor FROM ${sql(table)} WHERE idempotency_key = ${requestKey}`;
+          assert.equal(entry.receipt_document_id, receiptId);
+          assert.equal(Number(entry.amount_minor), 10000);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 1);
+          await verifyVersion(receiptId, 1, bytes);
+          await dialog.getByRole("button", { name: label, exact: true }).click();
+          await dialog.waitFor({ state: "hidden" });
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${requestKey}`)[0].count, 1);
+        } else {
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${requestKey}`)[0].count, 0);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM idempotency_requests WHERE organization_id = ${member.organization_id} AND idempotency_key = ${requestKey} AND operation = ${operation}`)[0].count, 0);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${receiptId}`)[0].count, 0);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 0);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+          await dialog.getByRole("button", { name: label, exact: true }).click();
+          await dialog.getByRole("status").filter({ hasText: "Файл этого запроса уже существует, но результат операции не подтверждён" }).waitFor();
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${requestKey}`)[0].count, 0);
+          assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+          const retained = objectStorage
+            ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+            : await readFile(join(directory, storageKey));
+          assert.deepEqual(retained, bytes);
+        }
+        console.log(`aborted in-flight ${kind} ${outcome}: ${outcome === "commit" ? "one ledger entry and receipt survived" : "no ledger entry committed; receipt and unresolved operation remained"}.`);
+        await financeContext.close();
+      }
+    }
   }
   if (objectStorage) {
     await s3Fixture.close();
@@ -2055,7 +2177,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 2 in-flight commits, 2 in-flight rollbacks, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 4 in-flight commits, 4 in-flight rollbacks, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

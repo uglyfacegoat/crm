@@ -110,7 +110,7 @@ async function storeReceipt(
     await writeDocumentFile(storageKey, buffer);
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-    throw new DocumentFileValidationError("Файл этого запроса уже существует. Проверьте историю операций. Если операция не проведена, закройте форму и создайте новую.");
+    throw new DocumentFileValidationError("Файл этого запроса уже существует, но результат операции не подтверждён. Проверьте историю; если операции нет, обратитесь к администратору.");
   }
   return { documentId, storageKey, ...validated };
 }
