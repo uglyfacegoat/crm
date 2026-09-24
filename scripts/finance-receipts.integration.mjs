@@ -371,7 +371,7 @@ test("uploads retain committed bytes and finance retries preserve file ownership
           idempotencyKey: requestId, expectedVersion: "1", actTitle: "Signed closing act", completionNotes: "Work completed",
           kind: "work_photo", note: "", title: "Approved template", description: "", body: "Uploaded evidence", name: "Test channel",
         })) payload.set(field, value);
-        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==", "base64");
         const bytes = image ? png : content;
         payload.set(kind === "chat avatar" ? "avatar" : "file", new File([bytes], image ? "image.png" : "file.pdf", { type: image ? "image/png" : "application/pdf" }));
         let parentId = requestId;

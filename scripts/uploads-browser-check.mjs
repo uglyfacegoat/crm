@@ -224,7 +224,7 @@ try {
       : await readFile(join(directory, reference.storage_key));
     assert.deepEqual(stored, bytes);
   }
-  const imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZlS8AAAAASUVORK5CYII=", "base64");
+  const imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==", "base64");
 
   for (const warn of [false, true]) {
     await page.setViewportSize(warn ? { width: 390, height: 844 } : { width: 1440, height: 1000 });
@@ -379,6 +379,20 @@ try {
     }
     console.log("scanner: EICAR, oversized Office ZIP and nested ZIP were rejected before file and database writes.");
   }
+  await page.goto(`${baseUrl}/documents`);
+  await page.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const corruptImageDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
+  await corruptImageDialog.locator('summary[aria-label="Заказ"]').click();
+  await corruptImageDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+  await corruptImageDialog.locator('input[name="title"]').fill("Corrupt image test");
+  await corruptImageDialog.locator('input[name="file"]').setInputFiles({ name: "corrupt.png", mimeType: "image/png", buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) });
+  const corruptImageId = await corruptImageDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await corruptImageDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await corruptImageDialog.getByRole("status").filter({ hasText: "Изображение повреждено или слишком велико." }).waitFor();
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${corruptImageId}`)[0].count, 0);
+  if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(corruptImageId)));
+  await corruptImageDialog.getByRole("button", { name: "Отмена", exact: true }).click();
+  console.log("image decoder: PNG header without pixels was rejected before file and database writes.");
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = Buffer.alloc(15 * 1024 * 1024, 0x20);
