@@ -1242,6 +1242,116 @@ try {
     }
     console.log(`${warn ? "warning" : "normal"}: master photo and signed act persisted; visit completed.`);
   }
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  const [lostVisit] = await sql`INSERT INTO service_visits (organization_id, order_id, object_id, assigned_master_id,
+    scheduled_start_at, scheduled_end_at, status, client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${member.organization_id}, ${order.id}, ${object.id}, ${master.id},
+      (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') + interval '14 hours') AT TIME ZONE 'Europe/Moscow',
+      (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') + interval '15 hours') AT TIME ZONE 'Europe/Moscow',
+      'planned', 'Upload customer', 'Upload object', 'Test address') RETURNING id`;
+  const masterContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const masterPage = await masterContext.newPage();
+  const masterPageErrors = [];
+  masterPage.on("pageerror", (error) => masterPageErrors.push(error.message));
+  const masterClient = await request.newContext({ storageState: await page.context().storageState() });
+  await masterPage.goto(`${baseUrl}/my-visits`);
+  await masterPage.getByRole("button", { name: "Материалы", exact: true }).last().click();
+  const lostEvidenceDialog = masterPage.getByRole("dialog", { name: "Материалы выезда", exact: true });
+  assert.equal(await lostEvidenceDialog.locator('input[name="visitId"]').inputValue(), lostVisit.id);
+  await lostEvidenceDialog.locator('textarea[name="note"]').fill("Lost visit photo note");
+  await lostEvidenceDialog.locator('input[name="file"]').setInputFiles({ name: "lost-evidence.png", mimeType: "image/png", buffer: imageBytes });
+  const lostEvidenceId = await lostEvidenceDialog.locator('input[name="idempotencyKey"]').inputValue();
+  let resolveEvidenceResponse;
+  let rejectEvidenceResponse;
+  const evidenceResponse = new Promise((resolve, reject) => { resolveEvidenceResponse = resolve; rejectEvidenceResponse = reject; });
+  const evidenceTimeout = setTimeout(() => rejectEvidenceResponse(new Error("Lost evidence response was not intercepted")), 30_000);
+  let dropEvidenceResponse = true;
+  await masterPage.route("**/my-visits**", async (route) => {
+    if (!dropEvidenceResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"] || !route.request().postDataBuffer()?.includes(lostEvidenceId)) return route.continue();
+    dropEvidenceResponse = false;
+    try {
+      const requestHeaders = route.request().headers();
+      const requestBody = route.request().postDataBuffer();
+      const response = await route.fetch();
+      resolveEvidenceResponse({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+      await route.abort("failed");
+    } catch (error) { rejectEvidenceResponse(error); }
+  });
+  await lostEvidenceDialog.getByRole("button", { name: "Добавить материал", exact: true }).click();
+  const lostEvidence = await evidenceResponse;
+  clearTimeout(evidenceTimeout);
+  assert.equal(lostEvidence.status, 200);
+  assert.match(lostEvidence.body, /Материал сохранён в документах заказа/);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${lostEvidenceId}`)[0].count, 1);
+  await lostEvidenceDialog.getByRole("alert").filter({ hasText: "Не удалось получить ответ сервера. Проверьте материалы выезда перед повторной отправкой." }).waitFor();
+  assert.equal(await lostEvidenceDialog.locator('input[name="idempotencyKey"]').inputValue(), lostEvidenceId);
+  assert.equal(await lostEvidenceDialog.locator('textarea[name="note"]').inputValue(), "Lost visit photo note");
+  assert.equal(await lostEvidenceDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "lost-evidence.png");
+  assert.deepEqual(masterPageErrors, []);
+  await masterPage.screenshot({ path: join(artifacts, "visit-photo-lost-response.png") });
+  const evidenceReplay = await masterClient.post(`${baseUrl}/my-visits`, { data: lostEvidence.requestBody, headers: lostEvidence.requestHeaders });
+  assert.equal(evidenceReplay.status(), 200);
+  assert.match(await evidenceReplay.text(), /Этот материал уже сохранён/);
+  await lostEvidenceDialog.getByRole("button", { name: "Добавить материал", exact: true }).click();
+  await lostEvidenceDialog.waitFor({ state: "hidden" });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostEvidenceId}`)[0].count, 1);
+  await verifyVersion(lostEvidenceId, 1, imageBytes, true);
+  console.log("lost visit photo response after commit: form retained note and file; replay and UI retry kept one document.");
+  await masterPage.unroute("**/my-visits**");
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  await masterPage.goto(`${baseUrl}/my-visits`);
+  await masterPage.getByRole("button", { name: "Завершить", exact: true }).last().click();
+  const lostActDialog = masterPage.getByRole("dialog", { name: "Завершить выезд", exact: true });
+  assert.equal(await lostActDialog.locator('input[name="visitId"]').inputValue(), lostVisit.id);
+  await lostActDialog.locator('input[name="actTitle"]').fill("Lost response signed act");
+  await lostActDialog.locator('textarea[name="completionNotes"]').fill("Work completed before response was lost");
+  const lostActBytes = pdfFixture("Lost signed act response after commit");
+  await lostActDialog.locator('input[name="file"]').setInputFiles({ name: "lost-act.pdf", mimeType: "application/pdf", buffer: lostActBytes });
+  const lostActId = await lostActDialog.locator('input[name="idempotencyKey"]').inputValue();
+  let resolveActResponse;
+  let rejectActResponse;
+  const actResponse = new Promise((resolve, reject) => { resolveActResponse = resolve; rejectActResponse = reject; });
+  const actTimeout = setTimeout(() => rejectActResponse(new Error("Lost act response was not intercepted")), 30_000);
+  let dropActResponse = true;
+  await masterPage.route("**/my-visits**", async (route) => {
+    if (!dropActResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"] || !route.request().postDataBuffer()?.includes(lostActId)) return route.continue();
+    dropActResponse = false;
+    try {
+      const requestHeaders = route.request().headers();
+      const requestBody = route.request().postDataBuffer();
+      const response = await route.fetch();
+      resolveActResponse({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+      await route.abort("failed");
+    } catch (error) { rejectActResponse(error); }
+  });
+  await lostActDialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
+  const lostAct = await actResponse;
+  clearTimeout(actTimeout);
+  assert.equal(lostAct.status, 200);
+  assert.match(lostAct.body, /Выезд завершён, акт добавлен в архив/);
+  const [visitAfterCommit] = await sql`SELECT status, completion_document_id, version FROM service_visits WHERE id = ${lostVisit.id}`;
+  assert.equal(visitAfterCommit.status, "completed");
+  assert.equal(visitAfterCommit.completion_document_id, lostActId);
+  await lostActDialog.getByRole("alert").filter({ hasText: "Не удалось получить ответ сервера. Проверьте статус выезда и акт перед повторной отправкой." }).waitFor();
+  assert.equal(await lostActDialog.locator('input[name="idempotencyKey"]').inputValue(), lostActId);
+  assert.equal(await lostActDialog.locator('input[name="actTitle"]').inputValue(), "Lost response signed act");
+  assert.equal(await lostActDialog.locator('textarea[name="completionNotes"]').inputValue(), "Work completed before response was lost");
+  assert.equal(await lostActDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "lost-act.pdf");
+  assert.deepEqual(masterPageErrors, []);
+  await masterPage.screenshot({ path: join(artifacts, "signed-act-lost-response.png") });
+  const actReplay = await masterClient.post(`${baseUrl}/my-visits`, { data: lostAct.requestBody, headers: lostAct.requestHeaders });
+  assert.equal(actReplay.status(), 200);
+  assert.match(await actReplay.text(), /Выезд уже завершён, акт сохранён/);
+  await lostActDialog.getByRole("button", { name: "Завершить с актом", exact: true }).click();
+  await lostActDialog.waitFor({ state: "hidden" });
+  assert.deepEqual((await sql`SELECT status, completion_document_id, version FROM service_visits WHERE id = ${lostVisit.id}`)[0], visitAfterCommit);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostActId}`)[0].count, 1);
+  await verifyVersion(lostActId, 1, lostActBytes, true);
+  console.log("lost signed act response after commit: form retained fields and file; replay and UI retry completed the visit only once.");
+  await masterClient.dispose();
+  await masterContext.close();
   assert.equal(replaced, 9);
   assert.equal(interceptionError, null);
   assert.deepEqual(browserErrors, []);
@@ -1324,7 +1434,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 7 lost post-commit responses, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

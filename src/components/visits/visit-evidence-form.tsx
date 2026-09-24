@@ -1,7 +1,7 @@
 "use client";
 
 import { Camera, Check, FileSignature, ImageIcon, LoaderCircle, Upload } from "lucide-react";
-import { startTransition, useActionState, useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import {
   uploadAssignedVisitEvidenceAction,
@@ -23,10 +23,8 @@ export function VisitEvidenceForm({
   visit: ServiceVisit;
   onClose: () => void;
 }) {
-  const [state, action, pending] = useActionState(
-    uploadAssignedVisitEvidenceAction,
-    initialState,
-  );
+  const [state, setState] = useState<VisitEvidenceState>(initialState);
+  const [pending, startTransition] = useTransition();
   const [requestKey] = useState(() => crypto.randomUUID());
   const [kind, setKind] = useState<"work_photo" | "contract_photo">("work_photo");
   const [filename, setFilename] = useState<string | null>(null);
@@ -40,7 +38,18 @@ export function VisitEvidenceForm({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    startTransition(() => action(formData));
+    startTransition(async () => {
+      try {
+        const result = await uploadAssignedVisitEvidenceAction(state, formData);
+        startTransition(() => setState(result));
+      } catch {
+        startTransition(() => setState({
+          status: "error",
+          message: "Не удалось получить ответ сервера. Проверьте материалы выезда перед повторной отправкой.",
+          fieldErrors: {},
+        }));
+      }
+    });
   };
 
   return (

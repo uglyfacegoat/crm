@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, FileCheck2, LoaderCircle, ShieldCheck, Upload } from "lucide-react";
-import { startTransition, useActionState, useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { completeVisitAction, type CompleteVisitState } from "@/app/(workspace)/calendar/actions";
 import type { ServiceVisit } from "@/server/visits/types";
@@ -19,7 +19,8 @@ function visitDate(visit: ServiceVisit) {
 }
 
 export function VisitCompletionForm({ visit, requestKey, onClose }: { visit: ServiceVisit; requestKey: string; onClose: () => void }) {
-  const [state, action, pending] = useActionState(completeVisitAction, initialState);
+  const [state, setState] = useState<CompleteVisitState>(initialState);
+  const [pending, startTransition] = useTransition();
   const [filename, setFilename] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,7 +34,19 @@ export function VisitCompletionForm({ visit, requestKey, onClose }: { visit: Ser
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    startTransition(() => action(formData));
+    startTransition(async () => {
+      try {
+        const result = await completeVisitAction(state, formData);
+        startTransition(() => setState(result));
+      } catch {
+        startTransition(() => setState({
+          status: "error",
+          message: "Не удалось получить ответ сервера. Проверьте статус выезда и акт перед повторной отправкой.",
+          fieldErrors: {},
+          documentId: null,
+        }));
+      }
+    });
   };
 
   return <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
