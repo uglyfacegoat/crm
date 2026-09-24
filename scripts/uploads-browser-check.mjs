@@ -986,6 +986,62 @@ try {
   await verifyStoredReference("document_template_versions", "template_id", lostTemplateId, lostTemplateBytes);
   console.log("lost template response after commit: form retained title, description, file and retry key; replay and UI retry kept one template version.");
   await templateContext.close();
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation IN ('chat_message', 'chat_upload')`;
+  const [lostChatChannel] = await sql`INSERT INTO chat_channels (organization_id, name, kind, audience_kind, created_by)
+    VALUES (${member.organization_id}, 'Lost attachment response', 'group', 'office', ${member.id}) RETURNING id`;
+  await sql`INSERT INTO chat_channel_members (organization_id, channel_id, member_id, channel_role, joined_by)
+    VALUES (${member.organization_id}, ${lostChatChannel.id}, ${member.id}, 'owner', ${member.id})`;
+  const chatContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const chatPage = await chatContext.newPage();
+  const chatPageErrors = [];
+  chatPage.on("pageerror", (error) => chatPageErrors.push(error.message));
+  let resolveChatResponse;
+  let rejectChatResponse;
+  const chatResponse = new Promise((resolve, reject) => { resolveChatResponse = resolve; rejectChatResponse = reject; });
+  const chatTimeout = setTimeout(() => rejectChatResponse(new Error("Lost chat response was not intercepted")), 30_000);
+  let dropChatResponse = true;
+  let lostMessageId = null;
+  await chatPage.route("**/chat**", async (route) => {
+    if (!dropChatResponse || !lostMessageId || route.request().method() !== "POST" || !route.request().headers()["next-action"] || !route.request().postDataBuffer()?.includes(lostMessageId)) return route.continue();
+    dropChatResponse = false;
+    try {
+      const requestHeaders = route.request().headers();
+      const requestBody = route.request().postDataBuffer();
+      const response = await route.fetch();
+      resolveChatResponse({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+      await route.abort("failed");
+    } catch (error) { rejectChatResponse(error); }
+  });
+  await chatPage.goto(`${baseUrl}/chat?channel=${lostChatChannel.id}`);
+  await chatPage.locator('textarea[name="body"]').fill("Message retained after lost response");
+  const lostChatBytes = pdfFixture("Lost chat attachment response after commit");
+  await chatPage.locator('input[name="file"]').setInputFiles({ name: "lost-attachment.pdf", mimeType: "application/pdf", buffer: lostChatBytes });
+  lostMessageId = await chatPage.locator('input[name="idempotencyKey"]').inputValue();
+  await chatPage.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+  const lostChat = await chatResponse;
+  clearTimeout(chatTimeout);
+  assert.equal(lostChat.status, 200);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${lostMessageId}`)[0].count, 1);
+  await chatPage.getByRole("alert").filter({ hasText: "Не удалось получить ответ сервера. Проверьте переписку перед повторной отправкой." }).waitFor();
+  assert.equal(await chatPage.locator('input[name="idempotencyKey"]').inputValue(), lostMessageId);
+  assert.equal(await chatPage.locator('textarea[name="body"]').inputValue(), "Message retained after lost response");
+  assert.equal(await chatPage.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "lost-attachment.pdf");
+  assert.equal(await chatPage.locator('[data-nextjs-dialog]').count(), 0);
+  assert.deepEqual(chatPageErrors, []);
+  await chatPage.screenshot({ path: join(artifacts, "chat-lost-response.png") });
+  const chatReplay = await archiveClient.post(`${baseUrl}/chat?channel=${lostChatChannel.id}`, { data: lostChat.requestBody, headers: lostChat.requestHeaders });
+  assert.equal(chatReplay.status(), 200);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${lostMessageId}`)[0].count, 1);
+  await chatPage.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
+  await chatPage.waitForFunction((id) => document.querySelector('input[name="idempotencyKey"]')?.value !== id, lostMessageId);
+  assert.equal(await chatPage.locator('textarea[name="body"]').inputValue(), "");
+  assert.equal(await chatPage.locator('input[name="file"]').inputValue(), "");
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_messages WHERE id = ${lostMessageId}`)[0].count, 1);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_message_attachments WHERE message_id = ${lostMessageId}`)[0].count, 1);
+  await verifyStoredReference("chat_message_attachments", "message_id", lostMessageId, lostChatBytes);
+  console.log("lost chat response after commit: draft and attachment survived; replay and UI retry kept one message and file.");
+  await chatContext.close();
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -1211,7 +1267,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 5 lost post-commit responses, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 6 lost post-commit responses, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

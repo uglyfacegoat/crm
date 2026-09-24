@@ -2,7 +2,8 @@
 
 import { ArrowLeft, BellOff, Bot, Download, FileText, Hash, MessageCircle, MessageSquareText, Mic, PanelLeftClose, PanelLeftOpen, Paperclip, Pause, Pin, PinOff, Play, RefreshCw, Search, Send, ShieldCheck, Square, Trash2, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useDeferredValue, useEffect, useId, useRef, useState, useTransition } from "react";
+import { useDeferredValue, useEffect, useId, useRef, useState, useTransition } from "react";
+import type { FormEvent } from "react";
 import { markChatChannelReadAction, sendChatMessageAction, toggleChatChannelPinAction, toggleChatReactionAction, type ChatMutationState } from "@/app/(workspace)/chat/actions";
 import { ChatChannelSettingsButton } from "@/components/chat/chat-channel-settings-dialog";
 import { ChatCreationActions } from "@/components/chat/create-chat-group-dialog";
@@ -38,17 +39,34 @@ function ChatComposer({ channelId, requestKey, entityOptions }: { channelId: str
   const [selectedEntity, setSelectedEntity] = useState<ChatSharedEntity | null>(null);
   const voice = useVoiceRecorder();
   const voiceReady = voice.phase === "ready" && Boolean(voice.file && voice.previewUrl);
-  const [state, formAction, pending] = useActionState(async (previous: ChatMutationState, formData: FormData) => {
-    const result = await sendChatMessageAction(previous, formData);
-    if (result.status === "success") {
-      if (messageRef.current) messageRef.current.value = "";
-      if (fileRef.current) fileRef.current.value = "";
-      setSelectedEntity(null);
-      voice.resetDraft();
-      setMessageRequestKey(crypto.randomUUID());
-    }
-    return result;
-  }, initialState);
+  const [state, setState] = useState<ChatMutationState>(initialState);
+  const [pending, startSubmitTransition] = useTransition();
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startSubmitTransition(async () => {
+      try {
+        const result = await sendChatMessageAction(state, formData);
+        startSubmitTransition(() => {
+          if (result.status === "success") {
+            if (messageRef.current) messageRef.current.value = "";
+            if (fileRef.current) fileRef.current.value = "";
+            setSelectedEntity(null);
+            voice.resetDraft();
+            setMessageRequestKey(crypto.randomUUID());
+          }
+          setState(result);
+        });
+      } catch {
+        startSubmitTransition(() => setState({
+          status: "error",
+          message: "Не удалось получить ответ сервера. Проверьте переписку перед повторной отправкой.",
+          fieldErrors: {},
+          entityId: null,
+        }));
+      }
+    });
+  };
   useEffect(() => {
     if (!fileRef.current) return;
     if (!voice.file) {
@@ -71,8 +89,7 @@ function ChatComposer({ channelId, requestKey, entityOptions }: { channelId: str
     input.setRangeText(emoji, selectionStart, selectionEnd, "end");
     input.focus();
   }
-  // A resolved action error must not trigger React's automatic uncontrolled-field reset.
-  return <form action={formAction} onReset={(event) => event.preventDefault()} className="border-t border-[var(--line)] bg-[var(--surface-raised)] p-3 sm:p-4">
+  return <form onSubmit={submit} className="border-t border-[var(--line)] bg-[var(--surface-raised)] p-3 sm:p-4">
     <fieldset disabled={pending} aria-busy={pending} className="min-w-0">
     <input type="hidden" name="idempotencyKey" value={messageRequestKey} />
     <input type="hidden" name="channelId" value={channelId} />
