@@ -452,6 +452,8 @@ try {
     await busyDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
     await busyDialog.getByRole("status").filter({ hasText: "Сервер обрабатывает слишком много файлов. Повторите загрузку через несколько секунд." }).waitFor();
     assert.equal(await busyDialog.locator('input[name="idempotencyKey"]').inputValue(), busyDocumentId);
+    assert.equal(await busyDialog.locator('input[name="title"]').inputValue(), "Busy upload retry");
+    assert.equal((await busyDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name)), "busy.pdf");
   } finally {
     await firstSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 1)`;
     await secondSlot`SELECT pg_advisory_unlock(${FILE_PROCESSING_LOCK_CLASS}, 2)`;
@@ -461,11 +463,10 @@ try {
   assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${busyDocumentId}`)[0].count, 0);
   if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(busyDocumentId)));
   const busyRetryDialog = page.getByRole("dialog", { name: "Новый документ", exact: true });
-  await busyRetryDialog.locator('input[name="title"]').fill("Busy upload retry");
-  await busyRetryDialog.locator('input[name="file"]').setInputFiles({ name: "busy.pdf", mimeType: "application/pdf", buffer: pdfFixture("busy retry") });
   await busyRetryDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
   await busyRetryDialog.waitFor({ state: "hidden" });
   await verifyVersion(busyDocumentId, 1, pdfFixture("busy retry"));
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${busyDocumentId}`)[0].count, 1);
   console.log("processing slots: saturated export returned 429; upload kept its retry key and succeeded after release.");
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.

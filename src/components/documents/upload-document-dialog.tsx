@@ -3,12 +3,14 @@
 import { FileUp, Plus, UploadCloud } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
+  startTransition,
   useActionState,
   useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
+import type { FormEvent } from "react";
 import {
   uploadDocumentAction,
   type DocumentUploadState,
@@ -80,8 +82,14 @@ function UploadDocumentForm({
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status, state.refreshRequired]);
 
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => formAction(formData));
+  };
+
   return (
-    <form action={formAction} className="flex min-h-full flex-1 flex-col">
+    <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
       <input type="hidden" name="idempotencyKey" value={requestKey} />
       <input type="hidden" name="orderId" value={orderId} />
       <input type="hidden" name="visitId" value={visitId} />
