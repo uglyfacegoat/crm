@@ -848,6 +848,93 @@ try {
   await verifyVersion(abortedDocumentId, 1, abortedBytes);
   console.log("aborted before dispatch: no document was written; retained form retried to one intact document.");
   await abortedContext.close();
+
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  await sql`CREATE TABLE upload_abort_gate (document_id uuid PRIMARY KEY)`;
+  await sql.unsafe(`CREATE FUNCTION block_upload_before_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM upload_abort_gate WHERE document_id = NEW.document_id) THEN
+        PERFORM pg_advisory_xact_lock(927431, 9);
+      END IF;
+      RETURN NEW;
+    END $$`);
+  await sql`CREATE TRIGGER block_upload_before_commit BEFORE INSERT ON document_versions
+    FOR EACH ROW EXECUTE FUNCTION block_upload_before_commit()`;
+  const inFlightContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const inFlightPage = await inFlightContext.newPage();
+  const inFlightErrors = [];
+  inFlightPage.on("pageerror", (error) => inFlightErrors.push(error.message));
+  let abortInFlightRequest;
+  const inFlightAbortSignal = new Promise((resolveAbort) => { abortInFlightRequest = resolveAbort; });
+  let resolveInFlightAborted;
+  const inFlightAborted = new Promise((resolveAbort) => { resolveInFlightAborted = resolveAbort; });
+  let inFlightUpstream;
+  let abortFirstInFlight = true;
+  await inFlightPage.route("**/documents", async (route) => {
+    if (!abortFirstInFlight || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+    abortFirstInFlight = false;
+    inFlightUpstream = route.fetch();
+    await inFlightAbortSignal;
+    await route.abort("failed");
+    resolveInFlightAborted();
+    await inFlightUpstream.catch(() => {});
+  });
+  await inFlightPage.goto(`${baseUrl}/documents`);
+  await inFlightPage.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const inFlightDialog = inFlightPage.getByRole("dialog", { name: "Новый документ", exact: true });
+  await inFlightDialog.locator('summary[aria-label="Заказ"]').click();
+  await inFlightDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+  await inFlightDialog.locator('input[name="title"]').fill("Aborted while database commit was blocked");
+  const inFlightBytes = pdfFixture("Aborted while database commit was blocked");
+  await inFlightDialog.locator('input[name="file"]').setInputFiles({ name: "aborted-in-flight.pdf", mimeType: "application/pdf", buffer: inFlightBytes });
+  const inFlightId = await inFlightDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await sql`INSERT INTO upload_abort_gate (document_id) VALUES (${inFlightId})`;
+  const gateConnection = await sql.reserve();
+  let gateLocked = false;
+  try {
+    await gateConnection`SELECT pg_advisory_lock(927431, 9)`;
+    gateLocked = true;
+    await inFlightDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    let blocked = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const [activity] = await sql`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event = 'advisory'
+          AND query LIKE '%INSERT INTO document_versions%') AS blocked`;
+      if (activity.blocked) { blocked = true; break; }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    }
+    assert.ok(blocked, "Upload must reach the database after writing its file, before committing");
+    const inFlightStorageKey = `${member.organization_id}/${inFlightId}/v1.pdf`;
+    const inFlightStored = objectStorage
+      ? await objectStorage.readVerified(inFlightStorageKey, { sizeBytes: inFlightBytes.length, sha256: createHash("sha256").update(inFlightBytes).digest("hex") }, 15 * 1024 * 1024)
+      : await readFile(join(directory, inFlightStorageKey));
+    assert.deepEqual(inFlightStored, inFlightBytes);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${inFlightId}`)[0].count, 0);
+    abortInFlightRequest();
+    await inFlightAborted;
+    await inFlightDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте документ в архиве перед повторной отправкой." }).waitFor();
+    assert.equal(await inFlightDialog.locator('input[name="idempotencyKey"]').inputValue(), inFlightId);
+    assert.equal(await inFlightDialog.locator('input[name="title"]').inputValue(), "Aborted while database commit was blocked");
+    assert.equal(await inFlightDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "aborted-in-flight.pdf");
+  } finally {
+    if (gateLocked) await gateConnection`SELECT pg_advisory_unlock(927431, 9)`;
+    gateConnection.release();
+  }
+  let inFlightCommitted = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const [row] = await sql`SELECT EXISTS (SELECT 1 FROM documents WHERE id = ${inFlightId}) AS committed`;
+    if (row.committed) { inFlightCommitted = true; break; }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  assert.ok(inFlightCommitted, "Server must complete the already-started transaction after browser disconnect");
+  assert.deepEqual(inFlightErrors, []);
+  await verifyVersion(inFlightId, 1, inFlightBytes);
+  await inFlightDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await inFlightDialog.waitFor({ state: "hidden" });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${inFlightId}`)[0].count, 1);
+  console.log("aborted in flight before commit: browser lost the response while the database was blocked; server committed once and retained the file for an idempotent retry.");
+  await inFlightContext.close();
   await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
     WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
   const versionContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
@@ -1775,7 +1862,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 1 in-flight abort before commit, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
