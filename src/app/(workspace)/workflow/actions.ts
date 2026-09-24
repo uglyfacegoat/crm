@@ -7,6 +7,8 @@ import { requireSession } from "@/server/auth/session";
 import { safeErrorCode } from "@/server/observability/safe-error";
 import { addWorkflowComment, findWorkflowResources, listWorkflowComments, type WorkflowCommentPage, type WorkflowResourceOption } from "@/server/workflow/context-repository";
 import { WorkflowContextTargetError } from "@/server/workflow/context-access";
+import { previewOrderCreatedAutomation, WorkflowAutomationTargetError, type WorkflowAutomationPreview } from "@/server/workflow/automation-repository";
+import { WorkflowAutomationPlanError } from "@/server/workflow/automation-plan";
 import { watchWorkflowMap, WorkflowCollaborationMapNotFoundError } from "@/server/workflow/collaboration-repository";
 import {
   archiveWorkflowMap, createWorkflowMap, saveWorkflowMap,
@@ -22,10 +24,12 @@ import {
   rejectWorkflowReviewSchema, restoreWorkflowRevisionSchema,
   workflowRevisionLookupSchema, workflowVersionCommandSchema,
   addWorkflowCommentSchema, workflowCommentPageSchema, workflowResourceSearchSchema, watchWorkflowMapSchema,
+  previewWorkflowAutomationSchema,
   type ArchiveWorkflowMapInput, type CreateWorkflowMapInput, type SaveWorkflowMapInput,
   type RejectWorkflowReviewInput, type RestoreWorkflowRevisionInput,
   type WorkflowRevisionLookupInput, type WorkflowVersionCommandInput,
   type AddWorkflowCommentInput, type WorkflowCommentPageInput, type WorkflowResourceSearchInput, type WatchWorkflowMapInput,
+  type PreviewWorkflowAutomationInput,
 } from "@/server/workflow/schemas";
 
 type WorkflowActionResult = {
@@ -201,4 +205,24 @@ export async function watchWorkflowMapAction(input: WatchWorkflowMapInput): Prom
     revalidatePath("/workflow");
     return { status: "success", message: parsed.data.watching ? "Вы следите за изменениями карты." : "Слежение за картой отключено.", id: parsed.data.mapId, version: null };
   } catch (error) { return failure(error, "workflow.watch", member.memberId); }
+}
+
+export async function previewWorkflowAutomationAction(input: PreviewWorkflowAutomationInput): Promise<
+  { status: "success"; preview: WorkflowAutomationPreview } | { status: "error"; message: string }
+> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен." };
+  const member = await requireSession();
+  const parsed = previewWorkflowAutomationSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Выберите опубликованную карту и заказ." };
+  try {
+    return { status: "success", preview: await previewOrderCreatedAutomation(member, parsed.data.mapId, parsed.data.orderId) };
+  } catch (error) {
+    if (error instanceof WorkflowAutomationPlanError) return { status: "error", message: "Схема запуска: одно событие «Создан заказ» соедините напрямую с 1–5 действиями «Создать задачу». Остальные блоки могут оставаться описанием." };
+    if (error instanceof WorkflowAutomationTargetError) {
+      const messages = { unpublished: "Сначала согласуйте и опубликуйте карту.",
+        order_unavailable: "Заказ недоступен или отменён.", assignee_unavailable: "Исполнитель задачи отключён или недоступен." };
+      return { status: "error", message: messages[error.reason] };
+    }
+    return { status: "error", message: failure(error, "workflow.automation.preview", member.memberId).message };
+  }
 }

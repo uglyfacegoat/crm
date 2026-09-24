@@ -8,6 +8,7 @@ import { archiveWorkflowMapAction, createWorkflowMapAction, saveWorkflowMapActio
 import { WorkflowLifecycle } from "./workflow-lifecycle";
 import { WorkflowDiscussion, WorkflowNodeContext } from "./workflow-context";
 import { WorkflowCollaboration } from "./workflow-collaboration";
+import { WorkflowAutomation } from "./workflow-automation";
 import type { WorkflowMap, WorkflowMapSummary, WorkflowRevisionSummary } from "@/server/workflow/repository";
 import type { WorkflowComment, WorkflowMemberOption } from "@/server/workflow/context-repository";
 import type { WorkflowActivity } from "@/server/workflow/collaboration-repository";
@@ -25,7 +26,7 @@ const blockTone = Object.fromEntries(blockKinds.map((item) => [item.kind, item.t
 const nodeWidth = 196;
 const nodeHeight = 126;
 
-export function WorkflowEditor({ maps, selected, revisions, comments, commentsHasMore, members, watching, activity, canWrite, canComment, canWatch, canReview, canPublish, currentMemberId, preview }: {
+export function WorkflowEditor({ maps, selected, revisions, comments, commentsHasMore, members, watching, activity, canWrite, canComment, canWatch, canReview, canPublish, canPreviewAutomation, currentMemberId, preview }: {
   maps: WorkflowMapSummary[];
   selected: WorkflowMap | null;
   revisions: WorkflowRevisionSummary[];
@@ -39,6 +40,7 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
   canWatch: boolean;
   canReview: boolean;
   canPublish: boolean;
+  canPreviewAutomation: boolean;
   currentMemberId: string;
   preview: boolean;
 }) {
@@ -237,6 +239,45 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
           {currentNode ? <>
             <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Название блока<input value={currentNode.title} onChange={(event) => updateNode({ title: event.target.value })} disabled={!canEdit} maxLength={100} className="focus-ring h-10 min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 disabled:opacity-60" /></label>
             <label className="grid gap-1.5 text-xs text-[var(--text-secondary)]">Описание<textarea aria-label="Описание блока" value={currentNode.description} onChange={(event) => updateNode({ description: event.target.value })} disabled={!canEdit} maxLength={500} rows={3} className="focus-ring min-w-0 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] p-3 disabled:opacity-60" /></label>
+            {(currentNode.kind === "event" || currentNode.kind === "action") && <div className="grid gap-2 rounded-[10px] border border-[var(--line)] p-3 text-xs text-[var(--text-secondary)]">
+              <label className="grid gap-1">Автоматизация
+                <select aria-label="Тип автоматизации блока" value={currentNode.automation?.kind ?? ""} disabled={!canEdit}
+                  onChange={(event) => updateNode({ automation: event.target.value === "order_created"
+                    ? { kind: "order_created" } : event.target.value === "create_order_task"
+                      ? { kind: "create_order_task", title: currentNode.title, priority: "normal", assignedMemberId: null }
+                      : undefined })}
+                  className="focus-ring h-10 w-full rounded-[9px] border border-[var(--line)] bg-[var(--surface)] px-2 disabled:opacity-60">
+                  <option value="">Только описание</option>
+                  {currentNode.kind === "event" && <option value="order_created">Создан заказ</option>}
+                  {currentNode.kind === "action" && <option value="create_order_task">Создать задачу к заказу</option>}
+                </select>
+              </label>
+              {currentNode.automation?.kind === "create_order_task" && <>
+                <label className="grid gap-1">Название будущей задачи
+                  <input aria-label="Название будущей задачи" value={currentNode.automation.title} maxLength={240} disabled={!canEdit}
+                    onChange={(event) => { const automation = currentNode.automation;
+                      if (automation?.kind === "create_order_task") updateNode({ automation: { ...automation, title: event.target.value } }); }}
+                    className="focus-ring h-10 min-w-0 rounded-[9px] border border-[var(--line)] bg-[var(--surface)] px-2 disabled:opacity-60" />
+                </label>
+                <label className="grid gap-1">Приоритет задачи
+                  <select aria-label="Приоритет будущей задачи" value={currentNode.automation.priority} disabled={!canEdit}
+                    onChange={(event) => { const automation = currentNode.automation;
+                      if (automation?.kind === "create_order_task") updateNode({ automation: { ...automation, priority: event.target.value as "low" | "normal" | "high" | "critical" } }); }}
+                    className="focus-ring h-10 w-full rounded-[9px] border border-[var(--line)] bg-[var(--surface)] px-2 disabled:opacity-60">
+                    <option value="low">Низкий</option><option value="normal">Обычный</option><option value="high">Высокий</option><option value="critical">Критический</option>
+                  </select>
+                </label>
+                <label className="grid gap-1">Исполнитель
+                  <select aria-label="Исполнитель будущей задачи" value={currentNode.automation.assignedMemberId ?? ""} disabled={!canEdit}
+                    onChange={(event) => { const automation = currentNode.automation;
+                      if (automation?.kind === "create_order_task") updateNode({ automation: { ...automation, assignedMemberId: event.target.value || null } }); }}
+                    className="focus-ring h-10 w-full rounded-[9px] border border-[var(--line)] bg-[var(--surface)] px-2 disabled:opacity-60">
+                    <option value="">Не назначать</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                  </select>
+                </label>
+              </>}
+              <p className="text-[10px] leading-4 text-[var(--muted)]">Для запуска соедините событие с действием. Пока автоматизация не включена, карта лишь описывает процесс.</p>
+            </div>}
             {canEdit && <><div><p className="mb-2 text-xs text-[var(--text-secondary)]">Положение на карте</p><div className="flex flex-wrap gap-2">
               {[[ArrowLeft, -40, 0, "Влево"], [ArrowRight, 40, 0, "Вправо"], [ArrowUp, 0, -40, "Вверх"], [ArrowDown, 0, 40, "Вниз"]].map(([Icon, dx, dy, label]) => {
                 const MoveIcon = Icon as typeof ArrowLeft;
@@ -265,6 +306,7 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
           currentTitle={title} currentDescription={description} currentDraft={draft}
           revisions={revisions} canWrite={canEdit} canReview={canReview}
           canPublish={canPublish} currentMemberId={currentMemberId} dirty={dirty} />}
+        {selected && !currentNode && <WorkflowAutomation mapId={selected.id} publishedVersion={selected.publishedVersion} canPreview={canPreviewAutomation} />}
         {selected && <WorkflowDiscussion mapId={selected.id} comments={comments} hasMore={commentsHasMore} canComment={canComment} />}
         {selected && <WorkflowCollaboration mapId={selected.id} watching={watching} canWatch={canWatch} activity={activity} />}
         {feedback && <p role={feedback.error ? "alert" : "status"} className={`mt-5 rounded-[10px] border p-3 text-xs leading-5 ${feedback.error ? "border-[var(--danger)]/40 text-[var(--danger)]" : "border-[var(--success)]/40 text-[var(--success)]"}`}>{feedback.message}</p>}

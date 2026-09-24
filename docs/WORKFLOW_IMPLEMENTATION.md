@@ -85,8 +85,16 @@ This document tracks the actual working scope, not the planned final scope.
 
 ## Still open
 
-- WF-05: tightly scoped, idempotent and audited automation through domain
-  commands, with dry run and stop controls.
+- WF-05: the first source checkpoint adds explicit `order_created` and
+  `create_order_task` node settings, a fail-closed compiler for one event
+  connected directly to 1–5 task actions, and a read-only trial against an
+  existing order using the immutable published revision. The trial checks
+  current publish/order/task rights, organization, order status and active
+  assignees; it does not create tasks. Repository tests cover a valid plan,
+  unsupported graphs, tenant isolation, revoked rights, unavailable orders,
+  inactive assignees and absence of task writes. Automatic execution, durable
+  event delivery, idempotency, audited attempts, retry limits, enable/stop and
+  their acceptance checks remain open. The Docker checkpoint is noted below.
 - WF-06: end-to-end acceptance of the complete Workflow lifecycle and release.
   The complete lifecycle is still open. Nothing has been pushed to Git.
 

@@ -33,6 +33,7 @@ export default async function WorkflowPage({ searchParams }: { searchParams: Pro
         canWatch={hasPermission(member, "notifications.read") && !preview}
         canReview={hasPermission(member, "workflow.review") && !preview && (workspace.selected?.contextEditable ?? true)}
         canPublish={hasPermission(member, "workflow.publish") && !preview && (workspace.selected?.contextEditable ?? true)}
+        canPreviewAutomation={hasPermission(member, "workflow.publish") && hasPermission(member, "orders.read") && hasPermission(member, "tasks.write") && !preview && (workspace.selected?.contextEditable ?? true)}
         currentMemberId={member.memberId} revisions={workspace.revisions} comments={context.comments}
         commentsHasMore={context.hasMore}
         members={context.members} watching={collaboration.watching} activity={collaboration.activity}

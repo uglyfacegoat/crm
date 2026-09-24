@@ -22,6 +22,14 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, Workflow WF-05 trial checkpoint:** explicit order-created and
+  create-task settings can be saved in visual blocks. The compiler accepts
+  only direct event→task links (at most five tasks); other text or links
+  cannot become commands. On a published revision, the trial checks an
+  existing order and current permissions, then shows a plan without creating
+  tasks. Isolated PostgreSQL tests cover organization and permission failures,
+  inactive assignees and no task write. Automatic execution and activation
+  are still open; this is not WF-05 acceptance.
 - **2026-09-24, Workflow WF-04 local installation:** migration 067 adds map
   subscriptions and workflow events to the existing notification inbox.
   Current permissions and overrides determine recipients; archived maps resolve

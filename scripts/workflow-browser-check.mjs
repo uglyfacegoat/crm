@@ -56,6 +56,12 @@ try {
   const [reviewerMember] = await sql`SELECT id FROM organization_members WHERE email = ${reviewerEmail}`;
   const [linkedClient] = await sql`INSERT INTO clients (organization_id, legal_name)
     VALUES (${adminMember.organization_id}, 'Клиент воркфлоу') RETURNING id`;
+  const [automationObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    VALUES (${adminMember.organization_id}, ${linkedClient.id}, 'Объект пробного запуска', 'Офис', 'Москва') RETURNING id`;
+  const [automationOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${adminMember.organization_id}, ${linkedClient.id}, ${automationObject.id}, 'WF-DRYRUN-001', 'new', 'RUB',
+      'Клиент воркфлоу', 'Объект пробного запуска', 'Москва') RETURNING id`;
   server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", (chunk) => process.stderr.write(chunk));
   await new Promise((resolveReady, reject) => {
@@ -198,8 +204,41 @@ try {
   await concurrentAlert.waitFor();
   await concurrentAlert.scrollIntoViewIfNeeded();
   await secondPage.screenshot({ path: join(artifacts, "workflow-concurrent-conflict.png"), animations: "disabled" });
+  await secondPage.getByLabel("Название новой карты").fill("Пробный запуск заказа");
+  await secondPage.getByRole("button", { name: "Создать карту" }).click();
+  await secondPage.waitForURL((url) => url.pathname === "/workflow" && url.searchParams.get("map") !== concurrentMapId);
+  const automationMapId = new URL(secondPage.url()).searchParams.get("map");
+  await secondPage.getByRole("button", { name: "Событие", exact: false }).first().click();
+  await secondPage.getByLabel("Название блока").fill("Заказ создан");
+  await secondPage.getByLabel("Тип автоматизации блока").selectOption("order_created");
+  await secondPage.getByRole("button", { name: "Действие", exact: false }).first().click();
+  await secondPage.getByLabel("Название блока").fill("Проверить заказ");
+  await secondPage.getByLabel("Тип автоматизации блока").selectOption("create_order_task");
+  await secondPage.getByLabel("Название будущей задачи").fill("Позвонить клиенту после заказа");
+  await secondPage.getByLabel("Исполнитель будущей задачи").selectOption(reviewerMember.id);
+  await secondPage.getByRole("button", { name: /Событие · 01 Заказ создан/ }).click();
+  await secondPage.getByLabel("Следующий блок").selectOption({ label: "Проверить заказ" });
+  await secondPage.getByRole("button", { name: "Добавить связь" }).click();
+  await secondPage.getByRole("button", { name: "Вернуться к карте" }).click();
+  await secondPage.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await secondPage.getByRole("status").filter({ hasText: "Карта сохранена" }).waitFor();
+  await secondPage.getByRole("button", { name: "Отправить на согласование" }).click();
+  await secondPage.getByRole("status").filter({ hasText: "Версия отправлена на согласование" }).waitFor();
+  await reviewerPage.goto(`${baseUrl}/workflow?map=${automationMapId}`);
+  await reviewerPage.getByRole("button", { name: "Согласовать версию" }).click();
+  await reviewerPage.getByRole("status").filter({ hasText: "Версия согласована" }).waitFor();
+  await secondPage.reload();
+  await secondPage.getByRole("button", { name: "Опубликовать версию" }).click();
+  await secondPage.getByText("Версия 2 опубликована.").waitFor();
+  await secondPage.getByLabel("Поиск заказа для пробного запуска").fill("WF-DRYRUN-001");
+  await secondPage.getByRole("button", { name: "Найти", exact: true }).click();
+  await secondPage.getByLabel("Заказ для пробного запуска").selectOption(automationOrder.id);
+  await secondPage.getByRole("button", { name: "Пробный запуск" }).click();
+  await secondPage.getByRole("status").filter({ hasText: "Позвонить клиенту после заказа" }).waitFor();
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${automationOrder.id}`)[0].count, 0);
+  await secondPage.screenshot({ path: join(artifacts, "workflow-automation-dry-run.png"), animations: "disabled" });
   assert.deepEqual(browserErrors, []);
-  console.log("Workflow browser check passed: context, notifications, two-account concurrent edits, review, publication, immutable history, compare, restore and archive.");
+  console.log("Workflow browser check passed: context, notifications, concurrent edits, review, publication, history, restore, archive and order automation dry run without task writes.");
 } catch (error) {
   if (page) await page.screenshot({ path: join(artifacts, "workflow-failure.png") }).catch(() => {});
   if (reviewerPage) {

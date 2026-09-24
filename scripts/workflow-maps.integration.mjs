@@ -26,6 +26,7 @@ const versions = await import("../src/server/workflow/versions-repository.ts");
 const context = await import("../src/server/workflow/context-repository.ts");
 const contextAccess = await import("../src/server/workflow/context-access.ts");
 const collaboration = await import("../src/server/workflow/collaboration-repository.ts");
+const automation = await import("../src/server/workflow/automation-repository.ts");
 const notifications = await import("../src/server/notifications/repository.ts");
 const { saveWorkflowMapSchema } = await import("../src/server/workflow/schemas.ts");
 
@@ -150,6 +151,32 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
     client_name_snapshot, object_name_snapshot, object_address_snapshot)
     VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-001', 'new', 'RUB',
       'Клиент для процесса', 'Объект для процесса', 'Москва, Тестовая улица, 1') RETURNING id`;
+  const automationMapId = randomUUID();
+  await workflow.createWorkflowMap(owner, { id: automationMapId, title: 'Проверка заказа' });
+  const automationDraft = { nodes: [
+    { ...firstNode, automation: { kind: 'order_created' } },
+    { ...secondNode, kind: 'action', automation: { kind: 'create_order_task', title: 'Проверить заказ',
+      priority: 'high', assignedMemberId: reviewer.memberId } },
+  ], edges: draft.edges };
+  await workflow.saveWorkflowMap(owner, { id: automationMapId, expectedVersion: 1,
+    title: 'Проверка заказа', description: '', draft: automationDraft });
+  await versions.requestWorkflowReview(owner, { id: automationMapId, expectedVersion: 2 });
+  await versions.approveWorkflowReview(reviewer, { id: automationMapId, expectedVersion: 2 });
+  await versions.publishWorkflowRevision(owner, { id: automationMapId, expectedVersion: 2 });
+  const previewPlan = await automation.previewOrderCreatedAutomation(owner, automationMapId, order.id);
+  assert.equal(previewPlan.mapVersion, 2);
+  assert.equal(previewPlan.orderNumber, 'WF-TEST-001');
+  assert.deepEqual(previewPlan.tasks, [{ nodeId: secondNode.id, title: 'Проверить заказ',
+    priority: 'high', assignedMemberId: reviewer.memberId }]);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${order.id}`)[0].count, 0);
+  await assert.rejects(automation.previewOrderCreatedAutomation(other, automationMapId, order.id), workflow.WorkflowMapNotFoundError);
+  await assert.rejects(automation.previewOrderCreatedAutomation(owner, automationMapId, randomUUID()),
+    (error) => error instanceof automation.WorkflowAutomationTargetError && error.reason === 'order_unavailable');
+  await assert.rejects(automation.previewOrderCreatedAutomation({ ...owner, permissionOverrides: { 'tasks.write': false } }, automationMapId, order.id), AuthorizationError);
+  await sql`UPDATE organization_members SET active = false WHERE organization_id = ${owner.organizationId} AND id = ${reviewer.memberId}`;
+  await assert.rejects(automation.previewOrderCreatedAutomation(owner, automationMapId, order.id),
+    (error) => error instanceof automation.WorkflowAutomationTargetError && error.reason === 'assignee_unavailable');
+  await sql`UPDATE organization_members SET active = true WHERE organization_id = ${owner.organizationId} AND id = ${reviewer.memberId}`;
   const [contract] = await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status,
     starts_on, ends_on, renewal_notice_days) VALUES (${owner.organizationId}, ${client.id}, ${object.id},
     'WF-CONTRACT-001', 'draft', '2026-01-01', '2026-12-31', 30) RETURNING id`;

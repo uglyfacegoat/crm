@@ -3,6 +3,16 @@ import { z } from "zod";
 const uuid = z.string().uuid();
 const boundedText = (min: number, max: number) => z.string().trim().min(min).max(max);
 
+const workflowAutomationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("order_created") }).strict(),
+  z.object({
+    kind: z.literal("create_order_task"),
+    title: boundedText(2, 240),
+    priority: z.enum(["low", "normal", "high", "critical"]),
+    assignedMemberId: uuid.nullable(),
+  }).strict(),
+]);
+
 export const workflowNodeSchema = z.object({
   id: uuid,
   kind: z.enum(["event", "crm_card", "condition", "action", "note"]),
@@ -11,9 +21,14 @@ export const workflowNodeSchema = z.object({
   regulation: boundedText(0, 4000).optional(),
   ownerMemberId: uuid.nullable().optional(),
   resource: z.object({ kind: z.enum(["client", "order", "contract"]), id: uuid }).strict().nullable().optional(),
+  automation: workflowAutomationSchema.optional(),
   x: z.number().int().min(0).max(5000),
   y: z.number().int().min(0).max(5000),
-}).strict();
+}).strict().superRefine((node, context) => {
+  if (node.automation && node.kind !== (node.automation.kind === "order_created" ? "event" : "action")) {
+    context.addIssue({ code: "custom", path: ["automation"], message: "Тип автоматизации не соответствует блоку." });
+  }
+});
 
 export const workflowEdgeSchema = z.object({
   id: uuid,
@@ -88,6 +103,7 @@ export const workflowResourceSearchSchema = z.object({
 }).strict();
 export const workflowCommentPageSchema = z.object({ mapId: uuid, beforeId: uuid }).strict();
 export const watchWorkflowMapSchema = z.object({ mapId: uuid, watching: z.boolean() }).strict();
+export const previewWorkflowAutomationSchema = z.object({ mapId: uuid, orderId: uuid }).strict();
 
 export type WorkflowDraft = z.infer<typeof workflowDraftSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
@@ -103,3 +119,4 @@ export type AddWorkflowCommentInput = z.infer<typeof addWorkflowCommentSchema>;
 export type WorkflowResourceSearchInput = z.infer<typeof workflowResourceSearchSchema>;
 export type WorkflowCommentPageInput = z.infer<typeof workflowCommentPageSchema>;
 export type WatchWorkflowMapInput = z.infer<typeof watchWorkflowMapSchema>;
+export type PreviewWorkflowAutomationInput = z.infer<typeof previewWorkflowAutomationSchema>;
