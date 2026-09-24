@@ -26,7 +26,11 @@ Git push remains on hold until the owner asks.
   configurable read/write permissions, version conflicts, audit, archive,
   visual blocks and links. Isolated migrations, repository integration and
   packaged browser checks passed; desktop and 390px mobile layouts were
-  inspected. [Scope and remaining stages](WORKFLOW_IMPLEMENTATION.md).
+  inspected. The working Docker web service now runs
+  `crm-app:workflow-wf01-8b097c2` after a successful upgrade rehearsal on an
+  anonymized copy of the working database. Migration 064 is applied and
+  readiness is healthy; the previous image is retained for rollback.
+  [Scope and remaining stages](WORKFLOW_IMPLEMENTATION.md).
 - **2026-09-24, UP-07 chat attachment in-flight abort:** the packaged browser
   suite passed on local and test S3 storage. A client disconnect after file
   write but before database commit left one message and one matching attachment

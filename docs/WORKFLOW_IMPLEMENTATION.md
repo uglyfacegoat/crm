@@ -38,6 +38,21 @@ This document tracks the actual working scope, not the planned final scope.
   editing experience beyond explicit version conflicts.
 - WF-05: tightly scoped, idempotent and audited automation through domain
   commands, with dry run and stop controls.
-- WF-06: end-to-end acceptance of the complete Workflow lifecycle and release
-  to the working CRM. The new source build has only been tested in an isolated
-  runtime; it has not been deployed or pushed.
+- WF-06: end-to-end acceptance of the complete Workflow lifecycle and release.
+  WF-01 is installed in the working Docker web container as
+  `crm-app:workflow-wf01-8b097c2`; the complete lifecycle is still open.
+  Nothing has been pushed to Git.
+
+## Working Docker installation
+
+On 24 September, `crm-app:workflow-wf01-8b097c2` was built from local commit
+`8b097c2` and installed only as the `crm` web service. The previous image was
+retained as `crm-app:before-workflow-wf01-20260924`. Before installation,
+`npm run test:working-upgrade` applied migrations 056–064 to an anonymized,
+disposable copy of the working database and preserved row counts in all 62
+pre-existing tables. On the working database, migration 064 is now recorded.
+The web container, database, reminder worker and backup worker report healthy;
+`/api/v1/system/ready` reports all dependencies available. Unauthenticated
+`/workflow` redirects to login and `/login` responds 200. Authenticated map
+editing was proven on the packaged isolated runtime, not on a production
+account in the working database.

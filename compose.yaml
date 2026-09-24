@@ -2,7 +2,7 @@
   "name": "crm",
   "services": {
     "crm": {
-      "image": "crm-app:without-legacy-import-20260923",
+      "image": "crm-app:workflow-wf01-8b097c2",
       "env_file": [
         {
           "path": ".env.docker-crm",
