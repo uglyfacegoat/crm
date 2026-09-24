@@ -28,8 +28,12 @@ Git push remains on hold until the owner asks.
   cannot become commands. On a published revision, the trial checks an
   existing order and current permissions, then shows a plan without creating
   tasks. Isolated PostgreSQL tests cover organization and permission failures,
-  inactive assignees and no task write. Automatic execution and activation
-  are still open; this is not WF-05 acceptance.
+  inactive assignees and no task write. The packaged browser check covered
+  configuration, two-person review, publication and a trial. Typecheck, lint,
+  build, 229 unit tests and migration tests passed. Local Docker now runs
+  `crm-app:workflow-wf05-trial-28f106a`; all containers are healthy and
+  readiness responds 200. A 067→067 rehearsal preserved all 75 table counts.
+  Automatic execution and activation are still open; this is not WF-05 acceptance.
 - **2026-09-24, Workflow WF-04 local installation:** migration 067 adds map
   subscriptions and workflow events to the existing notification inbox.
   Current permissions and overrides determine recipients; archived maps resolve

@@ -92,21 +92,23 @@ This document tracks the actual working scope, not the planned final scope.
   current publish/order/task rights, organization, order status and active
   assignees; it does not create tasks. Repository tests cover a valid plan,
   unsupported graphs, tenant isolation, revoked rights, unavailable orders,
-  inactive assignees and absence of task writes. Automatic execution, durable
-  event delivery, idempotency, audited attempts, retry limits, enable/stop and
-  their acceptance checks remain open. The Docker checkpoint is noted below.
+  inactive assignees and absence of task writes. The packaged browser check
+  covered block configuration, two-person review, publication and a trial
+  without task writes. Typecheck, lint, build, all 229 unit tests, migration
+  tests and working-database upgrade rehearsal passed. Automatic execution,
+  durable event delivery, idempotency, audited attempts, retry limits,
+  enable/stop and their acceptance checks remain open.
 - WF-06: end-to-end acceptance of the complete Workflow lifecycle and release.
   The complete lifecycle is still open. Nothing has been pushed to Git.
 
 ## Working Docker installation
 
-On 24 September, `crm-app:workflow-wf04-acb2002` was built from local commit
-`acb2002` and installed as the `crm` web service. The previous WF-03 image is
-retained as `crm-app:before-workflow-wf04-20260924`. Migration 067 is recorded
-in the working database. The earlier WF-01–03 installations were verified
-separately. Upgrade rehearsals passed before and after WF-04 installation on
-anonymized, disposable copies of the working database; the 067→067 rehearsal
-preserved counts in all 75 existing tables.
+On 24 September, `crm-app:workflow-wf05-trial-28f106a` was built from local
+commit `28f106a` and installed as the `crm` web service. The previous WF-04
+image is retained as `crm-app:before-workflow-wf05-trial-20260924`. Migration
+067 remains the latest in the working database: this checkpoint needs no schema
+change. The earlier WF-01–04 installations were verified separately. A 067→067
+upgrade rehearsal after installation preserved counts in all 75 existing tables.
 The web container, database, reminder worker and backup worker report healthy;
 `/api/v1/system/ready` reports all dependencies available. Unauthenticated
 `/workflow` redirects to login and `/login` responds 200. Authenticated map
