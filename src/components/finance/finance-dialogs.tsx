@@ -2,7 +2,7 @@
 
 import { DateInput } from "@/components/ui/date-time-inputs";
 import { AlertTriangle, Check, LoaderCircle, Paperclip } from "lucide-react";
-import { startTransition, useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { clientCrypto as crypto } from "@/lib/client-id";
 import {
@@ -56,10 +56,29 @@ function useCloseOnSuccess(state: FinanceActionState, onClose: () => void) {
   }, [onClose, state.status, state.refreshRequired]);
 }
 
-function submitRetainingFields(event: FormEvent<HTMLFormElement>, action: (data: FormData) => void) {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  startTransition(() => action(formData));
+function useRecoverableReceiptAction(
+  action: (previous: FinanceActionState, formData: FormData) => Promise<FinanceActionState>,
+  historyLabel: "оплат" | "выплат",
+) {
+  const [state, setState] = useState<FinanceActionState>(initialState);
+  const [pending, startTransition] = useTransition();
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(async () => {
+      try {
+        const result = await action(state, formData);
+        startTransition(() => setState(result));
+      } catch {
+        startTransition(() => setState({
+          status: "error",
+          message: `Не удалось получить ответ сервера. Проверьте историю ${historyLabel} перед повторной отправкой.`,
+          fieldErrors: {},
+        }));
+      }
+    });
+  };
+  return [state, submit, pending] as const;
 }
 
 function InvoiceForm({ order, today, onClose }: { order: FinanceOrder; today: string; onClose: () => void }) {
@@ -71,19 +90,19 @@ function InvoiceForm({ order, today, onClose }: { order: FinanceOrder; today: st
 }
 
 function PaymentForm({ order, invoice, today, onClose }: { order: FinanceOrder; invoice: FinanceInvoice; today: string; onClose: () => void }) {
-  const [state, action, pending] = useActionState(createPaymentAction, initialState);
+  const [state, submit, pending] = useRecoverableReceiptAction(createPaymentAction, "оплат");
   const [requestKey] = useState(() => crypto.randomUUID());
   const [receiptDocumentId] = useState(() => crypto.randomUUID());
   useCloseOnSuccess(state, onClose);
-  return <form onSubmit={(event) => submitRetainingFields(event, action)} className="flex min-h-0 flex-1 flex-col"><input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="receiptDocumentId" value={receiptDocumentId} /><input type="hidden" name="invoiceId" value={invoice.id} /><div className="flex-1 space-y-5 p-5 sm:p-7"><div className="rounded-[14px] border border-[var(--support-strong)] bg-[var(--support-soft)] p-4"><p className="text-xs font-medium text-[var(--text)]">Счёт {invoice.number} · {order.client}</p><div className="mt-4 flex items-center justify-between text-xs"><span className="text-[var(--text-secondary)]">Остаток</span><strong className="font-display text-[var(--support-strong)]">{formatMoneyMinor(invoice.outstandingMinor)}</strong></div></div><div className="grid gap-4 sm:grid-cols-2"><OrderField label="Сумма, ₽" required errors={state.fieldErrors.amount}><input name="amount" required inputMode="decimal" defaultValue={invoice.outstandingMinor / 100} className={orderInputClass} /></OrderField><OrderField label="Дата получения" required errors={state.fieldErrors.receivedOn}><DateInput name="receivedOn" required max={today} defaultValue={today} className={orderInputClass} /></OrderField></div><PaymentMethodField errors={state.fieldErrors.paymentMethod} /><OrderField label="Номер операции" errors={state.fieldErrors.reference}><input name="reference" maxLength={200} placeholder="Платёжное поручение, чек" className={orderInputClass} /></OrderField><ReceiptUploadField errors={state.fieldErrors.receipt} /><OrderField label="Комментарий" errors={state.fieldErrors.note}><textarea name="note" maxLength={2000} className={orderTextareaClass} /></OrderField><ActionStatus state={state} /></div><FormFooter pending={pending} saved={state.status === "success"} onClose={onClose} submitLabel="Провести оплату" /></form>;
+  return <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col"><input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="receiptDocumentId" value={receiptDocumentId} /><input type="hidden" name="invoiceId" value={invoice.id} /><div className="flex-1 space-y-5 p-5 sm:p-7"><div className="rounded-[14px] border border-[var(--support-strong)] bg-[var(--support-soft)] p-4"><p className="text-xs font-medium text-[var(--text)]">Счёт {invoice.number} · {order.client}</p><div className="mt-4 flex items-center justify-between text-xs"><span className="text-[var(--text-secondary)]">Остаток</span><strong className="font-display text-[var(--support-strong)]">{formatMoneyMinor(invoice.outstandingMinor)}</strong></div></div><div className="grid gap-4 sm:grid-cols-2"><OrderField label="Сумма, ₽" required errors={state.fieldErrors.amount}><input name="amount" required inputMode="decimal" defaultValue={invoice.outstandingMinor / 100} className={orderInputClass} /></OrderField><OrderField label="Дата получения" required errors={state.fieldErrors.receivedOn}><DateInput name="receivedOn" required max={today} defaultValue={today} className={orderInputClass} /></OrderField></div><PaymentMethodField errors={state.fieldErrors.paymentMethod} /><OrderField label="Номер операции" errors={state.fieldErrors.reference}><input name="reference" maxLength={200} placeholder="Платёжное поручение, чек" className={orderInputClass} /></OrderField><ReceiptUploadField errors={state.fieldErrors.receipt} /><OrderField label="Комментарий" errors={state.fieldErrors.note}><textarea name="note" maxLength={2000} className={orderTextareaClass} /></OrderField><ActionStatus state={state} /></div><FormFooter pending={pending} saved={state.status === "success"} onClose={onClose} submitLabel="Провести оплату" /></form>;
 }
 
 function PayoutForm({ order, today, onClose }: { order: FinanceOrder; today: string; onClose: () => void }) {
-  const [state, action, pending] = useActionState(createPayoutAction, initialState);
+  const [state, submit, pending] = useRecoverableReceiptAction(createPayoutAction, "выплат");
   const [requestKey] = useState(() => crypto.randomUUID());
   const [receiptDocumentId] = useState(() => crypto.randomUUID());
   useCloseOnSuccess(state, onClose);
-  return <form onSubmit={(event) => submitRetainingFields(event, action)} className="flex min-h-0 flex-1 flex-col"><input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="receiptDocumentId" value={receiptDocumentId} /><input type="hidden" name="orderId" value={order.id} /><div className="flex-1 space-y-5 p-5 sm:p-7"><div className="rounded-[14px] border border-[var(--support-strong)] bg-[var(--support-soft)] p-4"><p className="text-xs font-medium text-[var(--text)]">{order.masterName} · {order.number}</p><p className="mt-1 text-[10px] text-[var(--text-secondary)]">{order.client} · {order.object}</p><div className="mt-4 flex items-center justify-between text-xs"><span className="text-[var(--text-secondary)]">К выплате</span><strong className="font-display text-[var(--support-strong)]">{formatMoneyMinor(order.masterDueMinor)}</strong></div></div><div className="grid gap-4 sm:grid-cols-2"><OrderField label="Сумма, ₽" required errors={state.fieldErrors.amount}><input name="amount" required inputMode="decimal" defaultValue={order.masterDueMinor / 100} className={orderInputClass} /></OrderField><OrderField label="Дата выплаты" required errors={state.fieldErrors.paidOn}><DateInput name="paidOn" required max={today} defaultValue={today} className={orderInputClass} /></OrderField></div><PaymentMethodField errors={state.fieldErrors.paymentMethod} /><OrderField label="Номер ведомости / операции" errors={state.fieldErrors.reference}><input name="reference" maxLength={200} className={orderInputClass} /></OrderField><ReceiptUploadField errors={state.fieldErrors.receipt} /><OrderField label="Комментарий" errors={state.fieldErrors.note}><textarea name="note" maxLength={2000} className={orderTextareaClass} /></OrderField><ActionStatus state={state} /></div><FormFooter pending={pending} saved={state.status === "success"} onClose={onClose} submitLabel="Провести выплату" /></form>;
+  return <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col"><input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="receiptDocumentId" value={receiptDocumentId} /><input type="hidden" name="orderId" value={order.id} /><div className="flex-1 space-y-5 p-5 sm:p-7"><div className="rounded-[14px] border border-[var(--support-strong)] bg-[var(--support-soft)] p-4"><p className="text-xs font-medium text-[var(--text)]">{order.masterName} · {order.number}</p><p className="mt-1 text-[10px] text-[var(--text-secondary)]">{order.client} · {order.object}</p><div className="mt-4 flex items-center justify-between text-xs"><span className="text-[var(--text-secondary)]">К выплате</span><strong className="font-display text-[var(--support-strong)]">{formatMoneyMinor(order.masterDueMinor)}</strong></div></div><div className="grid gap-4 sm:grid-cols-2"><OrderField label="Сумма, ₽" required errors={state.fieldErrors.amount}><input name="amount" required inputMode="decimal" defaultValue={order.masterDueMinor / 100} className={orderInputClass} /></OrderField><OrderField label="Дата выплаты" required errors={state.fieldErrors.paidOn}><DateInput name="paidOn" required max={today} defaultValue={today} className={orderInputClass} /></OrderField></div><PaymentMethodField errors={state.fieldErrors.paymentMethod} /><OrderField label="Номер ведомости / операции" errors={state.fieldErrors.reference}><input name="reference" maxLength={200} className={orderInputClass} /></OrderField><ReceiptUploadField errors={state.fieldErrors.receipt} /><OrderField label="Комментарий" errors={state.fieldErrors.note}><textarea name="note" maxLength={2000} className={orderTextareaClass} /></OrderField><ActionStatus state={state} /></div><FormFooter pending={pending} saved={state.status === "success"} onClose={onClose} submitLabel="Провести выплату" /></form>;
 }
 
 function DestructiveForm({ kind, entry, onClose }: { kind: "payment" | "payout" | "invoice"; entry: FinancePayment | FinancePayout | FinanceInvoice; onClose: () => void }) {

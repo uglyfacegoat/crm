@@ -810,6 +810,76 @@ try {
   assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostDocumentId}`)[0].count, 1);
   console.log("lost response after commit: form retained file and retry key; replay and UI retry kept one document.");
   await lostContext.close();
+  for (const kind of ["payment", "payout"]) {
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    const financeContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+    const financePage = await financeContext.newPage();
+    const financePageErrors = [];
+    financePage.on("pageerror", (error) => financePageErrors.push(error.message));
+    let resolveFinanceResponse;
+    let rejectFinanceResponse;
+    const financeResponse = new Promise((resolve, reject) => { resolveFinanceResponse = resolve; rejectFinanceResponse = reject; });
+    const financeTimeout = setTimeout(() => rejectFinanceResponse(new Error(`Lost ${kind} response was not intercepted`)), 30_000);
+    let dropFinanceResponse = true;
+    await financePage.route("**/finance", async (route) => {
+      if (!dropFinanceResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+      dropFinanceResponse = false;
+      try {
+        const requestHeaders = route.request().headers();
+        const requestBody = route.request().postDataBuffer();
+        const response = await route.fetch();
+        resolveFinanceResponse({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+        await route.abort("failed");
+      } catch (error) { rejectFinanceResponse(error); }
+    });
+    await financePage.goto(`${baseUrl}/finance`);
+    if (kind === "payment") {
+      const summary = financePage.locator("summary").filter({ hasText: "UPLOAD-1" }).first();
+      if (await summary.locator("..").getAttribute("open") === null) await summary.click();
+      await financePage.getByRole("button", { name: "Добавить оплату", exact: true }).click();
+    } else {
+      await financePage.getByRole("tab", { name: "Мастера", exact: true }).click();
+      await financePage.getByRole("button", { name: "Провести выплату", exact: true }).click();
+    }
+    const title = kind === "payment" ? "Оплата клиента" : "Выплата мастеру";
+    const label = kind === "payment" ? "Провести оплату" : "Провести выплату";
+    const historyLabel = kind === "payment" ? "оплат" : "выплат";
+    const financeDialog = financePage.getByRole("dialog", { name: title, exact: true });
+    await financeDialog.locator('input[name="amount"]').fill("100");
+    await financeDialog.locator('input[name="reference"]').fill(`Lost ${kind} reference`);
+    await financeDialog.locator('textarea[name="note"]').fill(`Lost ${kind} note`);
+    const receiptBytes = pdfFixture(`Lost ${kind} response after commit`);
+    await financeDialog.locator('input[name="receipt"]').setInputFiles({ name: `lost-${kind}.pdf`, mimeType: "application/pdf", buffer: receiptBytes });
+    const requestKey = await financeDialog.locator('input[name="idempotencyKey"]').inputValue();
+    const receiptId = await financeDialog.locator('input[name="receiptDocumentId"]').inputValue();
+    await financeDialog.getByRole("button", { name: label, exact: true }).click();
+    const lostFinance = await financeResponse;
+    clearTimeout(financeTimeout);
+    assert.equal(lostFinance.status, 200);
+    assert.match(lostFinance.body, kind === "payment" ? /Оплата проведена/ : /Выплата мастеру проведена/);
+    const table = kind === "payment" ? "order_payments" : "order_master_payouts";
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${requestKey}`)[0].count, 1);
+    await financeDialog.getByRole("status").filter({ hasText: `Не удалось получить ответ сервера. Проверьте историю ${historyLabel} перед повторной отправкой.` }).waitFor();
+    assert.equal(await financeDialog.locator('input[name="idempotencyKey"]').inputValue(), requestKey);
+    assert.equal(await financeDialog.locator('input[name="receiptDocumentId"]').inputValue(), receiptId);
+    assert.equal(await financeDialog.locator('input[name="amount"]').inputValue(), "100");
+    assert.equal(await financeDialog.locator('input[name="reference"]').inputValue(), `Lost ${kind} reference`);
+    assert.equal(await financeDialog.locator('textarea[name="note"]').inputValue(), `Lost ${kind} note`);
+    assert.equal(await financeDialog.locator('input[name="receipt"]').evaluate((input) => input.files?.[0]?.name), `lost-${kind}.pdf`);
+    assert.deepEqual(financePageErrors, []);
+    await financePage.screenshot({ path: join(artifacts, `${kind}-lost-response.png`) });
+    const replay = await archiveClient.post(`${baseUrl}/finance`, { data: lostFinance.requestBody, headers: lostFinance.requestHeaders });
+    assert.equal(replay.status(), 200);
+    assert.match(await replay.text(), kind === "payment" ? /Оплата проведена/ : /Выплата мастеру проведена/);
+    await financeDialog.getByRole("button", { name: label, exact: true }).click();
+    await financeDialog.waitFor({ state: "hidden" });
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM ${sql(table)} WHERE idempotency_key = ${requestKey}`)[0].count, 1);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 1);
+    await verifyVersion(receiptId, 1, receiptBytes);
+    console.log(`lost ${kind} response after commit: form retained receipt and fields; replay and UI retry left one ledger entry.`);
+    await financeContext.close();
+  }
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -1035,7 +1105,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 real submissions, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 3 lost post-commit responses, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
