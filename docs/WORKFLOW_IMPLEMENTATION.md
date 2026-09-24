@@ -3,7 +3,7 @@
 24 September 2026. The owner approved full implementation of the Workflow page.
 This document tracks the actual working scope, not the planned final scope.
 
-## Working now (WF-01 and WF-02 in local Docker; WF-03 verified in source)
+## Working now (WF-01–03 in local Docker)
 
 - `064_workflow_maps.sql` creates organization-scoped process maps. A draft stores
   validated visual nodes and directed connections. Each edit advances an
@@ -63,6 +63,8 @@ This document tracks the actual working scope, not the planned final scope.
   the owner, regulation, resource search/link and discussion controls. Typecheck,
   lint, production build and all 227 unit tests passed. The 065→066 working
   database upgrade rehearsal passed with all 73 existing table counts preserved.
+  After local installation, a 066→066 rehearsal preserved counts in all 74
+  existing tables.
 
 ## Still open
 
@@ -75,11 +77,11 @@ This document tracks the actual working scope, not the planned final scope.
 
 ## Working Docker installation
 
-On 24 September, `crm-app:workflow-wf02-dc5e755` was built from local commit
-`dc5e755` and installed as the `crm` web service. The previous WF-01 image is
-retained as `crm-app:before-workflow-wf02-20260924`. Migration 065 is recorded
-in the working database. The earlier WF-01 installation and its migration 064
-were verified separately. Upgrade rehearsals passed before and after WF-02
+On 24 September, `crm-app:workflow-wf03-7ad89a4` was built from local commit
+`7ad89a4` and installed as the `crm` web service. The previous WF-02 image is
+retained as `crm-app:before-workflow-wf03-20260924`. Migration 066 is recorded
+in the working database. The earlier WF-01 and WF-02 installations were
+verified separately. Upgrade rehearsals passed before and after WF-03
 installation on anonymized, disposable copies of the working database.
 The web container, database, reminder worker and backup worker report healthy;
 `/api/v1/system/ready` reports all dependencies available. Unauthenticated
