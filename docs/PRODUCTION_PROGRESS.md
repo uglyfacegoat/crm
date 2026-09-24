@@ -32,7 +32,9 @@ Git push remains on hold until the owner asks.
   covered preview and normal byte-exact responses. Typecheck, lint and build
   passed. Slot release precedes potentially slow response delivery, so inbound
   body buffering, transfer memory and representative load measurement remain
-  open in UP-05.
+  open in UP-05. Installed as `crm-app:file-read-up05-5bfd743` for web and
+  Workflow worker; all five Docker services and readiness passed. The 068→068
+  working-copy rehearsal preserved all 78 table counts. No Git push.
 - **2026-09-24, UP-07 local acceptance (9/9 upload families):** the packaged
   browser suite now aborts in-flight visit photo, signed act and group avatar
   requests after verified file write, before commit. Both commit and forced

@@ -2,7 +2,7 @@
   "name": "crm",
   "services": {
     "crm": {
-      "image": "crm-app:upload-up07-2447e5a",
+      "image": "crm-app:file-read-up05-5bfd743",
       "env_file": [
         {
           "path": ".env.docker-crm",
@@ -81,7 +81,7 @@
       }
     },
     "workflow-worker": {
-      "image": "crm-app:upload-up07-2447e5a",
+      "image": "crm-app:file-read-up05-5bfd743",
       "env_file": [
         {
           "path": ".env.docker-reminder-worker",
