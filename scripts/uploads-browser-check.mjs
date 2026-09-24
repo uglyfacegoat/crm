@@ -444,14 +444,14 @@ try {
       await dialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
       await page.waitForTimeout(1_300);
       if (await dialog.isVisible()) {
-        assert.match(await dialog.getByRole("status").innerText(), /Эта загрузка ещё обрабатывается|Шаблон уже загружен|Шаблон акта опубликован/i);
+        assert.match(await dialog.getByRole("status").innerText(), /публикация не подтверждена|Шаблон уже загружен|Шаблон акта опубликован/i);
         await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
         await dialog.waitFor({ state: "hidden" });
       }
       if (interceptionError) throw interceptionError;
       assert.ok(duplicateOtherResponse, "Concurrent duplicate template POST must run");
       assert.equal(duplicateOtherResponse.status, 200);
-      assert.match(duplicateOtherResponse.body, /Эта загрузка ещё обрабатывается|Шаблон уже загружен|Шаблон акта опубликован/i);
+      assert.match(duplicateOtherResponse.body, /публикация не подтверждена|Шаблон уже загружен|Шаблон акта опубликован/i);
     } else {
       await submit(dialog, "Опубликовать шаблон", { saved: "Шаблон акта опубликован.", warning: "Шаблон опубликован, но страницу не удалось обновить. Обновите её вручную." }, "template-warning.png");
     }
@@ -867,6 +867,15 @@ try {
     END $$`);
   await sql`CREATE TRIGGER block_upload_before_commit BEFORE INSERT ON document_versions
     FOR EACH ROW EXECUTE FUNCTION block_upload_before_commit()`;
+  await sql.unsafe(`CREATE FUNCTION block_template_before_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM upload_abort_gate WHERE document_id = NEW.template_id) THEN
+        PERFORM pg_advisory_xact_lock(927431, 9);
+      END IF;
+      RETURN NEW;
+    END $$`);
+  await sql`CREATE TRIGGER block_template_before_commit BEFORE INSERT ON document_template_versions
+    FOR EACH ROW EXECUTE FUNCTION block_template_before_commit()`;
   const inFlightContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
   const inFlightPage = await inFlightContext.newPage();
   const inFlightErrors = [];
@@ -2168,6 +2177,106 @@ try {
         await financeContext.close();
       }
     }
+
+    for (const outcome of ["commit", "rollback"]) {
+      await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+        WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+      const templateContext = await browser.newContext({ storageState: await archiveClient.storageState(), viewport: { width: 1440, height: 1000 } });
+      const templatePage = await templateContext.newPage();
+      const templateErrors = [];
+      templatePage.on("pageerror", (error) => templateErrors.push(error.message));
+      let abortTemplateRequest;
+      const abortTemplateSignal = new Promise((resolveAbort) => { abortTemplateRequest = resolveAbort; });
+      let resolveTemplateAborted;
+      const templateAborted = new Promise((resolveAbort) => { resolveTemplateAborted = resolveAbort; });
+      let templateUpstream;
+      let abortFirstTemplate = true;
+      await templatePage.route("**/settings**", async (route) => {
+        if (!abortFirstTemplate || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+        abortFirstTemplate = false;
+        templateUpstream = route.fetch();
+        await abortTemplateSignal;
+        await route.abort("failed");
+        resolveTemplateAborted();
+        await templateUpstream.catch(() => {});
+      });
+      await templatePage.goto(`${baseUrl}/settings`);
+      await templatePage.getByRole("tab", { name: "Шаблоны документов", exact: true }).click();
+      await templatePage.getByRole("button", { name: "Добавить шаблон", exact: true }).click();
+      const dialog = templatePage.getByRole("dialog", { name: "Шаблон закрывающего акта", exact: true });
+      const title = `In-flight template ${outcome}`;
+      const description = `Template retained after ${outcome}`;
+      const filename = `in-flight-template-${outcome}.pdf`;
+      const bytes = pdfFixture(title);
+      await dialog.locator('input[name="title"]').fill(title);
+      await dialog.locator('textarea[name="description"]').fill(description);
+      await dialog.locator('input[name="file"]').setInputFiles({ name: filename, mimeType: "application/pdf", buffer: bytes });
+      const templateId = await dialog.locator('input[name="idempotencyKey"]').inputValue();
+      const storageKey = `${member.organization_id}/${templateId}/v1.pdf`;
+      await sql`INSERT INTO upload_abort_gate (document_id) VALUES (${templateId})`;
+      const gate = await sql.reserve();
+      let gateLocked = false;
+      try {
+        await gate`SELECT pg_advisory_lock(927431, 9)`;
+        gateLocked = true;
+        await dialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+        let blockedPid = null;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const [activity] = await sql`SELECT pid FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event = 'advisory'
+              AND query LIKE '%INSERT INTO document_template_versions%' LIMIT 1`;
+          if (activity) { blockedPid = activity.pid; break; }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+        }
+        assert.ok(blockedPid, `Template ${outcome} must reach the database after writing its file`);
+        const stored = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(stored, bytes);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${templateId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${templateId}`)[0].count, 0);
+        abortTemplateRequest();
+        await templateAborted;
+        await dialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте список шаблонов перед повторной отправкой." }).waitFor();
+        assert.equal(await dialog.locator('input[name="idempotencyKey"]').inputValue(), templateId);
+        assert.equal(await dialog.locator('input[name="title"]').inputValue(), title);
+        assert.equal(await dialog.locator('textarea[name="description"]').inputValue(), description);
+        assert.equal(await dialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), filename);
+        if (outcome === "rollback") {
+          const [terminated] = await sql`SELECT pg_terminate_backend(${blockedPid}) AS terminated`;
+          assert.equal(terminated.terminated, true);
+        }
+      } finally {
+        if (gateLocked) await gate`SELECT pg_advisory_unlock(927431, 9)`;
+        gate.release();
+      }
+      const response = await templateUpstream;
+      assert.equal(response.status(), 200);
+      assert.match(await response.text(), outcome === "commit" ? /Шаблон акта опубликован/ : /Не удалось подтвердить публикацию шаблона/);
+      assert.deepEqual(templateErrors, []);
+      if (outcome === "commit") {
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${templateId}`)[0].count, 1);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${templateId}`)[0].count, 1);
+        await verifyStoredReference("document_template_versions", "template_id", templateId, bytes);
+        await dialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${templateId}`)[0].count, 1);
+      } else {
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${templateId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${templateId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+        await dialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+        await dialog.getByRole("status").filter({ hasText: "Файл шаблона уже существует, но публикация не подтверждена" }).waitFor();
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${templateId}`)[0].count, 0);
+        assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${storageKey} = ANY(storage_keys)`)[0].count, 1);
+        const retained = objectStorage
+          ? await objectStorage.readVerified(storageKey, { sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }, 15 * 1024 * 1024)
+          : await readFile(join(directory, storageKey));
+        assert.deepEqual(retained, bytes);
+      }
+      console.log(`aborted in-flight template ${outcome}: ${outcome === "commit" ? "one published version survived" : "no template committed; file and unresolved operation remained"}.`);
+      await templateContext.close();
+    }
   }
   if (objectStorage) {
     await s3Fixture.close();
@@ -2177,7 +2286,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 4 in-flight commits, 4 in-flight rollbacks, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 5 in-flight commits, 5 in-flight rollbacks, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

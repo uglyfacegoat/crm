@@ -79,7 +79,7 @@ async function uploadDocumentTemplateActionImpl(
     if (error instanceof DocumentFileValidationError) return { status: "error", message: error.message, fieldErrors: { file: [error.message] } };
     if (errorCode(error) === "EEXIST") {
       if (await documentTemplateExists(member, parsed.data.idempotencyKey)) return { status: "success", message: "Шаблон уже загружен.", fieldErrors: {} };
-      return { status: "error", message: "Эта загрузка ещё обрабатывается. Подождите и повторите.", fieldErrors: {} };
+      return { status: "error", message: "Файл шаблона уже существует, но публикация не подтверждена. Проверьте список шаблонов; если шаблона нет, обратитесь к администратору.", fieldErrors: {} };
     }
     if (storageKey && fileWritten && error instanceof AuthorizationError) {
       try { await removeDocumentFile(storageKey); } catch (cleanupError) { markFileWriteUncertain(); unexpected("document_templates.upload.cleanup", member.memberId, cleanupError); }
