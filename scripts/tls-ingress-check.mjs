@@ -76,6 +76,13 @@ try {
   assert.equal(configuration.services.crm.environment.AUTH_COOKIE_SECURE, "true");
   assert.equal(configuration.services.crm.environment.CRM_TRUST_PROXY, "true");
   await compose(["up", "-d", "--no-build", "--wait", "--wait-timeout", "120", "gateway"]);
+  const bodyTempMount = (await compose(["exec", "-T", "gateway", "stat", "-f", "-c", "%T %b %S",
+    "/var/cache/nginx/client_temp"], { quiet: true })).trim().split(" ");
+  assert.equal(bodyTempMount[0], "tmpfs", "Gateway body spill must not use the container overlay");
+  assert.equal(Number(bodyTempMount[1]) * Number(bodyTempMount[2]), 80 * 1024 * 1024,
+    "Gateway body spill must have its 80 MiB mount limit");
+  await compose(["exec", "-T", "--user", "101", "gateway", "sh", "-c",
+    "test -w /var/cache/nginx/client_temp"], { quiet: true });
   await compose(["exec", "-T", ...Object.keys(environment).filter((key) => key.startsWith("AUTH_BOOTSTRAP_")).flatMap((key) => ["-e", key]), "crm", "node", "--experimental-strip-types", "scripts/create-admin.ts"]);
 
   const ca = await readFile(certificate);
@@ -91,7 +98,7 @@ try {
     outgoing.on("timeout", () => outgoing.destroy(new Error("TLS request timed out")));
     outgoing.end(body);
   });
-  async function holdMultipartUploads() {
+  async function holdMultipartUploads(bytesPerRequest = 128 * 1024) {
     const uploads = [];
     try {
       for (let index = 0; index < 4; index += 1) {
@@ -103,8 +110,13 @@ try {
         upload.on("error", () => {});
         upload.on("response", (response) => response.resume());
         uploads.push(upload);
-        await new Promise((resolveWritten, rejectWritten) => upload.write(Buffer.alloc(128 * 1024, 0x58),
-          (error) => error ? rejectWritten(error) : resolveWritten()));
+        let sent = 0;
+        while (sent < bytesPerRequest) {
+          const chunk = Buffer.alloc(Math.min(256 * 1024, bytesPerRequest - sent), 0x58);
+          await new Promise((resolveWritten, rejectWritten) => upload.write(chunk,
+            (error) => error ? rejectWritten(error) : resolveWritten()));
+          sent += chunk.length;
+        }
       }
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
       return uploads;
@@ -141,12 +153,22 @@ try {
   assert.equal((await send("/api/v1/auth/login", { method: "POST", headers: { origin, "content-length": String(33 * 1024) }, body: "x".repeat(33 * 1024) })).status, 413);
   assert.equal((await send("/api/v1/documents/export", { method: "POST", headers: { origin, "content-length": String(17 * 1024 * 1024), expect: "100-continue" } })).status, 413);
 
-  const heldUploads = await holdMultipartUploads();
+  const heldUploads = await holdMultipartUploads(14 * 1024 * 1024);
   try {
+    const [blocks, freeBlocks, blockSize] = (await compose(["exec", "-T", "gateway", "stat", "-f", "-c",
+      "%b %f %S", "/var/cache/nginx/client_temp"], { quiet: true })).trim().split(" ").map(Number);
+    assert.ok((blocks - freeBlocks) * blockSize >= 48 * 1024 * 1024,
+      "Four held upload bodies must occupy the bounded gateway tmpfs");
     const rejected = await send("/documents", { method: "POST", headers: { origin,
       "content-type": "multipart/form-data; boundary=crm-ingress-check", "next-action": "invalid-ingress-check" },
       body: "--crm-ingress-check--\r\n" });
     assert.equal(rejected.status, 429, "Fifth concurrent multipart body must be rejected before Next");
+    assert.equal((await send("/api/v1/documents/export", { method: "POST",
+      headers: { origin, "content-type": "application/json" }, body: "{}" })).status, 429,
+    "A JSON body must share the same four gateway permits");
+    assert.equal((await send("/api/v1/system/live", { method: "GET",
+      headers: { "content-length": "1" }, body: "x" })).status, 429,
+    "A GET with an explicit body must not bypass gateway permits");
     assert.equal((await send("/api/v1/system/live")).status, 200, "Read-only health traffic must stay available during upload saturation");
     const gatewayLogs = await compose(["logs", "--no-color", "gateway"], { quiet: true });
     assert.ok((gatewayLogs.match(/client request body is buffered to a temporary file/g) ?? []).length >= 4,
@@ -159,6 +181,15 @@ try {
     "content-type": "multipart/form-data; boundary=crm-ingress-check", "next-action": "invalid-ingress-check" },
     body: "--crm-ingress-check--\r\n" });
   assert.notEqual(reopened.status, 429, "Multipart capacity must recover after clients disconnect");
+  let occupiedBytes = Number.POSITIVE_INFINITY;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const [blocks, freeBlocks, blockSize] = (await compose(["exec", "-T", "gateway", "stat", "-f", "-c",
+      "%b %f %S", "/var/cache/nginx/client_temp"], { quiet: true })).trim().split(" ").map(Number);
+    occupiedBytes = (blocks - freeBlocks) * blockSize;
+    if (occupiedBytes < 1024 * 1024) break;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  assert.ok(occupiedBytes < 1024 * 1024, "Gateway body spill must be released after clients disconnect");
 
   const login = await send("/api/v1/auth/login", {
     method: "POST", headers: { origin, "content-type": "application/json", "x-real-ip": "203.0.113.99", "x-forwarded-for": "203.0.113.99" },
@@ -246,9 +277,39 @@ try {
   await boundaryDialog.waitFor({ state: "hidden", timeout: 30_000 });
   const boundaryRecord = await compose(["exec", "-T", "database", "psql", "-U", environment.CRM_DB_USER,
     "-d", environment.CRM_DB_NAME, "-t", "-A", "-F", "|", "-c",
-    `SELECT dv.size_bytes, dv.sha256 FROM document_versions dv JOIN documents d ON d.id = dv.document_id
+    `SELECT d.id, dv.size_bytes, dv.sha256 FROM document_versions dv JOIN documents d ON d.id = dv.document_id
       WHERE d.title = 'PDF через шлюз 15 МиБ' ORDER BY dv.version_number DESC LIMIT 1`], { quiet: true });
-  assert.equal(boundaryRecord.trim(), `${boundaryBytes.length}|${createHash("sha256").update(boundaryBytes).digest("hex")}`);
+  const [boundaryId, boundarySize, boundaryHash] = boundaryRecord.trim().split("|");
+  assert.equal(`${boundarySize}|${boundaryHash}`, `${boundaryBytes.length}|${createHash("sha256").update(boundaryBytes).digest("hex")}`);
+  const cookieHeader = (await page.context().cookies(origin)).map(({ name, value }) => `${name}=${value}`).join("; ");
+  const downloaded = await new Promise((resolve, reject) => {
+    const outgoing = request(new URL(`/api/v1/documents/${boundaryId}/download`, origin), {
+      ca, servername: "localhost", family: 4, timeout: 30_000, headers: { cookie: cookieHeader },
+    }, (response) => {
+      const digest = createHash("sha256");
+      let size = 0;
+      let paused = false;
+      response.on("data", (chunk) => {
+        digest.update(chunk);
+        size += chunk.length;
+        if (!paused) {
+          paused = true;
+          response.pause();
+          setTimeout(() => response.resume(), 500);
+        }
+      });
+      response.on("end", () => resolve({ status: response.statusCode, size, hash: digest.digest("hex"), paused }));
+      response.on("error", reject);
+    });
+    outgoing.on("error", reject);
+    outgoing.on("timeout", () => outgoing.destroy(new Error("TLS download timed out")));
+    outgoing.end();
+  });
+  assert.deepEqual(downloaded, { status: 200, size: boundaryBytes.length,
+    hash: createHash("sha256").update(boundaryBytes).digest("hex"), paused: true });
+  const downloadLogs = await compose(["logs", "--no-color", "gateway"], { quiet: true });
+  assert.doesNotMatch(downloadLogs, /upstream response is buffered to a temporary file/,
+    "Gateway must not spool document responses into its overlay");
   console.log("Ingress boundary: verified 15 MiB PDF and SHA-256 passed HTTPS gateway unchanged.");
 
   const redirectPage = await browser.newPage({ ignoreHTTPSErrors: true });

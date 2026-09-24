@@ -60,12 +60,19 @@ still required and is not proven by `nginx -t`.
 
 - All request bodies: at most 16 MiB at ingress; login API and login Server Action:
   32 KiB. Application-level validation and file-specific limits remain necessary.
-- Multipart POSTs share four concurrent gateway permits before Next.js receives
-  a body; a fifth returns 429. The configured body buffer is 64 KiB and
-  larger bodies spill to `/var/cache/nginx/client_temp`, with a 30-second gap
-  timeout while reading. Nginx removes temporary files after
-  processing. Provision and monitor enough disk space for up to four 16 MiB
-  bodies plus other traffic; the Docker overlay has no separate disk quota.
+- Requests with bodies share four concurrent gateway permits before Next.js
+  receives a body; a fifth returns 429. This includes POST/PUT/PATCH/DELETE,
+  and GET/HEAD with an explicit Content-Length or Transfer-Encoding header.
+  Requests without a body, including health checks, remain available.
+  The configured body buffer is 64 KiB; larger bodies spill to
+  `/var/cache/nginx/client_temp`, with a 30-second gap
+  timeout while reading. The spill directory is an 80 MiB tmpfs, writable by
+  the nginx worker, so these bodies cannot fill the container's writable disk.
+  Four maximum-sized bodies can occupy roughly 64 MiB, leaving
+  headroom for metadata. Tmpfs uses container/host memory
+  and may use swap; monitor that budget on the chosen server.
+  Nginx removes temporary files after processing. Response buffering is off,
+  so large document responses do not spill into the gateway's writable layer.
 - Login POSTs: 5/min per source IP with burst 5; generic dynamic traffic: 20/s with
   burst 80. Static Next.js chunks are exempt. Denials return 429.
 - These are initial ingress limits, not a complete per-member/organization quota
@@ -90,10 +97,14 @@ it creates a random project, disposable database/storage, test account
 and one-day localhost certificate. It checks resolved port isolation, certificate
 verification, TLS protocols, redirects, secure cookies, login via Server Action,
 unsafe return URLs, host/origin rejection, body limits and spoof-resistant ingress
-rate limiting. It also holds four incomplete multipart bodies, verifies the
-fifth receives 429, and checks that a document form retains its file, fields
-and retry key before a successful retry. A real 15 MiB PDF passes through the
-gateway with matching length and SHA-256. The browser ignores the self-signed
+rate limiting. It also holds four incomplete multipart bodies, verifies that
+multipart, JSON and GET-with-body requests all receive 429 while a bodyless
+health check stays available. It checks the 80 MiB tmpfs mount, fills over
+48 MiB of it and verifies release after disconnect. The document form retains
+its file, fields and retry key before a successful retry. A real 15 MiB PDF
+passes through the gateway and a paused-client download with matching length
+and SHA-256.
+The browser ignores the self-signed
 certificate only after the Node HTTPS client has verified it with its explicit
 CA; TLS verification is not globally disabled. The test removes only its own
 project volumes and temporary files.
@@ -104,4 +115,7 @@ offsite recovery, high availability, or the remaining production launch gates.
 Primary references: [nginx proxy headers](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
 [TLS directives](https://nginx.org/en/docs/http/ngx_http_ssl_module.html),
 [request limits](https://nginx.org/en/docs/http/ngx_http_limit_req_module.html),
+[concurrent connection limits](https://nginx.org/en/docs/http/ngx_http_limit_conn_module.html),
+[proxy buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering),
+[Docker tmpfs mounts](https://docs.docker.com/engine/storage/tmpfs/),
 [Compose merge/reset](https://docs.docker.com/reference/compose-file/merge/).

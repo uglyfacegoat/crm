@@ -23,6 +23,16 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-25, UP-05 gateway temporary-storage checkpoint:** HTTPS Compose
+  now gives Nginx an 80 MiB tmpfs for request-body spill. The isolated TLS
+  run verified the live mount type, exact size and worker write permission;
+  four incomplete bodies occupied over 48 MiB and released it after disconnect.
+  Response buffering is disabled so a slow document download does not spool
+  into the gateway overlay. A paused-client 15 MiB HTTPS download matched
+  the stored PDF's size and SHA-256. All requests with bodies share four
+  permits: multipart, JSON and explicit GET bodies got 429 when occupied,
+  while a bodyless health check stayed available. This tmpfs consumes RAM. Server-specific
+  memory/latency measurements remain open.
 - **2026-09-25, UP-05 HTTPS ingress admission checkpoint:** the existing
   Nginx gateway now admits at most four concurrent multipart POSTs before
   Next, with a configured 64 KiB body buffer and temporary files for larger
@@ -33,7 +43,8 @@ Git push remains on hold until the owner asks.
   document. A 15 MiB PDF passed the gateway with matching length and SHA-256.
   Existing TLS, secure-cookie, host/origin, rate-limit and outage checks passed.
   Only `compose.https.yaml` uses this gateway; local direct HTTP is unchanged.
-  Temporary-disk budget and representative server resource load remain open.
+  A bounded tmpfs was added in the next checkpoint; representative server
+  resource load remains open.
 - **2026-09-25, UP-05 incoming-body profile:** a repeatable optional browser
   profile submitted four concurrent 15 MiB multipart bodies through the
   packaged Next proxy on an isolated database. Two Mac runs raised web RSS

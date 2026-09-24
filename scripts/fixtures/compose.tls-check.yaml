@@ -55,6 +55,8 @@ services:
       - ../../gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ${CRM_TLS_CERTIFICATE}:/etc/nginx/certs/certificate.pem:ro
       - ${CRM_TLS_PRIVATE_KEY}:/etc/nginx/certs/private-key.pem:ro
+    tmpfs:
+      - /var/cache/nginx/client_temp:size=80m,uid=101,gid=101,mode=0700
     healthcheck:
       test: [CMD, nginx, -t]
       interval: 10s
