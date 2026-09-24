@@ -307,7 +307,7 @@ try {
       await dialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
       await page.waitForTimeout(1_300);
       if (await dialog.isVisible()) {
-        assert.match(await dialog.getByRole("status").innerText(), /загрузка ещё обрабатывается|Документ уже загружен/i);
+        assert.match(await dialog.getByRole("status").innerText(), /документ не подтверждён|Документ уже загружен/i);
         await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
         await dialog.waitFor({ state: "hidden" });
       }
@@ -316,7 +316,7 @@ try {
       if (interceptionError) throw interceptionError;
       assert.ok(duplicateDocumentResponse, "Concurrent duplicate POST must run");
       assert.equal(duplicateDocumentResponse.status, 200);
-      assert.match(duplicateDocumentResponse.body, /Документ уже загружен|загрузка ещё обрабатывается|Документ сохранён в архиве/);
+      assert.match(duplicateDocumentResponse.body, /Документ уже загружен|документ не подтверждён|Документ сохранён в архиве/);
       assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE organization_id = ${member.organization_id} AND id = ${documentId}`)[0].count, 1);
       assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE organization_id = ${member.organization_id} AND document_id = ${documentId}`)[0].count, 1);
     }
@@ -1853,6 +1853,88 @@ try {
     assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedActVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
     console.log("lost signed act COMMIT acknowledgement: visit completed once and act survived; retry did not erase the durable unresolved operation.");
     await masterCommitContext.close();
+
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    const rollbackContext = await browser.newContext({ storageState: await archiveClient.storageState(), viewport: { width: 1440, height: 1000 } });
+    const rollbackPage = await rollbackContext.newPage();
+    const rollbackPageErrors = [];
+    rollbackPage.on("pageerror", (error) => rollbackPageErrors.push(error.message));
+    let abortRollbackRequest;
+    const rollbackAbortSignal = new Promise((resolveAbort) => { abortRollbackRequest = resolveAbort; });
+    let resolveRollbackAborted;
+    const rollbackAborted = new Promise((resolveAbort) => { resolveRollbackAborted = resolveAbort; });
+    let rollbackUpstream;
+    let abortFirstRollback = true;
+    await rollbackPage.route("**/documents", async (route) => {
+      if (!abortFirstRollback || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+      abortFirstRollback = false;
+      rollbackUpstream = route.fetch();
+      await rollbackAbortSignal;
+      await route.abort("failed");
+      resolveRollbackAborted();
+      await rollbackUpstream.catch(() => {});
+    });
+    await rollbackPage.goto(`${baseUrl}/documents`);
+    await rollbackPage.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+    const rollbackDialog = rollbackPage.getByRole("dialog", { name: "Новый документ", exact: true });
+    await rollbackDialog.locator('summary[aria-label="Заказ"]').click();
+    await rollbackDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+    await rollbackDialog.locator('input[name="title"]').fill("Aborted before forced database rollback");
+    const rollbackBytes = pdfFixture("Aborted before forced database rollback");
+    await rollbackDialog.locator('input[name="file"]').setInputFiles({ name: "aborted-rollback.pdf", mimeType: "application/pdf", buffer: rollbackBytes });
+    const rollbackDocumentId = await rollbackDialog.locator('input[name="idempotencyKey"]').inputValue();
+    const rollbackStorageKey = `${member.organization_id}/${rollbackDocumentId}/v1.pdf`;
+    await sql`INSERT INTO upload_abort_gate (document_id) VALUES (${rollbackDocumentId})`;
+    const rollbackGate = await sql.reserve();
+    let rollbackGateLocked = false;
+    try {
+      await rollbackGate`SELECT pg_advisory_lock(927431, 9)`;
+      rollbackGateLocked = true;
+      await rollbackDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+      let blockedPid = null;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const [activity] = await sql`SELECT pid FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event = 'advisory'
+            AND query LIKE '%INSERT INTO document_versions%' LIMIT 1`;
+        if (activity) { blockedPid = activity.pid; break; }
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+      }
+      assert.ok(blockedPid, "Rollback upload must reach the database after writing its file");
+      const stored = objectStorage
+        ? await objectStorage.readVerified(rollbackStorageKey, { sizeBytes: rollbackBytes.length, sha256: createHash("sha256").update(rollbackBytes).digest("hex") }, 15 * 1024 * 1024)
+        : await readFile(join(directory, rollbackStorageKey));
+      assert.deepEqual(stored, rollbackBytes);
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${rollbackDocumentId}`)[0].count, 0);
+      abortRollbackRequest();
+      await rollbackAborted;
+      await rollbackDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте документ в архиве перед повторной отправкой." }).waitFor();
+      const [terminated] = await sql`SELECT pg_terminate_backend(${blockedPid}) AS terminated`;
+      assert.equal(terminated.terminated, true);
+    } finally {
+      if (rollbackGateLocked) await rollbackGate`SELECT pg_advisory_unlock(927431, 9)`;
+      rollbackGate.release();
+    }
+    const rollbackResponse = await rollbackUpstream;
+    assert.equal(rollbackResponse.status(), 200);
+    assert.match(await rollbackResponse.text(), /Не удалось подтвердить сохранение документа/);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${rollbackDocumentId}`)[0].count, 0);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${rollbackDocumentId}`)[0].count, 0);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${rollbackStorageKey} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await rollbackDialog.locator('input[name="idempotencyKey"]').inputValue(), rollbackDocumentId);
+    assert.equal(await rollbackDialog.locator('input[name="title"]').inputValue(), "Aborted before forced database rollback");
+    assert.equal(await rollbackDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "aborted-rollback.pdf");
+    assert.deepEqual(rollbackPageErrors, []);
+    await rollbackDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await rollbackDialog.getByRole("status").filter({ hasText: "Файл этого запроса уже существует, но документ не подтверждён" }).waitFor();
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${rollbackDocumentId}`)[0].count, 0);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${rollbackStorageKey} = ANY(storage_keys)`)[0].count, 1);
+    const retained = objectStorage
+      ? await objectStorage.readVerified(rollbackStorageKey, { sizeBytes: rollbackBytes.length, sha256: createHash("sha256").update(rollbackBytes).digest("hex") }, 15 * 1024 * 1024)
+      : await readFile(join(directory, rollbackStorageKey));
+    assert.deepEqual(retained, rollbackBytes);
+    console.log("aborted in flight with forced database rollback: no document committed; file and unresolved operation remained, and retry did not adopt the uncertain bytes.");
+    await rollbackContext.close();
   }
   if (objectStorage) {
     await s3Fixture.close();
@@ -1862,7 +1944,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 1 in-flight abort before commit, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 1 in-flight commit, 1 in-flight rollback, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
