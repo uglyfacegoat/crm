@@ -1042,6 +1042,63 @@ try {
   await verifyStoredReference("chat_message_attachments", "message_id", lostMessageId, lostChatBytes);
   console.log("lost chat response after commit: draft and attachment survived; replay and UI retry kept one message and file.");
   await chatContext.close();
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation IN ('chat_action', 'chat_upload')`;
+  const [lostAvatarChannel] = await sql`INSERT INTO chat_channels (organization_id, name, kind, audience_kind, created_by)
+    VALUES (${member.organization_id}, 'Lost avatar group', 'group', 'office', ${member.id}) RETURNING id`;
+  await sql`INSERT INTO chat_channel_members (organization_id, channel_id, member_id, channel_role, joined_by)
+    VALUES (${member.organization_id}, ${lostAvatarChannel.id}, ${member.id}, 'owner', ${member.id})`;
+  const avatarContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const avatarPage = await avatarContext.newPage();
+  const avatarPageErrors = [];
+  avatarPage.on("pageerror", (error) => avatarPageErrors.push(error.message));
+  await avatarPage.goto(`${baseUrl}/chat?channel=${lostAvatarChannel.id}`);
+  await avatarPage.getByRole("button", { name: "Настройки группы", exact: true }).click();
+  const avatarDialog = avatarPage.getByRole("dialog", { name: "Настройки группы", exact: true });
+  await avatarDialog.locator('input[name="name"]').fill("Lost avatar group updated");
+  await avatarDialog.locator('textarea[name="description"]').fill("Description retained after lost avatar response");
+  await avatarDialog.locator('input[name="avatar"]').setInputFiles({ name: "lost-avatar.png", mimeType: "image/png", buffer: imageBytes });
+  let resolveAvatarResponse;
+  let rejectAvatarResponse;
+  const avatarResponse = new Promise((resolve, reject) => { resolveAvatarResponse = resolve; rejectAvatarResponse = reject; });
+  const avatarTimeout = setTimeout(() => rejectAvatarResponse(new Error("Lost avatar response was not intercepted")), 30_000);
+  let dropAvatarResponse = true;
+  await avatarPage.route("**/chat**", async (route) => {
+    if (!dropAvatarResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"] || !route.request().postDataBuffer()?.includes("Lost avatar group updated")) return route.continue();
+    dropAvatarResponse = false;
+    try {
+      const requestHeaders = route.request().headers();
+      const requestBody = route.request().postDataBuffer();
+      const response = await route.fetch();
+      resolveAvatarResponse({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+      await route.abort("failed");
+    } catch (error) { rejectAvatarResponse(error); }
+  });
+  await avatarDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+  const lostAvatar = await avatarResponse;
+  clearTimeout(avatarTimeout);
+  assert.equal(lostAvatar.status, 200);
+  assert.match(lostAvatar.body, /Настройки группы сохранены/);
+  assert.deepEqual((await sql`SELECT name, description, version FROM chat_channels WHERE id = ${lostAvatarChannel.id}`)[0], {
+    name: "Lost avatar group updated", description: "Description retained after lost avatar response", version: 2,
+  });
+  await avatarDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте настройки группы перед повторной отправкой." }).waitFor();
+  assert.equal(await avatarDialog.locator('input[name="name"]').inputValue(), "Lost avatar group updated");
+  assert.equal(await avatarDialog.locator('textarea[name="description"]').inputValue(), "Description retained after lost avatar response");
+  assert.equal(await avatarDialog.locator('input[name="avatar"]').evaluate((input) => input.files?.[0]?.name), "lost-avatar.png");
+  assert.equal(await avatarPage.locator('[data-nextjs-dialog]').count(), 0);
+  assert.deepEqual(avatarPageErrors, []);
+  await avatarPage.screenshot({ path: join(artifacts, "avatar-lost-response.png") });
+  const avatarReplay = await archiveClient.post(`${baseUrl}/chat?channel=${lostAvatarChannel.id}`, { data: lostAvatar.requestBody, headers: lostAvatar.requestHeaders });
+  assert.equal(avatarReplay.status(), 200);
+  assert.match(await avatarReplay.text(), /Настройки уже изменились/);
+  await avatarDialog.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await avatarDialog.getByRole("status").filter({ hasText: "Настройки уже изменились. Обновите страницу." }).waitFor();
+  assert.equal((await sql`SELECT version FROM chat_channels WHERE id = ${lostAvatarChannel.id}`)[0].version, 2);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM chat_channel_avatars WHERE channel_id = ${lostAvatarChannel.id}`)[0].count, 1);
+  await verifyStoredReference("chat_channel_avatars", "channel_id", lostAvatarChannel.id, imageBytes);
+  console.log("lost avatar response after commit: form retained photo and settings; replay and UI retry reported version conflict without replacing the avatar.");
+  await avatarContext.close();
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -1267,7 +1324,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 6 lost post-commit responses, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 7 lost post-commit responses, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {

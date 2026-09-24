@@ -2,7 +2,7 @@
 
 import { Bell, BellOff, Camera, LoaderCircle, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useActionState, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { type ChatMutationState, updateChatChannelSettingsAction } from "@/app/(workspace)/chat/actions";
 import { Dialog } from "@/components/ui/dialog";
@@ -11,7 +11,8 @@ import type { ChatChannel } from "@/server/chat/types";
 const initialState: ChatMutationState = { status: "idle", message: null, fieldErrors: {}, entityId: null };
 
 function SettingsForm({ channel, editableDetails, onComplete }: { channel: ChatChannel; editableDetails: boolean; onComplete: () => void }) {
-  const [state, action, pending] = useActionState(updateChatChannelSettingsAction, initialState);
+  const [state, setState] = useState<ChatMutationState>(initialState);
+  const [pending, startTransition] = useTransition();
   const router = useRouter();
   const [muted, setMuted] = useState(channel.muted);
   const direct = channel.audienceKind === "direct";
@@ -23,7 +24,19 @@ function SettingsForm({ channel, editableDetails, onComplete }: { channel: ChatC
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    startTransition(() => action(formData));
+    startTransition(async () => {
+      try {
+        const result = await updateChatChannelSettingsAction(state, formData);
+        startTransition(() => setState(result));
+      } catch {
+        startTransition(() => setState({
+          status: "error",
+          message: "Не удалось получить ответ сервера. Проверьте настройки группы перед повторной отправкой.",
+          fieldErrors: {},
+          entityId: null,
+        }));
+      }
+    });
   };
   return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="channelId" value={channel.id} />
