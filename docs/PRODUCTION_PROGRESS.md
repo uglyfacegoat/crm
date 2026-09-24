@@ -16,12 +16,21 @@ next product task after the current upload-reliability checkpoint. The scope is
 editable process maps, versions/review/publication, regulations and links to
 real CRM entities, collaboration, and bounded automations as defined in
 [section 10 of the plan](../PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md).
-WF-01–05 are installed in local Docker. WF-06 remains open.
+WF-01–06 have passed local acceptance. The separate server pilot and overall
+production checklist remain open.
 [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
 Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, Workflow WF-06 local acceptance:** the packaged browser test
+  completed the map/review/publication lifecycle, created an order through the
+  actual form with automation enabled, ran the worker and found its task on
+  the Tasks page. It created a second order after stop and found no queued job,
+  then edited/reviewed/published version 3 while the automation stayed off.
+  Negative rights, isolation, retry and failure paths were checked in isolated
+  PostgreSQL tests. Local Docker remains healthy with migration 068; no test
+  order or task was put into the working database. Server pilot remains open.
 - **2026-09-24, Workflow WF-05 bounded automation installed:** migration 068
   adds trials, activations and durable jobs. Published `order_created` maps can
   be trialled, enabled and stopped; a separate healthy worker creates at most
@@ -33,7 +42,7 @@ Git push remains on hold until the owner asks.
   preserved 75 existing table counts, and 068→068 preserved 78 after install.
   Local Docker runs `crm-app:workflow-wf05-2a54e88` for web and Workflow worker;
   all five services and readiness are healthy. No automation is active in the
-  working database. Full WF-06 acceptance is still open; no Git push.
+  working database. This preceded WF-06 local acceptance; no Git push.
 - **2026-09-24, Workflow WF-05 trial checkpoint:** explicit order-created and
   create-task settings can be saved in visual blocks. The compiler accepts
   only direct event→task links (at most five tasks); other text or links

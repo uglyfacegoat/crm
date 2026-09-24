@@ -62,6 +62,8 @@ try {
     client_name_snapshot, object_name_snapshot, object_address_snapshot)
     VALUES (${adminMember.organization_id}, ${linkedClient.id}, ${automationObject.id}, 'WF-DRYRUN-001', 'new', 'RUB',
       'Клиент воркфлоу', 'Объект пробного запуска', 'Москва') RETURNING id`;
+  await sql`INSERT INTO client_contacts (organization_id, client_id, full_name, phone, normalized_phone, is_primary)
+    VALUES (${adminMember.organization_id}, ${linkedClient.id}, 'Контакт воркфлоу', '+79990000001', '+79990000001', true)`;
   server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", (chunk) => process.stderr.write(chunk));
   await new Promise((resolveReady, reject) => {
@@ -241,11 +243,60 @@ try {
   await secondPage.getByText("Включена версия 2.").waitFor();
   await secondPage.screenshot({ path: join(artifacts, "workflow-automation-enabled.png"), animations: "disabled" });
   assert.equal((await sql`SELECT enabled FROM workflow_automation_activations WHERE map_id = ${automationMapId}`)[0].enabled, true);
+  await page.goto(`${baseUrl}/orders`);
+  await page.getByRole("button", { name: "Новый заказ" }).click();
+  await page.getByRole("dialog", { name: "Новый заказ" }).getByLabel("Клиент", { exact: true }).click();
+  await page.getByRole("button", { name: "Клиент воркфлоу" }).click();
+  await page.getByLabel("Название услуги 1").fill("Обработка объекта");
+  await page.getByLabel("Цена услуги 1").fill("100");
+  await page.getByRole("button", { name: "Создать заказ" }).click();
+  await page.waitForURL((url) => /^\/orders\/[0-9a-f-]{36}$/.test(url.pathname));
+  const createdOrderId = new URL(page.url()).pathname.split("/").at(-1);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${createdOrderId}`)[0].count, 1);
+  const workerRun = spawnSync(process.execPath, ["--experimental-transform-types", "scripts/workflow-worker.mjs", "--once"],
+    { env: environment, encoding: "utf8", timeout: 30_000 });
+  assert.equal(workerRun.status, 0, workerRun.stderr);
+  assert.equal((await sql`SELECT status FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${createdOrderId}`)[0].status, "succeeded");
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${createdOrderId}
+    AND source = 'workflow'`)[0].count, 1);
+  await page.goto(`${baseUrl}/tasks`);
+  await page.getByText("Позвонить клиенту после заказа").waitFor();
+  await page.screenshot({ path: join(artifacts, "workflow-created-task.png"), animations: "disabled" });
   await secondPage.getByRole("button", { name: "Остановить автоматизацию" }).click();
   await secondPage.getByText("Автоматический запуск выключен.").waitFor();
   assert.equal((await sql`SELECT enabled FROM workflow_automation_activations WHERE map_id = ${automationMapId}`)[0].enabled, false);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${automationOrder.id}`)[0].count, 0);
+  await page.goto(`${baseUrl}/orders`);
+  await page.getByRole("button", { name: "Новый заказ" }).click();
+  await page.getByRole("dialog", { name: "Новый заказ" }).getByLabel("Клиент", { exact: true }).click();
+  await page.getByRole("button", { name: "Клиент воркфлоу" }).click();
+  await page.getByLabel("Название услуги 1").fill("Повторная обработка объекта");
+  await page.getByLabel("Цена услуги 1").fill("100");
+  await page.getByRole("button", { name: "Создать заказ" }).click();
+  await page.waitForURL((url) => /^\/orders\/[0-9a-f-]{36}$/.test(url.pathname));
+  const stoppedOrderId = new URL(page.url()).pathname.split("/").at(-1);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${stoppedOrderId}`)[0].count, 0);
+  await secondPage.getByRole("button", { name: /Действие · 02 Проверить заказ/ }).click();
+  await secondPage.getByLabel("Название будущей задачи").fill("Позвонить клиенту после повторного заказа");
+  await secondPage.getByRole("button", { name: "Вернуться к карте" }).click();
+  await secondPage.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await secondPage.getByRole("status").filter({ hasText: "Карта сохранена" }).waitFor();
+  assert.equal((await sql`SELECT published_version FROM workflow_maps WHERE id = ${automationMapId}`)[0].published_version, 2);
+  await secondPage.getByRole("button", { name: "Отправить на согласование" }).click();
+  await secondPage.getByRole("status").filter({ hasText: "Версия отправлена на согласование" }).waitFor();
+  await reviewerPage.reload();
+  await reviewerPage.getByRole("button", { name: "Согласовать версию" }).click();
+  await reviewerPage.getByRole("status").filter({ hasText: "Версия согласована" }).waitFor();
+  await secondPage.reload();
+  await secondPage.getByRole("button", { name: "Опубликовать версию" }).click();
+  await secondPage.getByText("Версия 3 опубликована.").waitFor();
+  assert.equal((await sql`SELECT published_version FROM workflow_maps WHERE id = ${automationMapId}`)[0].published_version, 3);
+  assert.equal((await sql`SELECT enabled FROM workflow_automation_activations WHERE map_id = ${automationMapId}`)[0].enabled, false);
   assert.deepEqual(browserErrors, []);
-  console.log("Workflow browser check passed: context, notifications, concurrent edits, review, publication, history, restore, archive and order automation trial/enable/stop without task writes.");
+  console.log("Workflow browser check passed: map lifecycle, collaboration, trial, enable, browser order and task creation, stop and new publication.");
 } catch (error) {
   if (page) await page.screenshot({ path: join(artifacts, "workflow-failure.png") }).catch(() => {});
   if (reviewerPage) {

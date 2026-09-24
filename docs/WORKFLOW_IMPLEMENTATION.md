@@ -107,12 +107,22 @@ This document tracks the actual working scope, not the planned final scope.
   067→068 working-database upgrade rehearsal preserved counts in all 75
   existing tables; after installation, 068→068 preserved counts in all 78.
 
-## Still open
+### Local acceptance (WF-06)
 
-- WF-06: full end-to-end acceptance of the lifecycle on the packaged app and
-  working Docker, including actual order-triggered task creation, negative
-  paths, new published versions, release and documentation. Nothing has been
-  pushed to Git.
+- The packaged browser run now covers creating and editing maps, two-member
+  review, publication, history, restoration, concurrent changes and mobile
+  rendering. Its automation path trials and enables a published map, creates
+  a real order in the browser, processes the queued event with the worker,
+  confirms the resulting task on the Tasks page, then stops automation. A
+  second browser-created order after stop enqueues no job. The test edits the
+  stopped map, confirms the old published snapshot remains version 2, obtains
+  a second review and publishes version 3 without silently re-enabling it.
+- Isolated repository tests cover denied and revoked rights, tenant isolation,
+  unsupported plans, invalid targets, transient retry and terminal failure.
+  Migration tests, 067→068 and 068→068 working-copy upgrade rehearsals, and
+  local Docker health/readiness checks passed. WF-01–06 have local acceptance;
+  server pilot and broader production checklist remain separate. Nothing has
+  been pushed to Git.
 
 ## Working Docker installation
 
@@ -123,5 +133,5 @@ working database. Web, PostgreSQL, reminder worker, backup worker and Workflow
 worker report healthy; `/api/v1/system/ready` returns 200 with
 `workflowWorker: available`. No automation is active in the working database,
 so installation did not create tasks from existing orders. Authenticated
-behavior was proven against the packaged app on an isolated database; WF-06
-still needs the complete acceptance run.
+behavior was proven against the packaged app on an isolated database; no
+test order or task was inserted into the working CRM.
