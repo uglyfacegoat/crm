@@ -16,13 +16,14 @@ next product task after the current upload-reliability checkpoint. The scope is
 editable process maps, versions/review/publication, regulations and links to
 real CRM entities, collaboration, and bounded automations as defined in
 [section 10 of the plan](../PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md).
-WF-01 and WF-02 are implemented and verified in an isolated packaged runtime;
+WF-01 and WF-02 are implemented, verified in an isolated packaged runtime and
+installed in local Docker;
 WF-03–06 remain open. [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
 Git push remains on hold until the owner asks.
 
 ## Current evidence
 
-- **2026-09-24, Workflow WF-02 source acceptance:** migration 065 adds
+- **2026-09-24, Workflow WF-02 local installation:** migration 065 adds
   immutable revision snapshots and a backfill of the current WF-01 draft.
   A different authorized reviewer must approve a saved version before an
   authorized publisher can publish it. Editing or restoring creates a new
@@ -31,15 +32,16 @@ Git push remains on hold until the owner asks.
   publication, rejection, restoration and immutability; packaged browser
   checks covered two accounts, publication, comparison and restore. The
   working-database copy rehearsed 064→065 with all 72 previous table counts
-  preserved. Docker installation of WF-02 is still pending.
+  preserved. Local Docker now runs `crm-app:workflow-wf02-dc5e755` with
+  migration 065 applied and healthy readiness. A second rehearsal at 065→065
+  preserved counts in all 73 existing tables. The WF-01 image remains
+  tagged for rollback.
 - **2026-09-24, Workflow WF-01:** maps now persist per organization, with
   configurable read/write permissions, version conflicts, audit, archive,
   visual blocks and links. Isolated migrations, repository integration and
   packaged browser checks passed; desktop and 390px mobile layouts were
-  inspected. The working Docker web service now runs
-  `crm-app:workflow-wf01-8b097c2` after a successful upgrade rehearsal on an
-  anonymized copy of the working database. Migration 064 is applied and
-  readiness is healthy; the previous image is retained for rollback.
+  inspected. The WF-01 image was installed before WF-02 after a successful
+  upgrade rehearsal on an anonymized copy of the working database.
   [Scope and remaining stages](WORKFLOW_IMPLEMENTATION.md).
 - **2026-09-24, UP-07 chat attachment in-flight abort:** the packaged browser
   suite passed on local and test S3 storage. A client disconnect after file

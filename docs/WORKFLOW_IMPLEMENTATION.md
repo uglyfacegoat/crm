@@ -3,7 +3,7 @@
 24 September 2026. The owner approved full implementation of the Workflow page.
 This document tracks the actual working scope, not the planned final scope.
 
-## Working now (WF-01 and WF-02 in source)
+## Working now (WF-01 and WF-02 in local Docker)
 
 - `064_workflow_maps.sql` creates organization-scoped process maps. A draft stores
   validated visual nodes and directed connections. Each edit advances an
@@ -44,7 +44,9 @@ This document tracks the actual working scope, not the planned final scope.
   and manager accounts to run the full review/publish path and confirmed that
   later edits do not alter the published snapshot. `npm run
   test:working-upgrade` passed 064→065 on an anonymized copy of the working
-  database, preserving counts in all 72 pre-existing tables.
+  database, preserving counts in all 72 pre-existing tables. After local
+  deployment, the same rehearsal passed at 065→065, preserving counts in all
+  73 existing tables.
 
 ## Still open
 
@@ -55,18 +57,16 @@ This document tracks the actual working scope, not the planned final scope.
 - WF-05: tightly scoped, idempotent and audited automation through domain
   commands, with dry run and stop controls.
 - WF-06: end-to-end acceptance of the complete Workflow lifecycle and release.
-  WF-01 is installed in the working Docker web container as
-  `crm-app:workflow-wf01-8b097c2`; the complete lifecycle is still open.
-  Nothing has been pushed to Git.
+  The complete lifecycle is still open. Nothing has been pushed to Git.
 
 ## Working Docker installation
 
-On 24 September, `crm-app:workflow-wf01-8b097c2` was built from local commit
-`8b097c2` and installed only as the `crm` web service. The previous image was
-retained as `crm-app:before-workflow-wf01-20260924`. Before installation,
-`npm run test:working-upgrade` applied migrations 056–064 to an anonymized,
-disposable copy of the working database and preserved row counts in all 62
-pre-existing tables. On the working database, migration 064 is now recorded.
+On 24 September, `crm-app:workflow-wf02-dc5e755` was built from local commit
+`dc5e755` and installed as the `crm` web service. The previous WF-01 image is
+retained as `crm-app:before-workflow-wf02-20260924`. Migration 065 is recorded
+in the working database. The earlier WF-01 installation and its migration 064
+were verified separately. Upgrade rehearsals passed before and after WF-02
+installation on anonymized, disposable copies of the working database.
 The web container, database, reminder worker and backup worker report healthy;
 `/api/v1/system/ready` reports all dependencies available. Unauthenticated
 `/workflow` redirects to login and `/login` responds 200. Authenticated map
