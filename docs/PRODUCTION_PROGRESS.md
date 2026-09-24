@@ -16,12 +16,24 @@ next product task after the current upload-reliability checkpoint. The scope is
 editable process maps, versions/review/publication, regulations and links to
 real CRM entities, collaboration, and bounded automations as defined in
 [section 10 of the plan](../PEREDVIDEOPOKAZOM/END_PRODUCTION_PLAN.md).
-WF-01–04 are installed in local Docker. WF-05–06 remain open.
+WF-01–05 are installed in local Docker. WF-06 remains open.
 [Evidence and limits](WORKFLOW_IMPLEMENTATION.md).
 Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-24, Workflow WF-05 bounded automation installed:** migration 068
+  adds trials, activations and durable jobs. Published `order_created` maps can
+  be trialled, enabled and stopped; a separate healthy worker creates at most
+  five order tasks through the shared task-domain command. Normal, quick and
+  copied order creation enqueue jobs atomically. Isolated PostgreSQL tests
+  cover execution, duplicates, rights revocation, stop, rollback/retry and
+  terminal failure; packaged browser checks cover trial/enable/stop. Typecheck,
+  lint, build, migrations and 232 unit tests passed. The 067→068 rehearsal
+  preserved 75 existing table counts, and 068→068 preserved 78 after install.
+  Local Docker runs `crm-app:workflow-wf05-2a54e88` for web and Workflow worker;
+  all five services and readiness are healthy. No automation is active in the
+  working database. Full WF-06 acceptance is still open; no Git push.
 - **2026-09-24, Workflow WF-05 trial checkpoint:** explicit order-created and
   create-task settings can be saved in visual blocks. The compiler accepts
   only direct event→task links (at most five tasks); other text or links

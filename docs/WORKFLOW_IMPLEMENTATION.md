@@ -3,7 +3,7 @@
 24 September 2026. The owner approved full implementation of the Workflow page.
 This document tracks the actual working scope, not the planned final scope.
 
-## Working now (WF-01–04 in local Docker)
+## Working now (WF-01–05 in local Docker)
 
 - `064_workflow_maps.sql` creates organization-scoped process maps. A draft stores
   validated visual nodes and directed connections. Each edit advances an
@@ -83,34 +83,45 @@ This document tracks the actual working scope, not the planned final scope.
   Typecheck, lint, build, 227 unit tests, migration tests and the 066→067
   rehearsal passed; all 74 existing table counts were preserved.
 
+### Bounded automation (WF-05)
+
+- A published revision may contain exactly one `order_created` event connected
+  directly to 1–5 `create_order_task` actions. Unsupported graphs and arbitrary
+  SQL, JavaScript or HTTP actions fail closed. The trial checks a selected
+  order, current rights and assignees, and records trial/audit metadata without
+  creating a task. The same member may enable that exact published revision
+  only after a successful trial within 24 hours. Editing the draft does not
+  silently change the active revision.
+- `068_workflow_automation.sql` adds activation, trial and durable job storage.
+  Normal, quick and copied order creation enqueue the event in the order
+  transaction. A separate Docker worker claims jobs with a lease and runs the
+  shared task-domain command, with current permission checks, deterministic
+  idempotency keys, audit, at most three attempts and bounded retry delays.
+  Task actions and job status commit together. Stopping an activation cancels
+  pending jobs and prevents future enqueue. Workflow tasks remain visible and
+  manageable on the normal Tasks page.
+- Isolated PostgreSQL tests cover event delivery through all three order paths,
+  execution, duplicate delivery, stop, revoked rights, rollback/retry and
+  terminal failure. The packaged browser check covers trial, enable and stop.
+  Typecheck, lint, build, migration tests and all 232 unit tests passed. The
+  067→068 working-database upgrade rehearsal preserved counts in all 75
+  existing tables; after installation, 068→068 preserved counts in all 78.
+
 ## Still open
 
-- WF-05: the first source checkpoint adds explicit `order_created` and
-  `create_order_task` node settings, a fail-closed compiler for one event
-  connected directly to 1–5 task actions, and a read-only trial against an
-  existing order using the immutable published revision. The trial checks
-  current publish/order/task rights, organization, order status and active
-  assignees; it does not create tasks. Repository tests cover a valid plan,
-  unsupported graphs, tenant isolation, revoked rights, unavailable orders,
-  inactive assignees and absence of task writes. The packaged browser check
-  covered block configuration, two-person review, publication and a trial
-  without task writes. Typecheck, lint, build, all 229 unit tests, migration
-  tests and working-database upgrade rehearsal passed. Automatic execution,
-  durable event delivery, idempotency, audited attempts, retry limits,
-  enable/stop and their acceptance checks remain open.
-- WF-06: end-to-end acceptance of the complete Workflow lifecycle and release.
-  The complete lifecycle is still open. Nothing has been pushed to Git.
+- WF-06: full end-to-end acceptance of the lifecycle on the packaged app and
+  working Docker, including actual order-triggered task creation, negative
+  paths, new published versions, release and documentation. Nothing has been
+  pushed to Git.
 
 ## Working Docker installation
 
-On 24 September, `crm-app:workflow-wf05-trial-28f106a` was built from local
-commit `28f106a` and installed as the `crm` web service. The previous WF-04
-image is retained as `crm-app:before-workflow-wf05-trial-20260924`. Migration
-067 remains the latest in the working database: this checkpoint needs no schema
-change. The earlier WF-01–04 installations were verified separately. A 067→067
-upgrade rehearsal after installation preserved counts in all 75 existing tables.
-The web container, database, reminder worker and backup worker report healthy;
-`/api/v1/system/ready` reports all dependencies available. Unauthenticated
-`/workflow` redirects to login and `/login` responds 200. Authenticated map
-editing was proven on the packaged isolated runtime, not on a production
-account in the working database.
+On 24 September, `crm-app:workflow-wf05-2a54e88` was installed for both the
+`crm` web service and `workflow-worker`. The prior image is retained as
+`crm-app:before-workflow-wf05-engine-20260924`. Migration 068 is applied in the
+working database. Web, PostgreSQL, reminder worker, backup worker and Workflow
+worker report healthy; `/api/v1/system/ready` returns 200 with
+`workflowWorker: available`. No automation is active in the working database,
+so installation did not create tasks from existing orders. Authenticated
+behavior was proven against the packaged app on an isolated database; WF-06
+still needs the complete acceptance run.
