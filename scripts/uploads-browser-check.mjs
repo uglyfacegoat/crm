@@ -755,6 +755,61 @@ try {
     assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${receiptId}`)[0].count, 1);
     console.log(`processing slots: ${kind} receipt and form fields survived rejection; retry committed one ledger entry and matching bytes.`);
   }
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  const lostContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const lostPage = await lostContext.newPage();
+  const lostPageErrors = [];
+  lostPage.on("pageerror", (error) => lostPageErrors.push(error.message));
+  let resolveLostRequest;
+  let rejectLostRequest;
+  const lostRequest = new Promise((resolve, reject) => { resolveLostRequest = resolve; rejectLostRequest = reject; });
+  const lostRequestTimeout = setTimeout(() => rejectLostRequest(new Error("Lost-response action was not intercepted")), 30_000);
+  let dropLostResponse = true;
+  await lostPage.route("**/documents", async (route) => {
+    if (!dropLostResponse || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+    dropLostResponse = false;
+    try {
+      const requestHeaders = route.request().headers();
+      const requestBody = route.request().postDataBuffer();
+      const response = await route.fetch();
+      resolveLostRequest({ requestHeaders, requestBody, status: response.status(), body: await response.text() });
+      await route.abort("failed");
+    } catch (error) { rejectLostRequest(error); }
+  });
+  await lostPage.goto(`${baseUrl}/documents`);
+  await lostPage.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const lostDialog = lostPage.getByRole("dialog", { name: "Новый документ", exact: true });
+  await lostDialog.locator('summary[aria-label="Заказ"]').click();
+  await lostDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+  await lostDialog.locator('input[name="title"]').fill("Lost response upload");
+  const lostBytes = pdfFixture("Lost response after commit");
+  await lostDialog.locator('input[name="file"]').setInputFiles({ name: "lost-response.pdf", mimeType: "application/pdf", buffer: lostBytes });
+  const lostDocumentId = await lostDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await lostDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  const lost = await lostRequest;
+  clearTimeout(lostRequestTimeout);
+  assert.equal(lost.status, 200);
+  assert.match(lost.body, /Документ сохранён в архиве/);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${lostDocumentId}`)[0].count, 1);
+  const replay = await archiveClient.post(`${baseUrl}/documents`, { data: lost.requestBody, headers: lost.requestHeaders });
+  assert.equal(replay.status(), 200);
+  assert.match(await replay.text(), /Документ уже загружен/);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${lostDocumentId}`)[0].count, 1);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostDocumentId}`)[0].count, 1);
+  await verifyVersion(lostDocumentId, 1, lostBytes);
+  await lostDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте документ в архиве перед повторной отправкой." }).waitFor();
+  assert.equal(await lostDialog.locator('input[name="idempotencyKey"]').inputValue(), lostDocumentId);
+  assert.equal(await lostDialog.locator('input[name="title"]').inputValue(), "Lost response upload");
+  assert.equal(await lostDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "lost-response.pdf");
+  assert.equal(await lostPage.locator('[data-nextjs-dialog]').count(), 0);
+  assert.deepEqual(lostPageErrors, []);
+  await lostPage.screenshot({ path: join(artifacts, "lost-response.png") });
+  await lostDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await lostDialog.waitFor({ state: "hidden" });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${lostDocumentId}`)[0].count, 1);
+  console.log("lost response after commit: form retained file and retry key; replay and UI retry kept one document.");
+  await lostContext.close();
   // A file at the accepted 15 MiB boundary used to be truncated by Next's
   // default 10 MiB proxy buffer before the upload action could validate it.
   const boundaryBytes = pdfFixture("15 MiB boundary", 15 * 1024 * 1024);
@@ -980,7 +1035,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 23 real submissions, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 real submissions, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
