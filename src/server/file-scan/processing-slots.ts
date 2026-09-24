@@ -60,11 +60,16 @@ export async function withFileProcessingSlot<T>(work: () => Promise<T>): Promise
 
 /** Keep the shared permit until the client consumes or cancels the response. */
 export async function withFileProcessingResponse(
-  work: () => Promise<{ body: Buffer; init: ResponseInit }>,
+  work: () => Promise<{ body: Buffer; init: ResponseInit } | { response: Response }>,
 ): Promise<Response> {
   const release = await acquireFileProcessingSlot();
   try {
-    const { body, init } = await work();
+    const result = await work();
+    if ("response" in result) {
+      await release();
+      return result.response;
+    }
+    const { body, init } = result;
     let offset = 0;
     let finished = false;
     let timer: ReturnType<typeof setTimeout>;

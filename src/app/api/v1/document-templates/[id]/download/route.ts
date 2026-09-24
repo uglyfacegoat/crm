@@ -2,7 +2,7 @@ import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
 import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
-import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
+import { FileProcessingBusyError, withFileProcessingResponse } from "@/server/file-scan/processing-slots";
 import { DocumentTemplateNotFoundError, getDocumentTemplateDownload } from "@/server/document-templates/repository";
 import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 
@@ -20,15 +20,15 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const template = await getDocumentTemplateDownload(member, id);
     const limited = await rejectLimitedFileRead(member, "document_download");
     if (limited) return limited;
-    const file = await withFileProcessingSlot(() => readVerifiedDocumentFile(template.storageKey, template, MAX_DOCUMENT_SIZE_BYTES));
-    return new Response(file, {
-      headers: {
+    return await withFileProcessingResponse(async () => {
+      const file = await readVerifiedDocumentFile(template.storageKey, template, MAX_DOCUMENT_SIZE_BYTES);
+      return { body: file, init: { headers: {
         "Cache-Control": "private, no-store",
         "Content-Disposition": `attachment; filename="act-template.${template.filename.split(".").at(-1) ?? "bin"}"; filename*=UTF-8''${encodedFilename(template.filename)}`,
         "Content-Length": String(file.length),
         "Content-Type": template.mimeType,
         "X-Content-Type-Options": "nosniff",
-      },
+      } } };
     });
   } catch (error) {
     if (error instanceof FileProcessingBusyError) return Response.json({ error: "processing_busy" }, { status: 429,

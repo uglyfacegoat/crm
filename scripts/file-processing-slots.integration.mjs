@@ -77,6 +77,9 @@ test("streamed responses retain a shared permit until consumed or cancelled", as
 
   assert.equal(Buffer.from(await second.arrayBuffer()).length, body.length);
   assert.equal(await withFileProcessingSlot(async () => "reused after completion"), "reused after completion");
+  const empty = await withFileProcessingResponse(async () => ({ response: new Response(null, { status: 304 }) }));
+  assert.equal(empty.status, 304);
+  assert.equal(await withFileProcessingSlot(async () => "reused after bodyless response"), "reused after bodyless response");
   await assert.rejects(withFileProcessingResponse(async () => { throw new Error("archive failed"); }), /archive failed/);
   assert.equal(await withFileProcessingSlot(async () => "reused after failure"), "reused after failure");
 });

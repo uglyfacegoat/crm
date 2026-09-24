@@ -20,8 +20,8 @@ mock.module("server-only", { namedExports: {} });
 class FileProcessingBusyError extends Error {}
 const withFileProcessingSlot = mock.fn(async (work) => work());
 const withFileProcessingResponse = mock.fn(async (work) => {
-  const { body, init } = await work();
-  return new Response(body, init);
+  const result = await work();
+  return "response" in result ? result.response : new Response(result.body, result.init);
 });
 mock.module(new URL("server/file-scan/processing-slots.ts", root), { namedExports: { FileProcessingBusyError, withFileProcessingSlot, withFileProcessingResponse } });
 const storageUrl = new URL("server/documents/storage.ts", root);
@@ -97,8 +97,8 @@ test("all document readers bound file allocation and preserve access checks", as
     readStoredFile.mock.mockImplementation(storage.readVerifiedDocumentFile);
     withFileProcessingSlot.mock.mockImplementation(async (work) => work());
     withFileProcessingResponse.mock.mockImplementation(async (work) => {
-      const { body, init } = await work();
-      return new Response(body, init);
+      const result = await work();
+      return "response" in result ? result.response : new Response(result.body, result.init);
     });
   });
   for (const [name, handler, lookup, NotFound, limit] of endpoints) {
@@ -125,7 +125,7 @@ test("all document readers bound file allocation and preserve access checks", as
     });
     if (name !== "avatar") await t.test(`${name}: occupied processing slots return retry before file allocation`, async () => {
       lookup.mock.mockImplementation(async () => name === "preview" ? { ...file, mimeType: docxMime } : file);
-      withFileProcessingSlot.mock.mockImplementation(async () => { throw new FileProcessingBusyError(); });
+      (name === "preview" ? withFileProcessingSlot : withFileProcessingResponse).mock.mockImplementation(async () => { throw new FileProcessingBusyError(); });
       const response = await send(handler);
       assert.equal(response.status, 429);
       assert.equal(response.headers.get("retry-after"), "3");

@@ -23,6 +23,14 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-25, UP-05 ordinary-download transfer checkpoint:** document,
+  version, template and chat attachment responses now stream verified bytes
+  under the shared file permit. Chat partial audio ranges preserve exact
+  content, ETag/HEAD behavior and success auditing; bodyless responses release
+  the permit immediately. Real-PostgreSQL permit lifecycle tests, route tests,
+  typecheck, lint, build and the packaged browser suite on local and test S3
+  passed. Incoming
+  upload buffering and representative slow-client/RSS/temp-file load remain.
 - **2026-09-24, UP-05 ZIP transfer checkpoint:** ZIP export now streams in
   64 KiB chunks and retains its shared PostgreSQL permit until the application
   stream is consumed or cancelled, with a five-minute total transfer cutoff. Packaging

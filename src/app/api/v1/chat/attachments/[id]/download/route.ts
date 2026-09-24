@@ -4,7 +4,7 @@ import { MAX_CHAT_ATTACHMENT_BYTES } from "@/server/chat/file-validation";
 import { ChatChannelNotFoundError, getChatAttachmentDownload, recordChatAttachmentDownload } from "@/server/chat/repository";
 import { readVerifiedDocumentFile, StoredFileIntegrityError } from "@/server/documents/storage";
 import { selectByteRange } from "@/server/http/byte-range";
-import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
+import { FileProcessingBusyError, withFileProcessingResponse } from "@/server/file-scan/processing-slots";
 import { consumeRequestLimit } from "@/server/request-limits/repository";
 
 export const dynamic = "force-dynamic";
@@ -28,36 +28,38 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       return Response.json({ error: "rate_limited" }, { status: 429, headers: { ...privateHeaders, "Retry-After": String(budget.retryAfterSeconds) } });
     }
     stage = "read";
-    const file = await withFileProcessingSlot(() => readVerifiedDocumentFile(attachment.storageKey, attachment, MAX_CHAT_ATTACHMENT_BYTES));
-    const etag = `"${attachment.sha256}"`;
-    const headers = new Headers({
-        ...privateHeaders,
-        "Accept-Ranges": "bytes",
-        ETag: etag,
-        "Content-Disposition": `${attachment.mimeType.startsWith("audio/") ? "inline" : "attachment"}; filename="chat-file.${attachment.filename.split(".").at(-1) ?? "bin"}"; filename*=UTF-8''${encodedFilename(attachment.filename)}`,
-        "Content-Type": attachment.mimeType,
+    return await withFileProcessingResponse(async () => {
+      const file = await readVerifiedDocumentFile(attachment.storageKey, attachment, MAX_CHAT_ATTACHMENT_BYTES);
+      const etag = `"${attachment.sha256}"`;
+      const headers = new Headers({
+          ...privateHeaders,
+          "Accept-Ranges": "bytes",
+          ETag: etag,
+          "Content-Disposition": `${attachment.mimeType.startsWith("audio/") ? "inline" : "attachment"}; filename="chat-file.${attachment.filename.split(".").at(-1) ?? "bin"}"; filename*=UTF-8''${encodedFilename(attachment.filename)}`,
+          "Content-Type": attachment.mimeType,
+      });
+      const ifMatch = request.headers.get("if-match");
+      if (ifMatch && ifMatch !== "*" && !ifMatch.split(",").some((tag) => tag.trim() === etag)) {
+        return { response: new Response(null, { status: 412, headers }) };
+      }
+      const ifNoneMatch = request.headers.get("if-none-match");
+      if (ifNoneMatch && (ifNoneMatch === "*" || ifNoneMatch.split(",").some((tag) => tag.trim().replace(/^W\//, "") === etag))) {
+        return { response: new Response(null, { status: 304, headers }) };
+      }
+      const ifRange = request.headers.get("if-range");
+      const range = selectByteRange(request.method === "GET" && (!ifRange || ifRange === etag) ? request.headers.get("range") : null, file.length);
+      if (range.kind === "unsatisfiable") {
+        headers.set("Content-Range", `bytes */${file.length}`);
+        return { response: new Response(null, { status: 416, headers }) };
+      }
+      const body = range.kind === "partial" ? file.subarray(range.start, range.end + 1) : file;
+      headers.set("Content-Length", String(body.length));
+      if (range.kind === "partial") headers.set("Content-Range", `bytes ${range.start}-${range.end}/${file.length}`);
+      if (request.method === "HEAD") return { response: new Response(null, { headers }) };
+      stage = "audit";
+      await recordChatAttachmentDownload(member, attachment.id);
+      return { body, init: { status: range.kind === "partial" ? 206 : 200, headers } };
     });
-    const ifMatch = request.headers.get("if-match");
-    if (ifMatch && ifMatch !== "*" && !ifMatch.split(",").some((tag) => tag.trim() === etag)) {
-      return new Response(null, { status: 412, headers });
-    }
-    const ifNoneMatch = request.headers.get("if-none-match");
-    if (ifNoneMatch && (ifNoneMatch === "*" || ifNoneMatch.split(",").some((tag) => tag.trim().replace(/^W\//, "") === etag))) {
-      return new Response(null, { status: 304, headers });
-    }
-    const ifRange = request.headers.get("if-range");
-    const range = selectByteRange(request.method === "GET" && (!ifRange || ifRange === etag) ? request.headers.get("range") : null, file.length);
-    if (range.kind === "unsatisfiable") {
-      headers.set("Content-Range", `bytes */${file.length}`);
-      return new Response(null, { status: 416, headers });
-    }
-    const body = range.kind === "partial" ? file.subarray(range.start, range.end + 1) : file;
-    headers.set("Content-Length", String(body.length));
-    if (range.kind === "partial") headers.set("Content-Range", `bytes ${range.start}-${range.end}/${file.length}`);
-    if (request.method === "HEAD") return new Response(null, { headers });
-    stage = "audit";
-    await recordChatAttachmentDownload(member, attachment.id);
-    return new Response(body, { status: range.kind === "partial" ? 206 : 200, headers });
   } catch (error) {
     if (error instanceof FileProcessingBusyError) return Response.json({ error: "processing_busy" },
       { status: 429, headers: { ...privateHeaders, "Retry-After": "3" } });

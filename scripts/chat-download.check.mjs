@@ -18,7 +18,11 @@ const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
 mock.module("server-only", { namedExports: {} });
 class FileProcessingBusyError extends Error {}
 const withFileProcessingSlot = mock.fn(async (work) => work());
-mock.module(new URL("server/file-scan/processing-slots.ts", root), { namedExports: { FileProcessingBusyError, withFileProcessingSlot } });
+const withFileProcessingResponse = mock.fn(async (work) => {
+  const result = await work();
+  return "response" in result ? result.response : new Response(result.body, result.init);
+});
+mock.module(new URL("server/file-scan/processing-slots.ts", root), { namedExports: { FileProcessingBusyError, withFileProcessingSlot, withFileProcessingResponse } });
 const storageUrl = new URL("server/documents/storage.ts", root);
 const storage = await import(storageUrl.href);
 const readFile = mock.fn(storage.readVerifiedDocumentFile);
@@ -54,12 +58,16 @@ test("chat download preserves authorization, range semantics and bounded integri
   const context = { params: Promise.resolve({ id: attachment.id }) };
   const send = (headers = {}, method = "GET") => (method === "HEAD" ? HEAD : GET)(new Request("http://localhost/file", { headers, method }), context);
   t.beforeEach(() => {
-    for (const fn of [getCurrentSession, getChatAttachmentDownload, recordChatAttachmentDownload, consumeRequestLimit, readFile, withFileProcessingSlot, log]) fn.mock.resetCalls();
+    for (const fn of [getCurrentSession, getChatAttachmentDownload, recordChatAttachmentDownload, consumeRequestLimit, readFile, withFileProcessingSlot, withFileProcessingResponse, log]) fn.mock.resetCalls();
     getCurrentSession.mock.mockImplementation(async () => member);
     getChatAttachmentDownload.mock.mockImplementation(async () => attachment);
     consumeRequestLimit.mock.mockImplementation(async () => ({ allowed: true, retryAfterSeconds: 60 }));
     recordChatAttachmentDownload.mock.mockImplementation(async () => {});
     withFileProcessingSlot.mock.mockImplementation(async (work) => work());
+    withFileProcessingResponse.mock.mockImplementation(async (work) => {
+      const result = await work();
+      return "response" in result ? result.response : new Response(result.body, result.init);
+    });
   });
   await t.test("anonymous and unauthorized requests never consume budgets or access files", async () => {
     getCurrentSession.mock.mockImplementation(async () => null);
@@ -89,7 +97,7 @@ test("chat download preserves authorization, range semantics and bounded integri
     assert.equal(recordChatAttachmentDownload.mock.callCount(), 0);
   });
   await t.test("occupied processing slots return retry without reading or auditing", async () => {
-    withFileProcessingSlot.mock.mockImplementation(async () => { throw new FileProcessingBusyError(); });
+    withFileProcessingResponse.mock.mockImplementation(async () => { throw new FileProcessingBusyError(); });
     const response = await send();
     assert.equal(response.status, 429);
     assert.equal(response.headers.get("retry-after"), "3");
