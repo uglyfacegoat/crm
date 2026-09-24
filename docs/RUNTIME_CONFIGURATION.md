@@ -31,6 +31,18 @@ No database connection or migration is performed by that command. Docker supplie
 its own `/app/storage` path, so check the actual deployment environment rather
 than copying a host-specific Windows path into a Linux container.
 
+The older manual browser and flow checks can create or delete orders, contracts,
+messages and other CRM test data. Their 21 direct script entry points now stop
+before opening the browser unless `--allow-working-flow-check` is passed
+explicitly. For example, after reviewing the local target and accepting changes
+to its test data, run `npm run orders:copy-check -- --allow-working-flow-check`.
+If any configured browser base URL or `DATABASE_URL` points to a non-loopback
+host, the command additionally requires `--allow-remote-flow-check`. These
+flags are deliberately not stored in `.env.local` or npm scripts. This is an
+accidental-run guard, not proof that a localhost URL is backed by a disposable
+database; review the target before using either flag. The main integration
+`test:*` commands use separate disposable PostgreSQL fixtures instead.
+
 `next start` and the generated standalone server are also guarded by the
 instrumentation hook. Next.js 16.3.5 can log `Ready` before an asynchronous startup
 failure and leave a rejected hook's process alive; the hook explicitly terminates

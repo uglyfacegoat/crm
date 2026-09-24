@@ -23,6 +23,15 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-25, SEC-04 manual flow-check guard:** 21 `.env.local` browser and
+  flow entry points now refuse to run before browser/DB access without an
+  explicit command-line acknowledgement. A non-loopback browser target or
+  direct `DATABASE_URL` needs a second acknowledgement. Unit checks cover
+  local/remote cases and redacted errors; direct order-copy invocation
+  failed before opening the CRM. This prevents accidental invocation but
+  does not isolate these checks or prove which DB a localhost app uses.
+  Dev/staging/production secret separation and unguarded lower-level CLI
+  invocation remain open.
 - **2026-09-25, UP-05 gateway temporary-storage checkpoint:** HTTPS Compose
   now gives Nginx an 80 MiB tmpfs for request-body spill. The isolated TLS
   run verified the live mount type, exact size and worker write permission;

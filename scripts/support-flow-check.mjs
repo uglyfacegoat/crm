@@ -1,3 +1,4 @@
+import "./require-flow-check-target.mjs";
 import { existsSync } from "node:fs";
 import postgres from "postgres";
 import { chromium } from "playwright-core";
