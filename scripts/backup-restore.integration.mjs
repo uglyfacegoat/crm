@@ -15,6 +15,9 @@ import { withStorageSnapshot } from "./backup-snapshot.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 
 const adminUrl = process.env.BACKUP_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 if (!adminUrl) throw new Error("BACKUP_TEST_ADMIN_URL must point to an isolated disposable PostgreSQL instance.");
 
 test("backup restores the full application schema and validates every retained file reference", async (t) => {

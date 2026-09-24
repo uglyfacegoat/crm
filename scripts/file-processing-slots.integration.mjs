@@ -4,6 +4,9 @@ import { mock, test } from "node:test";
 import postgres from "postgres";
 
 const databaseUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!databaseUrl || process.env.CRM_TEST_FIXTURE_URL !== databaseUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 if (!databaseUrl) throw new Error("An isolated PostgreSQL test URL is required.");
 const sourceRoot = new URL("../src/", import.meta.url);
 const hooks = registerHooks({

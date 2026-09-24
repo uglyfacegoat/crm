@@ -14,9 +14,10 @@ try {
       ...process.env, ...fixture.environment,
       DOCUMENT_S3_ENDPOINT: process.platform === "linux" ? fixture.endpoint : "http://127.0.0.1:9000",
       BACKUP_TEST_ADMIN_URL: process.platform === "linux" ? database.adminUrl : database.dockerAdminUrl,
+      CRM_TEST_FIXTURE_URL: process.platform === "linux" ? database.adminUrl : database.dockerAdminUrl,
       BACKUP_TEST_S3: "true",
     };
-    const keys = [...Object.keys(fixture.environment), "BACKUP_TEST_ADMIN_URL", "BACKUP_TEST_S3"];
+    const keys = [...Object.keys(fixture.environment), "BACKUP_TEST_ADMIN_URL", "CRM_TEST_FIXTURE_URL", "BACKUP_TEST_S3"];
     const child = spawn("docker", [
       "run", "--rm", "--network", process.platform === "linux" ? "host" : `container:${fixture.containerName}`,
       "--mount", `type=bind,source=${resolve("scripts/backup-restore.integration.mjs")},target=/app/scripts/backup-restore.integration.mjs,readonly`,

@@ -20,6 +20,9 @@ import { FILE_PROCESSING_LOCK_CLASS, FILE_PROCESSING_SLOTS } from "../src/server
 import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 const runtime = process.env.UPLOAD_CHECK_RUNTIME;
 const storageMode = process.env.UPLOAD_CHECK_STORAGE ?? "local";
 assert.ok(["local", "s3"].includes(storageMode), "UPLOAD_CHECK_STORAGE must be local or s3");

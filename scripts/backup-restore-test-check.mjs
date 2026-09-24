@@ -14,14 +14,16 @@ const fixture = await startPostgresFixture();
 try {
   const environment = { ...process.env,
     DATABASE_URL: fixture.adminUrl, BACKUP_TEST_ADMIN_URL: fixture.adminUrl,
+    CRM_TEST_FIXTURE_URL: fixture.adminUrl,
     BACKUP_TEST_S3: "false", BACKUP_TEST_FULL_STAGE_ROOT: "",
   };
   const child = image
     ? spawn("docker", ["run", "--rm", "--add-host", "host.docker.internal:host-gateway",
-      "--env", "BACKUP_TEST_ADMIN_URL", "--env", "BACKUP_TEST_S3",
+      "--env", "BACKUP_TEST_ADMIN_URL", "--env", "CRM_TEST_FIXTURE_URL", "--env", "BACKUP_TEST_S3",
       "--mount", `type=bind,source=${resolve("scripts/backup-restore.integration.mjs")},target=/app/scripts/backup-restore.integration.mjs,readonly`,
       "--entrypoint", "node", image, "--test", "scripts/backup-restore.integration.mjs"],
-    { env: { ...environment, BACKUP_TEST_ADMIN_URL: fixture.dockerAdminUrl }, stdio: "inherit" })
+    { env: { ...environment, BACKUP_TEST_ADMIN_URL: fixture.dockerAdminUrl,
+      CRM_TEST_FIXTURE_URL: fixture.dockerAdminUrl }, stdio: "inherit" })
     : spawn(process.execPath, ["--test", "scripts/backup-restore.integration.mjs"],
       { env: environment, stdio: "inherit" });
   const [code] = await once(child, "exit");

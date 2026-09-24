@@ -21,6 +21,9 @@ import { inspectStorageTransfer, transferDocumentStorage } from "./storage-trans
 import { pdfFixture } from "./fixtures/pdf.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
 
 test("storage transfer resumes all retained references in both directions without replacing conflicting bytes", { timeout: 90_000 }, async (t) => {

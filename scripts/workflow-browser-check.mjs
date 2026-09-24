@@ -10,6 +10,9 @@ import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 const runtime = process.env.WORKFLOW_CHECK_RUNTIME;
 if (!adminUrl || !runtime) throw new Error("Set isolated PostgreSQL and WORKFLOW_CHECK_RUNTIME to a built standalone server.js.");
 const baseUrl = "http://127.0.0.1:3102";

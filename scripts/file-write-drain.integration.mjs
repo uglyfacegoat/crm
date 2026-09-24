@@ -7,6 +7,9 @@ import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL with CREATEDB privileges.");
 
 test("file write drain waits for in-flight work, rejects new work, and survives a new operator connection", { timeout: 15_000 }, async (t) => {

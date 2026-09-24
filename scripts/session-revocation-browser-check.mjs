@@ -12,6 +12,9 @@ import { hashSessionToken } from "../src/server/auth/token.ts";
 import { runMigrations } from "./migrate.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 const runtime = process.env.SESSION_CHECK_RUNTIME;
 if (!adminUrl || !runtime) throw new Error("Set isolated MIGRATION_TEST_ADMIN_URL and SESSION_CHECK_RUNTIME.");
 const baseUrl = "http://127.0.0.1:3100";

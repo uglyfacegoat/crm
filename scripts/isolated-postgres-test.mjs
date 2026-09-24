@@ -9,7 +9,8 @@ const fixture = await startPostgresFixture();
 try {
   const child = spawn(process.execPath, args, {
     env: { ...process.env, DATABASE_URL: fixture.adminUrl,
-      MIGRATION_TEST_ADMIN_URL: fixture.adminUrl, BACKUP_TEST_ADMIN_URL: fixture.adminUrl },
+      MIGRATION_TEST_ADMIN_URL: fixture.adminUrl, BACKUP_TEST_ADMIN_URL: fixture.adminUrl,
+      CRM_TEST_FIXTURE_URL: fixture.adminUrl },
     stdio: "inherit",
   });
   const [code] = await once(child, "exit");

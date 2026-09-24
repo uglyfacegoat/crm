@@ -6,6 +6,9 @@ import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to an isolated PostgreSQL instance with CREATEDB privileges.");
 
 const repositoryUrl = new URL("../src/server/request-limits/repository.ts", import.meta.url);

@@ -6,6 +6,7 @@ const fixture = await startPostgresFixture();
 try {
   const child = spawn(process.execPath, ["--test", "scripts/storage-transfer.integration.mjs"], {
     env: { ...process.env, MIGRATION_TEST_ADMIN_URL: fixture.adminUrl,
+      CRM_TEST_FIXTURE_URL: fixture.adminUrl,
       STORAGE_CUTOVER_TEST_RUNTIME: "", STORAGE_CUTOVER_TEST_IMAGE: "" },
     stdio: "inherit",
   });

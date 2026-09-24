@@ -11,10 +11,11 @@ try {
   const child = spawn("docker", [
     "run", "--rm", "--add-host", "host.docker.internal:host-gateway",
     "--tmpfs", "/fs11-stage:rw,size=1m,mode=0700,uid=1001,gid=1001",
-    "--env", "BACKUP_TEST_ADMIN_URL", "--env", "BACKUP_TEST_FULL_STAGE_ROOT=/fs11-stage",
+    "--env", "BACKUP_TEST_ADMIN_URL", "--env", "CRM_TEST_FIXTURE_URL", "--env", "BACKUP_TEST_FULL_STAGE_ROOT=/fs11-stage",
     "--mount", `type=bind,source=${resolve("scripts/backup-restore.integration.mjs")},target=/app/scripts/backup-restore.integration.mjs,readonly`,
     "--entrypoint", "node", image, "--test", "scripts/backup-restore.integration.mjs",
-  ], { env: { ...process.env, BACKUP_TEST_ADMIN_URL: database.dockerAdminUrl }, stdio: "inherit" });
+  ], { env: { ...process.env, BACKUP_TEST_ADMIN_URL: database.dockerAdminUrl,
+    CRM_TEST_FIXTURE_URL: database.dockerAdminUrl }, stdio: "inherit" });
   const [code] = await once(child, "exit");
   if (code !== 0) throw new Error("Packaged full-staging-volume backup acceptance failed.");
 } finally { await database.close(); }

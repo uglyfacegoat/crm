@@ -12,6 +12,9 @@ import { DeleteObjectCommand, GetObjectCommand, ListObjectVersionsCommand, PutBu
 import { runMigrations } from "./migrate.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) {
+  throw new Error("Run this database scenario through its isolated npm test command.");
+}
 if (!adminUrl) throw new Error("MIGRATION_TEST_ADMIN_URL must point to isolated PostgreSQL.");
 
 test("storage audit diagnoses all retained files without modifying storage or records", { timeout: 180_000 }, async (t) => {

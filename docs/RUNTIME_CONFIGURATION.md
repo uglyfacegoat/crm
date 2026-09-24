@@ -42,6 +42,14 @@ flags are deliberately not stored in `.env.local` or npm scripts. This is an
 accidental-run guard, not proof that a localhost URL is backed by a disposable
 database; review the target before using either flag. The main integration
 `test:*` commands use separate disposable PostgreSQL fixtures instead.
+The database integration and isolated browser scripts additionally require
+`CRM_TEST_FIXTURE_URL` to match their administrator URL. Only the fixture
+wrappers set this in their child process after creating a disposable database;
+running the integration file directly with an inherited
+`MIGRATION_TEST_ADMIN_URL` or `BACKUP_TEST_ADMIN_URL` now refuses to start
+before connecting. This is an accidental-run boundary, not a cryptographic
+proof of isolation: a caller that deliberately supplies both matching values
+can bypass it. Use the documented npm `test:*` entry points.
 
 `next start` and the generated standalone server are also guarded by the
 instrumentation hook. Next.js 16.3.5 can log `Ready` before an asynchronous startup
