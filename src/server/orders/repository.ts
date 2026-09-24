@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { publishOrderCreated } from "@/server/domain-events/order-created";
 import { calculateOrderEconomics } from "@/server/domain/order-economics";
 import {
   calculateServiceLineTotalMinor,
@@ -337,6 +338,7 @@ export async function createOrder(member: AuthenticatedMember, input: CreateOrde
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'order.create', 'order', ${orderId},
         ${transaction.json({ orderNumber, clientId: input.clientId, objectId: input.objectId, serviceCount: serviceLines.length, agreedTotalMinor: agreedTotalMinor.toString() })})`;
+    await publishOrderCreated(transaction, member.organizationId, orderId);
     return orderId;
   });
 }

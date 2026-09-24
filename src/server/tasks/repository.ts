@@ -4,6 +4,7 @@ import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import type { CancelTaskInput, CreateTaskInput, RescheduleTaskInput, TaskMutationInput, UpdateTaskInput } from "./schemas";
+import { createTaskInTransaction, TaskCreateTargetError } from "./create-command";
 import type { CompletedTaskCard, TaskAssigneeOption, TaskCard, TaskColumn, TaskHistoryFeed, TaskOrderOption, TaskSnapshot } from "./types";
 
 const uuidSchema = z.string().uuid();
@@ -15,7 +16,7 @@ const taskRowSchema = z.object({
   due_at: z.coerce.date().nullable(),
   assigned_member_id: uuidSchema.nullable(),
   assignee_name: z.string().nullable(),
-  source: z.enum(["manual", "visit_reminder"]),
+  source: z.enum(["manual", "visit_reminder", "workflow"]),
   related_order_id: uuidSchema.nullable(),
   order_number: z.string().nullable(),
   client_name: z.string().nullable(),
@@ -53,7 +54,7 @@ const mutableTaskRowSchema = z.object({
   priority: z.enum(["low", "normal", "high", "critical"]),
   due_at: z.coerce.date().nullable(),
   assigned_member_id: uuidSchema.nullable(),
-  source: z.enum(["manual", "visit_reminder"]),
+  source: z.enum(["manual", "visit_reminder", "workflow"]),
   status: z.enum(["open", "completed", "cancelled"]),
   version: z.number().int().positive(),
 });
@@ -228,57 +229,12 @@ export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapsh
 export async function createTask(member: AuthenticatedMember, input: CreateTaskInput) {
   requirePermission(member, "tasks.write");
   const sql = getDatabase();
-  return sql.begin(async (transaction) => {
-    if (input.assignedMemberId) {
-      const assignee = await transaction`SELECT id FROM organization_members
-        WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMemberId} AND active
-        FOR KEY SHARE`;
-      if (!assignee.length) throw new TaskAssigneeNotFoundError();
-    }
-    if (input.relatedOrderId) {
-      const orders = await transaction`SELECT id FROM orders
-        WHERE organization_id = ${member.organizationId} AND id = ${input.relatedOrderId} AND status <> 'cancelled'
-        FOR KEY SHARE`;
-      if (!orders.length) throw new TaskOrderNotFoundError();
-    }
-    const [due] = input.localDate && input.localTime
-      ? await transaction`SELECT ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) AS due_at
-          FROM organizations WHERE id = ${member.organizationId}`
-      : [{ due_at: null }];
-    const insertedTasks = await transaction`INSERT INTO tasks (
-      organization_id, title, description, priority, due_at, assigned_member_id, related_order_id, source,
-      idempotency_key, created_by, updated_by
-    ) VALUES (
-      ${member.organizationId}, ${input.title}, ${input.description}, ${input.priority}, ${due?.due_at ?? null},
-      ${input.assignedMemberId}, ${input.relatedOrderId}, 'manual', ${input.idempotencyKey}, ${member.memberId}, ${member.memberId}
-    ) ON CONFLICT (organization_id, idempotency_key) DO NOTHING
-      RETURNING id`;
-    if (!insertedTasks.length) {
-      const [existingTask] = await transaction`SELECT id FROM tasks
-        WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
-      if (!existingTask) throw new Error("Idempotent task creation could not resolve the existing task.");
-      return uuidSchema.parse(existingTask.id);
-    }
-    const [task] = insertedTasks;
-    const taskId = uuidSchema.parse(task.id);
-    const createdState = {
-      title: input.title,
-      description: input.description,
-      priority: input.priority,
-      dueAt: due?.due_at ?? null,
-      assignedMemberId: input.assignedMemberId,
-      relatedOrderId: input.relatedOrderId,
-      status: "open",
-      source: "manual",
-      version: 1,
-    };
-    await transaction`INSERT INTO task_events (organization_id, task_id, actor_id, event_type, after_state)
-      VALUES (${member.organizationId}, ${taskId}, ${member.memberId}, 'created', ${transaction.json(createdState)})`;
-    await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
-      VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'task.create', 'task', ${taskId},
-        ${transaction.json(createdState)})`;
-    return taskId;
-  });
+  try { return await sql.begin((transaction) => createTaskInTransaction(transaction, member, input, "manual")); }
+  catch (error) {
+    if (error instanceof TaskCreateTargetError && error.reason === "assignee") throw new TaskAssigneeNotFoundError();
+    if (error instanceof TaskCreateTargetError && error.reason === "order") throw new TaskOrderNotFoundError();
+    throw error;
+  }
 }
 
 export async function completeTask(member: AuthenticatedMember, input: TaskMutationInput) {
@@ -298,7 +254,7 @@ export async function completeTask(member: AuthenticatedMember, input: TaskMutat
     const version = z.number().int().positive().parse(task.version);
     const beforeState = taskState(existing);
     const afterState = { ...beforeState, status: "completed", version };
-    if (existing.source === "manual") {
+    if (existing.source !== "visit_reminder") {
       await transaction`INSERT INTO task_events (organization_id, task_id, actor_id, event_type, before_state, after_state)
         VALUES (${member.organizationId}, ${input.taskId}, ${member.memberId}, 'completed', ${transaction.json(beforeState)}, ${transaction.json(afterState)})`;
     }

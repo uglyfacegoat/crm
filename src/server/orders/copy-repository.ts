@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { publishOrderCreated } from "@/server/domain-events/order-created";
 import type { CopyOrderInput } from "./schemas";
 import { OrderNotFoundError, OrderReferenceError, OrderVersionConflictError } from "./repository";
 
@@ -264,6 +265,7 @@ export async function copyOrder(member: AuthenticatedMember, input: CopyOrderInp
       await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'order.copy', 'order', ${orderId},
           ${transaction.json({ sourceOrderId: source.id, orderNumber, serviceCount: services.length, expenseCount: expenses.length, visitCount: visits.length, copyMaster: input.copyMaster, copyNotes: input.copyNotes, copyDate: input.copyDate, groupId })})`;
+      await publishOrderCreated(transaction, member.organizationId, orderId);
       return orderId;
     });
   } catch (error) {

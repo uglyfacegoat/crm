@@ -12,6 +12,7 @@ import { WorkflowAutomation } from "./workflow-automation";
 import type { WorkflowMap, WorkflowMapSummary, WorkflowRevisionSummary } from "@/server/workflow/repository";
 import type { WorkflowComment, WorkflowMemberOption } from "@/server/workflow/context-repository";
 import type { WorkflowActivity } from "@/server/workflow/collaboration-repository";
+import type { WorkflowAutomationState } from "@/server/workflow/automation-repository";
 import type { WorkflowDraft, WorkflowNode } from "@/server/workflow/schemas";
 
 const blockKinds = [
@@ -26,7 +27,7 @@ const blockTone = Object.fromEntries(blockKinds.map((item) => [item.kind, item.t
 const nodeWidth = 196;
 const nodeHeight = 126;
 
-export function WorkflowEditor({ maps, selected, revisions, comments, commentsHasMore, members, watching, activity, canWrite, canComment, canWatch, canReview, canPublish, canPreviewAutomation, currentMemberId, preview }: {
+export function WorkflowEditor({ maps, selected, revisions, comments, commentsHasMore, members, watching, activity, automation, canWrite, canComment, canWatch, canReview, canPublish, canPreviewAutomation, canStopAutomation, currentMemberId, preview }: {
   maps: WorkflowMapSummary[];
   selected: WorkflowMap | null;
   revisions: WorkflowRevisionSummary[];
@@ -35,12 +36,14 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
   members: WorkflowMemberOption[];
   watching: boolean;
   activity: WorkflowActivity[];
+  automation: WorkflowAutomationState;
   canWrite: boolean;
   canComment: boolean;
   canWatch: boolean;
   canReview: boolean;
   canPublish: boolean;
   canPreviewAutomation: boolean;
+  canStopAutomation: boolean;
   currentMemberId: string;
   preview: boolean;
 }) {
@@ -178,7 +181,7 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Добавить блок</p>
           <div className="mt-3 grid gap-2">{blockKinds.map(({ kind, label }) => <button key={kind} type="button" onClick={() => addNode(kind)} disabled={pending || draft.nodes.length >= 60}
             className="focus-ring flex min-h-10 items-center gap-2 rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-3 text-left text-xs text-[var(--text-secondary)] hover:border-[var(--line-strong)] disabled:opacity-50"><Plus className="size-3.5" />{label}</button>)}</div>
-          <p className="mt-3 text-[10px] leading-4 text-[var(--muted)]">Блоки пока описывают процесс. Они не меняют данные CRM и не запускают действия.</p>
+          <p className="mt-3 text-[10px] leading-4 text-[var(--muted)]">Блоки описывают процесс. Разрешённый сценарий «заказ → задачи» запускается только после публикации, проверки и отдельного включения.</p>
         </div>}
       </aside>
 
@@ -306,7 +309,8 @@ export function WorkflowEditor({ maps, selected, revisions, comments, commentsHa
           currentTitle={title} currentDescription={description} currentDraft={draft}
           revisions={revisions} canWrite={canEdit} canReview={canReview}
           canPublish={canPublish} currentMemberId={currentMemberId} dirty={dirty} />}
-        {selected && !currentNode && <WorkflowAutomation mapId={selected.id} publishedVersion={selected.publishedVersion} canPreview={canPreviewAutomation} />}
+        {selected && !currentNode && <WorkflowAutomation mapId={selected.id} publishedVersion={selected.publishedVersion}
+          canPreview={canPreviewAutomation} canStop={canStopAutomation} state={automation} />}
         {selected && <WorkflowDiscussion mapId={selected.id} comments={comments} hasMore={commentsHasMore} canComment={canComment} />}
         {selected && <WorkflowCollaboration mapId={selected.id} watching={watching} canWatch={canWatch} activity={activity} />}
         {feedback && <p role={feedback.error ? "alert" : "status"} className={`mt-5 rounded-[10px] border p-3 text-xs leading-5 ${feedback.error ? "border-[var(--danger)]/40 text-[var(--danger)]" : "border-[var(--success)]/40 text-[var(--success)]"}`}>{feedback.message}</p>}

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { registerHooks } from "node:module";
 import { mock, test } from "node:test";
@@ -27,6 +28,14 @@ const context = await import("../src/server/workflow/context-repository.ts");
 const contextAccess = await import("../src/server/workflow/context-access.ts");
 const collaboration = await import("../src/server/workflow/collaboration-repository.ts");
 const automation = await import("../src/server/workflow/automation-repository.ts");
+const publisher = await import("../src/server/domain-events/order-created.ts");
+const worker = await import("../src/server/workflow/worker-engine.ts");
+const orders = await import("../src/server/orders/repository.ts");
+const orderCopy = await import("../src/server/orders/copy-repository.ts");
+const orderSchemas = await import("../src/server/orders/schemas.ts");
+const quickOrders = await import("../src/server/quick-order/repository.ts");
+const quickOrderSchemas = await import("../src/server/quick-order/schemas.ts");
+const taskRepository = await import("../src/server/tasks/repository.ts");
 const notifications = await import("../src/server/notifications/repository.ts");
 const { saveWorkflowMapSchema } = await import("../src/server/workflow/schemas.ts");
 
@@ -177,6 +186,130 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
   await assert.rejects(automation.previewOrderCreatedAutomation(owner, automationMapId, order.id),
     (error) => error instanceof automation.WorkflowAutomationTargetError && error.reason === 'assignee_unavailable');
   await sql`UPDATE organization_members SET active = true WHERE organization_id = ${owner.organizationId} AND id = ${reviewer.memberId}`;
+  const secondAdmin = await member('admin', owner.organizationId);
+  await assert.rejects(automation.enableOrderCreatedAutomation(secondAdmin, automationMapId, 2),
+    (error) => error instanceof automation.WorkflowAutomationTargetError && error.reason === 'trial_required');
+  assert.equal(await automation.enableOrderCreatedAutomation(owner, automationMapId, 2), 2);
+  assert.equal(await automation.enableOrderCreatedAutomation(owner, automationMapId, 2), 2);
+  assert.equal((await automation.getWorkflowAutomationState(owner, automationMapId)).activeVersion, 2);
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, order.id));
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, order.id));
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_automation_jobs
+    WHERE organization_id = ${owner.organizationId} AND map_id = ${automationMapId}`)[0].count, 1);
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 1, failed: 0, stopped: 0 });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks
+    WHERE organization_id = ${owner.organizationId} AND related_order_id = ${order.id} AND source = 'workflow'`)[0].count, 1);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM task_events event JOIN tasks task
+    ON task.organization_id = event.organization_id AND task.id = event.task_id
+    WHERE task.related_order_id = ${order.id} AND task.source = 'workflow' AND event.event_type = 'created'`)[0].count, 1);
+  const [workflowTask] = await sql`SELECT id FROM tasks WHERE related_order_id = ${order.id} AND source = 'workflow'`;
+  assert.equal(await taskRepository.completeTask(owner, { taskId: workflowTask.id, expectedVersion: 1 }), 2);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM task_events WHERE task_id = ${workflowTask.id}`)[0].count, 2);
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 0, failed: 0, stopped: 0 });
+  const [secondOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-002', 'new', 'RUB',
+      'Клиент для процесса', 'Объект для процесса', 'Москва') RETURNING id`;
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, secondOrder.id));
+  assert.equal(await automation.stopOrderCreatedAutomation(owner, automationMapId), true);
+  assert.equal((await sql`SELECT status FROM workflow_automation_jobs WHERE map_id = ${automationMapId}
+    AND order_id = ${secondOrder.id}`)[0].status, 'stopped');
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 0, failed: 0, stopped: 0 });
+  const [stoppedOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-STOPPED', 'new', 'RUB',
+      'Клиент для процесса', 'Объект для процесса', 'Москва') RETURNING id`;
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, stoppedOrder.id));
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_automation_jobs WHERE map_id = ${automationMapId}`)[0].count, 2);
+  await automation.enableOrderCreatedAutomation(owner, automationMapId, 2);
+  const [workerOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-WORKER', 'new', 'RUB',
+      'Клиент для процесса', 'Объект для процесса', 'Москва') RETURNING id`;
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, workerOrder.id));
+  const workerCli = spawnSync(process.execPath, ['--experimental-transform-types', 'scripts/workflow-worker.mjs', '--once'],
+    { env: { ...process.env, DATABASE_URL: url.toString() }, encoding: 'utf8', timeout: 30_000 });
+  assert.equal(workerCli.status, 0, workerCli.stderr);
+  assert.equal((await sql`SELECT status FROM workflow_automation_jobs WHERE map_id = ${automationMapId}
+    AND order_id = ${workerOrder.id}`)[0].status, 'succeeded');
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${workerOrder.id}`)[0].count, 1);
+  const [contact] = await sql`INSERT INTO client_contacts (organization_id, client_id, full_name, phone, normalized_phone)
+    VALUES (${owner.organizationId}, ${client.id}, 'Контакт заказа', '+79990000000', '+79990000000') RETURNING id`;
+  const orderInput = orderSchemas.createOrderSchema.parse({ idempotencyKey: randomUUID(),
+    clientId: client.id, objectId: object.id, contactId: contact.id,
+    assignedMasterId: '', masterPayment: '', notes: '',
+    services: [{ name: 'Обработка', quantity: '1', unitPrice: '100', note: '' }], expenses: [] });
+  const domainOrderId = await orders.createOrder(owner, orderInput);
+  assert.equal(await orders.createOrder(owner, orderInput), domainOrderId);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${domainOrderId}`)[0].count, 1);
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 1, failed: 0, stopped: 0 });
+  const [service] = await sql`SELECT id FROM order_services WHERE order_id = ${domainOrderId}`;
+  const copyInput = orderSchemas.copyOrderSchema.parse({ idempotencyKey: randomUUID(),
+    sourceOrderId: domainOrderId, expectedVersion: 1, copyDate: '2026-10-05',
+    serviceIds: [service.id], expenseIds: [], visitIds: [], copyMaster: false, copyNotes: false });
+  const copiedOrderId = await orderCopy.copyOrder(owner, copyInput);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${copiedOrderId}`)[0].count, 1);
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 1, failed: 0, stopped: 0 });
+  const quickInput = quickOrderSchemas.quickOrderSchema.parse({ idempotencyKey: randomUUID(), sourceLead: null,
+    client: { mode: 'existing', clientId: client.id,
+      contact: { mode: 'existing', contactId: contact.id }, object: { mode: 'existing', objectId: object.id } },
+    order: { assignedMasterId: '', masterPayment: '', notes: '',
+      services: [{ name: 'Обработка', quantity: '1', unitPrice: '100', note: '' }], expenses: [] },
+    visit: { localDate: '2026-10-06', localTime: '10:00', durationMinutes: 60,
+      assignedMasterId: '', notes: '' } });
+  const quickResult = await quickOrders.createQuickOrder(owner, quickInput);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${quickResult.orderId}`)[0].count, 1);
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 1, failed: 0, stopped: 0 });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks
+    WHERE related_order_id = ${quickResult.orderId} AND source = 'workflow'`)[0].count, 1);
+  const [thirdOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-003', 'new', 'RUB',
+      'Клиент для процесса', 'Объект для процесса', 'Москва') RETURNING id`;
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, thirdOrder.id));
+  await sql`INSERT INTO member_permission_overrides (organization_id, member_id, permission, allowed)
+    VALUES (${owner.organizationId}, ${owner.memberId}, 'tasks.write', false)`;
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 0, failed: 1, stopped: 0 });
+  assert.equal((await sql`SELECT status, last_error_code FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${thirdOrder.id}`)[0].last_error_code, 'ACTOR_PERMISSION_REVOKED');
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${thirdOrder.id}`)[0].count, 0);
+  await sql`DELETE FROM member_permission_overrides WHERE organization_id = ${owner.organizationId}
+    AND member_id = ${owner.memberId} AND permission = 'tasks.write'`;
+  const [retryOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-RETRY', 'new', 'RUB',
+      'Клиент для процесса', 'Объект для процесса', 'Москва') RETURNING id`;
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, retryOrder.id));
+  await sql`ALTER TABLE task_events RENAME TO task_events_temporarily_unavailable`;
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 0, failed: 1, stopped: 0 });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${retryOrder.id}`)[0].count, 0);
+  await sql`ALTER TABLE task_events_temporarily_unavailable RENAME TO task_events`;
+  await sql`UPDATE workflow_automation_jobs SET next_attempt_at = now()
+    WHERE map_id = ${automationMapId} AND order_id = ${retryOrder.id}`;
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 1, failed: 0, stopped: 0 });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${retryOrder.id}`)[0].count, 1);
+  const [failedOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${owner.organizationId}, ${client.id}, ${object.id}, 'WF-TEST-FAILED', 'new', 'RUB',
+      'Клиент для процесса', 'Объект для процесса', 'Москва') RETURNING id`;
+  await sql.begin((transaction) => publisher.publishOrderCreated(transaction, owner.organizationId, failedOrder.id));
+  await sql`ALTER TABLE task_events RENAME TO task_events_temporarily_unavailable`;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 0, failed: 1, stopped: 0 });
+    await sql`UPDATE workflow_automation_jobs SET next_attempt_at = now()
+      WHERE map_id = ${automationMapId} AND order_id = ${failedOrder.id} AND status = 'pending'`;
+  }
+  await sql`ALTER TABLE task_events_temporarily_unavailable RENAME TO task_events`;
+  assert.deepEqual((await sql`SELECT status, attempts FROM workflow_automation_jobs
+    WHERE map_id = ${automationMapId} AND order_id = ${failedOrder.id}`)[0], { status: 'failed', attempts: 3 });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${failedOrder.id}`)[0].count, 0);
+  assert.deepEqual(await worker.processWorkflowJobs(sql), { succeeded: 0, failed: 0, stopped: 0 });
+  await workflow.archiveWorkflowMap(owner, { id: automationMapId, expectedVersion: 2 });
+  assert.equal((await sql`SELECT enabled FROM workflow_automation_activations
+    WHERE map_id = ${automationMapId}`)[0].enabled, false);
   const [contract] = await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status,
     starts_on, ends_on, renewal_notice_days) VALUES (${owner.organizationId}, ${client.id}, ${object.id},
     'WF-CONTRACT-001', 'draft', '2026-01-01', '2026-12-31', 30) RETURNING id`;
@@ -202,7 +335,7 @@ test("workflow maps are tenant scoped, permission gated and version safe", async
     title: 'Стереть скрытую ссылку', description: '', draft: redacted.draft }), AuthorizationError);
   assert.deepEqual(await context.findWorkflowResources(owner, contextMapId, 'client', 'Клиент для'),
     [{ id: client.id, label: 'Клиент для процесса' }]);
-  assert.deepEqual(await context.findWorkflowResources(owner, contextMapId, 'order', 'WF-TEST'),
+  assert.deepEqual(await context.findWorkflowResources(owner, contextMapId, 'order', 'WF-TEST-001'),
     [{ id: order.id, label: 'WF-TEST-001' }]);
   assert.deepEqual(await context.findWorkflowResources(owner, contextMapId, 'contract', 'WF-CONTRACT'),
     [{ id: contract.id, label: 'WF-CONTRACT-001' }]);

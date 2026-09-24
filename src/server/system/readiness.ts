@@ -14,7 +14,7 @@ export async function readinessResponse() {
         ELSE 'stale'
       END AS status
       FROM background_job_status
-      WHERE job_name IN ('chat.visit-reminders', 'system.backup')`),
+      WHERE job_name IN ('chat.visit-reminders', 'system.backup', 'workflow.order-created')`),
     Promise.resolve().then(checkDocumentStorageAvailability),
     Promise.resolve().then(() => checkScannerAvailability()),
   ]);
@@ -37,6 +37,7 @@ export async function readinessResponse() {
     scanner: scannerState,
     reminderWorker: workerStatus.get("chat.visit-reminders") ?? "not_started",
     backupWorker: workerStatus.get("system.backup") ?? "not_started",
+    workflowWorker: workerStatus.get("workflow.order-created") ?? "not_started",
     checkedAt: new Date().toISOString(),
   }, { headers });
 }

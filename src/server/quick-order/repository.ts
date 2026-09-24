@@ -4,6 +4,7 @@ import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { normalizeContactPhone } from "@/server/clients/phone";
 import { getDatabase } from "@/server/database";
+import { publishOrderCreated } from "@/server/domain-events/order-created";
 import {
   calculateServiceLineTotalMinor,
   formatQuantityForDatabase,
@@ -347,6 +348,8 @@ export async function createQuickOrder(member: AuthenticatedMember, input: Quick
       await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'service_visit.create', 'service_visit', ${visitId},
           ${transaction.json({ source: "quick_order", orderId, ...visitAfterState })})`;
+
+      await publishOrderCreated(transaction, member.organizationId, orderId);
 
       return { clientId, objectId, contactId, orderId, orderNumber, visitId };
     });

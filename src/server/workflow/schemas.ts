@@ -104,6 +104,8 @@ export const workflowResourceSearchSchema = z.object({
 export const workflowCommentPageSchema = z.object({ mapId: uuid, beforeId: uuid }).strict();
 export const watchWorkflowMapSchema = z.object({ mapId: uuid, watching: z.boolean() }).strict();
 export const previewWorkflowAutomationSchema = z.object({ mapId: uuid, orderId: uuid }).strict();
+export const enableWorkflowAutomationSchema = z.object({ mapId: uuid, expectedPublishedVersion: z.number().int().positive() }).strict();
+export const stopWorkflowAutomationSchema = z.object({ mapId: uuid }).strict();
 
 export type WorkflowDraft = z.infer<typeof workflowDraftSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
@@ -120,3 +122,5 @@ export type WorkflowResourceSearchInput = z.infer<typeof workflowResourceSearchS
 export type WorkflowCommentPageInput = z.infer<typeof workflowCommentPageSchema>;
 export type WatchWorkflowMapInput = z.infer<typeof watchWorkflowMapSchema>;
 export type PreviewWorkflowAutomationInput = z.infer<typeof previewWorkflowAutomationSchema>;
+export type EnableWorkflowAutomationInput = z.infer<typeof enableWorkflowAutomationSchema>;
+export type StopWorkflowAutomationInput = z.infer<typeof stopWorkflowAutomationSchema>;

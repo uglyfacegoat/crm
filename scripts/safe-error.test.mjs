@@ -35,17 +35,19 @@ test("operator commands and workers redact startup failures", () => {
   mkdirSync(storageRoot);
   try {
     for (const script of ["migrate.mjs", "file-write-drain.mjs", "backup-restore-check.mjs",
-      "reminder-worker.mjs", "backup-worker.mjs"]) {
-      const result = spawnSync(process.execPath, [join(import.meta.dirname, script), script === "file-write-drain.mjs" ? "status" : "--healthcheck"], {
+      "reminder-worker.mjs", "backup-worker.mjs", "workflow-worker.mjs"]) {
+      const args = script === "workflow-worker.mjs" ? ["--experimental-transform-types", join(import.meta.dirname, script), "--healthcheck"]
+        : [join(import.meta.dirname, script), script === "file-write-drain.mjs" ? "status" : "--healthcheck"];
+      const result = spawnSync(process.execPath, args, {
         encoding: "utf8", timeout: 15_000,
-        env: { PATH: process.env.PATH, DATABASE_URL: "postgresql://probe:probe-secret@127.0.0.1:1/probe",
+        env: { PATH: process.env.PATH, NODE_NO_WARNINGS: "1", DATABASE_URL: "postgresql://probe:probe-secret@127.0.0.1:1/probe",
           DOCUMENT_STORAGE_ROOT: storageRoot, BACKUP_ROOT: join(root, "backups") },
       });
       assert.equal(result.status, 1, `${script}: ${result.error?.code ?? "unexpected status"}`);
       assert.doesNotMatch(`${result.stdout}${result.stderr}`, /probe-secret|postgresql:|at .*\.mjs/);
       const line = JSON.parse(result.stderr.trim());
       assert.equal(line.status, "failed");
-      assert.match(line.errorCode, /^(ECONNREFUSED|MIGRATION_FAILED|FILE_WRITE_DRAIN_FAILED|BACKUP_RESTORE_CHECK_FAILED|BACKUP_WORKER_FAILED|REMINDER_WORKER_FAILED)$/);
+      assert.match(line.errorCode, /^(ECONNREFUSED|MIGRATION_FAILED|FILE_WRITE_DRAIN_FAILED|BACKUP_RESTORE_CHECK_FAILED|BACKUP_WORKER_FAILED|REMINDER_WORKER_FAILED|WORKFLOW_WORKER_FAILED)$/);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

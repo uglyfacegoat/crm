@@ -136,6 +136,8 @@ export function WorkflowLifecycle({ map, currentVersion, currentTitle, currentDe
           {node.title}{node.description ? ` — ${node.description}` : ""}
           {node.regulation && <span className="block whitespace-pre-wrap break-words pl-3">Регламент: {node.regulation}</span>}
           {node.ownerMemberId && <span className="block pl-3">Ответственный: {node.ownerMemberId.slice(0, 8)}</span>}
+          {node.automation?.kind === "order_created" && <span className="block pl-3">Автоматизация: создан заказ</span>}
+          {node.automation?.kind === "create_order_task" && <span className="block pl-3">Автоматизация: создать задачу «{node.automation.title}» · {node.automation.priority}{node.automation.assignedMemberId ? ` · исполнитель ${node.automation.assignedMemberId.slice(0, 8)}` : ""}</span>}
           {node.resource && <Link href={`/${node.resource.kind === "client" ? "clients" : node.resource.kind === "order" ? "orders" : "contracts"}/${node.resource.id}`}
             className="focus-ring block break-all pl-3 text-[var(--accent-ink)] underline underline-offset-2">Связанная карточка: {node.resource.kind} · {node.resource.id.slice(0, 8)}</Link>}
         </li>)}</ol>

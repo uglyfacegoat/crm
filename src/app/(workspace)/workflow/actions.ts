@@ -7,7 +7,8 @@ import { requireSession } from "@/server/auth/session";
 import { safeErrorCode } from "@/server/observability/safe-error";
 import { addWorkflowComment, findWorkflowResources, listWorkflowComments, type WorkflowCommentPage, type WorkflowResourceOption } from "@/server/workflow/context-repository";
 import { WorkflowContextTargetError } from "@/server/workflow/context-access";
-import { previewOrderCreatedAutomation, WorkflowAutomationTargetError, type WorkflowAutomationPreview } from "@/server/workflow/automation-repository";
+import { enableOrderCreatedAutomation, previewOrderCreatedAutomation, stopOrderCreatedAutomation,
+  WorkflowAutomationTargetError, type WorkflowAutomationPreview } from "@/server/workflow/automation-repository";
 import { WorkflowAutomationPlanError } from "@/server/workflow/automation-plan";
 import { watchWorkflowMap, WorkflowCollaborationMapNotFoundError } from "@/server/workflow/collaboration-repository";
 import {
@@ -25,11 +26,13 @@ import {
   workflowRevisionLookupSchema, workflowVersionCommandSchema,
   addWorkflowCommentSchema, workflowCommentPageSchema, workflowResourceSearchSchema, watchWorkflowMapSchema,
   previewWorkflowAutomationSchema,
+  enableWorkflowAutomationSchema, stopWorkflowAutomationSchema,
   type ArchiveWorkflowMapInput, type CreateWorkflowMapInput, type SaveWorkflowMapInput,
   type RejectWorkflowReviewInput, type RestoreWorkflowRevisionInput,
   type WorkflowRevisionLookupInput, type WorkflowVersionCommandInput,
   type AddWorkflowCommentInput, type WorkflowCommentPageInput, type WorkflowResourceSearchInput, type WatchWorkflowMapInput,
   type PreviewWorkflowAutomationInput,
+  type EnableWorkflowAutomationInput, type StopWorkflowAutomationInput,
 } from "@/server/workflow/schemas";
 
 type WorkflowActionResult = {
@@ -220,9 +223,45 @@ export async function previewWorkflowAutomationAction(input: PreviewWorkflowAuto
     if (error instanceof WorkflowAutomationPlanError) return { status: "error", message: "Схема запуска: одно событие «Создан заказ» соедините напрямую с 1–5 действиями «Создать задачу». Остальные блоки могут оставаться описанием." };
     if (error instanceof WorkflowAutomationTargetError) {
       const messages = { unpublished: "Сначала согласуйте и опубликуйте карту.",
-        order_unavailable: "Заказ недоступен или отменён.", assignee_unavailable: "Исполнитель задачи отключён или недоступен." };
+        order_unavailable: "Заказ недоступен или отменён.", assignee_unavailable: "Исполнитель задачи отключён или недоступен.",
+        version_changed: "Опубликована новая версия. Обновите страницу и повторите пробный запуск.",
+        trial_required: "Сначала проведите пробный запуск этой версии карты." };
       return { status: "error", message: messages[error.reason] };
     }
     return { status: "error", message: failure(error, "workflow.automation.preview", member.memberId).message };
   }
+}
+
+export async function enableWorkflowAutomationAction(input: EnableWorkflowAutomationInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = enableWorkflowAutomationSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная версия карты.", id: null, version: null };
+  try {
+    const version = await enableOrderCreatedAutomation(member, parsed.data.mapId, parsed.data.expectedPublishedVersion);
+    revalidatePath("/workflow");
+    return { status: "success", message: `Автоматизация версии ${version} включена для новых заказов.`, id: parsed.data.mapId, version };
+  } catch (error) {
+    if (error instanceof WorkflowAutomationPlanError) return { status: "error", message: "Карта содержит неподдерживаемую схему автоматизации.", id: null, version: null };
+    if (error instanceof WorkflowAutomationTargetError) {
+      const messages = { unpublished: "Сначала опубликуйте карту.", order_unavailable: "Заказ недоступен.",
+        assignee_unavailable: "Исполнитель задачи отключён или недоступен.",
+        version_changed: "Опубликована новая версия. Обновите страницу и повторите пробный запуск.",
+        trial_required: "Сначала проведите пробный запуск этой версии карты." };
+      return { status: "error", message: messages[error.reason], id: null, version: null };
+    }
+    return failure(error, "workflow.automation.enable", member.memberId);
+  }
+}
+
+export async function stopWorkflowAutomationAction(input: StopWorkflowAutomationInput): Promise<WorkflowActionResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: "Предпросмотр недоступен.", id: null, version: null };
+  const member = await requireSession();
+  const parsed = stopWorkflowAutomationSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Некорректная карта.", id: null, version: null };
+  try {
+    await stopOrderCreatedAutomation(member, parsed.data.mapId);
+    revalidatePath("/workflow");
+    return { status: "success", message: "Автоматизация остановлена. Новые и ожидающие события не запускаются.", id: parsed.data.mapId, version: null };
+  } catch (error) { return failure(error, "workflow.automation.stop", member.memberId); }
 }

@@ -209,6 +209,14 @@ export async function archiveWorkflowMap(member: AuthenticatedMember, input: Arc
       (organization_id, map_id, version, title, description, draft, change_kind, saved_by)
       VALUES (${member.organizationId}, ${input.id}, ${archived.version}, ${archived.title},
         ${archived.description}, ${transaction.json(archived.draft)}, 'archived', ${member.memberId})`;
+    const [activation] = await transaction`UPDATE workflow_automation_activations
+      SET enabled = false, stopped_by = ${member.memberId}, stopped_at = now()
+      WHERE organization_id = ${member.organizationId} AND map_id = ${input.id} AND enabled
+      RETURNING activation_id`;
+    if (activation) await transaction`UPDATE workflow_automation_jobs SET status = 'stopped',
+      lease_until = NULL, completed_at = now()
+      WHERE organization_id = ${member.organizationId} AND map_id = ${input.id}
+        AND activation_id = ${activation.activation_id} AND status IN ('pending', 'running')`;
     await transaction`INSERT INTO audit_events
       (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},

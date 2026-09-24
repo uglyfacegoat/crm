@@ -15,7 +15,7 @@ export type AssignableOrganizationRole =
   (typeof assignableOrganizationRoles)[number];
 
 export type AuthenticatedMember = {
-  sessionId: string;
+  sessionId: string | null;
   organizationId: string;
   organizationName: string;
   memberId: string;

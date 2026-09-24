@@ -237,8 +237,15 @@ try {
   await secondPage.getByRole("status").filter({ hasText: "Позвонить клиенту после заказа" }).waitFor();
   assert.equal((await sql`SELECT count(*)::integer AS count FROM tasks WHERE related_order_id = ${automationOrder.id}`)[0].count, 0);
   await secondPage.screenshot({ path: join(artifacts, "workflow-automation-dry-run.png"), animations: "disabled" });
+  await secondPage.getByRole("button", { name: "Включить для новых заказов" }).click();
+  await secondPage.getByText("Включена версия 2.").waitFor();
+  await secondPage.screenshot({ path: join(artifacts, "workflow-automation-enabled.png"), animations: "disabled" });
+  assert.equal((await sql`SELECT enabled FROM workflow_automation_activations WHERE map_id = ${automationMapId}`)[0].enabled, true);
+  await secondPage.getByRole("button", { name: "Остановить автоматизацию" }).click();
+  await secondPage.getByText("Автоматический запуск выключен.").waitFor();
+  assert.equal((await sql`SELECT enabled FROM workflow_automation_activations WHERE map_id = ${automationMapId}`)[0].enabled, false);
   assert.deepEqual(browserErrors, []);
-  console.log("Workflow browser check passed: context, notifications, concurrent edits, review, publication, history, restore, archive and order automation dry run without task writes.");
+  console.log("Workflow browser check passed: context, notifications, concurrent edits, review, publication, history, restore, archive and order automation trial/enable/stop without task writes.");
 } catch (error) {
   if (page) await page.screenshot({ path: join(artifacts, "workflow-failure.png") }).catch(() => {});
   if (reviewerPage) {

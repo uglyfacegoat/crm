@@ -337,7 +337,8 @@ export function TasksWorkspace({
               {[
                 ["all", "Все"],
                 ["manual", "Ручные"],
-                ["visit_reminder", "Автоматические"],
+                ["visit_reminder", "Напоминания о выезде"],
+                ["workflow", "Из воркфлоу"],
               ].map(([value, label]) => (
                 <button
                   type="button"
@@ -461,7 +462,7 @@ function TaskGroup({
                 <p>{task.meta}</p>
                 {task.description ? <small>{task.description}</small> : null}
                 <em data-source={task.source}>
-                  {task.source === "manual" ? "Ручная" : "Автоматическая"}
+                  {task.source === "manual" ? "Ручная" : task.source === "workflow" ? "Воркфлоу" : "Напоминание о выезде"}
                 </em>
               </div>
               <div className="tasks-row-owner">

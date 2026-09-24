@@ -16,7 +16,7 @@ export type TaskCard = {
   assigneeName: string | null;
   column: TaskColumn;
   priority: TaskPriority;
-  source: "manual" | "visit_reminder";
+  source: "manual" | "visit_reminder" | "workflow";
   relatedOrderId: string | null;
   version: number;
 };

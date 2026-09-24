@@ -58,6 +58,8 @@ const safeColumns = new Set([
   "website_integrations.provider", "website_sync_runs.provider", "website_hosting_profiles.provider",
   "masters.service_zone", "chat_message_reactions.emoji",
   "workflow_map_revisions.change_kind",
+  "workflow_automation_jobs.event_type", "workflow_automation_jobs.status",
+  "workflow_automation_jobs.last_error_code",
 ]);
 
 function replacement(table, column, type) {
@@ -66,10 +68,14 @@ function replacement(table, column, type) {
   if ((table === "workflow_maps" || table === "workflow_map_revisions") && column === "draft") {
     // Keep graph IDs, positions and topology; redact only text in the private copy.
     return `jsonb_build_object(
-      'nodes', coalesce((SELECT jsonb_agg((node.value - 'regulation') || jsonb_build_object(
+      'nodes', coalesce((SELECT jsonb_agg((node.value - 'regulation' - 'automation') || jsonb_build_object(
         'title', 'Anonymized node ' || node.ordinality::text,
         'description', CASE WHEN node.value->>'description' = '' THEN '' ELSE 'Anonymized description' END)
         || CASE WHEN node.value ? 'regulation' THEN jsonb_build_object('regulation', 'Anonymized regulation') ELSE '{}'::jsonb END
+        || CASE WHEN node.value->'automation'->>'kind' = 'create_order_task'
+          THEN jsonb_build_object('automation', node.value->'automation' || jsonb_build_object('title', 'Anonymized task'))
+          WHEN node.value ? 'automation' THEN jsonb_build_object('automation', node.value->'automation')
+          ELSE '{}'::jsonb END
         ORDER BY node.ordinality)
         FROM jsonb_array_elements(coalesce(t.draft->'nodes', '[]'::jsonb))
           WITH ORDINALITY AS node(value, ordinality)), '[]'::jsonb),

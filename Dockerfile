@@ -54,6 +54,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-export.mjs ./scrip
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-retention.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/storage-audit.mjs /app/scripts/s3-audit-storage.mjs ./scripts/
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/backup-snapshot.mjs ./scripts/
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/workflow-worker.mjs ./scripts/workflow-worker.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/src/server/workflow/worker-engine.ts /app/src/server/workflow/automation-plan.ts /app/src/server/workflow/schemas.ts ./src/server/workflow/
+COPY --from=builder --chown=nextjs:nodejs /app/src/server/tasks/create-command.ts /app/src/server/tasks/schemas.ts /app/src/server/tasks/types.ts ./src/server/tasks/
+COPY --from=builder --chown=nextjs:nodejs /app/src/server/auth/permissions.ts /app/src/server/auth/types.ts ./src/server/auth/
 COPY --from=builder --chown=nextjs:nodejs /app/db/migrations ./db/migrations
 COPY --chown=nextjs:nodejs docker-entrypoint.sh ./docker-entrypoint.sh
 

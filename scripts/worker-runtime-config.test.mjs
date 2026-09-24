@@ -23,9 +23,12 @@ for (const [script, invalidEnvironment, expectedField] of [
   ["scripts/backup-worker.mjs", { DATABASE_URL: undefined }, "DATABASE_URL"],
   ["scripts/backup-worker.mjs", { DOCUMENT_STORAGE_BACKEND: "s3" }, "DOCUMENT_S3_ENDPOINT"],
   ["scripts/backup-worker.mjs", { BACKUP_ROOT: "relative" }, "BACKUP_ROOT"],
+  ["scripts/workflow-worker.mjs", { DATABASE_URL: undefined }, "DATABASE_URL"],
+  ["scripts/workflow-worker.mjs", { WORKFLOW_WORKER_INTERVAL_MS: "1" }, "WORKFLOW_WORKER_INTERVAL_MS"],
 ]) {
   test(`${script} rejects invalid ${expectedField} before connecting`, () => {
-    const result = spawnSync(process.execPath, [script, "--healthcheck"], {
+    const args = script.includes("workflow-worker") ? ["--experimental-transform-types", script, "--healthcheck"] : [script, "--healthcheck"];
+    const result = spawnSync(process.execPath, args, {
       env: { NODE_ENV: "production", DATABASE_URL: validDatabaseUrl, ...invalidEnvironment },
       encoding: "utf8",
       timeout: 5_000,
