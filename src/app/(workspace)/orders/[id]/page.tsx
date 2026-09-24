@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  ArrowLeft,
   FileText,
   MapPin,
   Phone,
@@ -15,6 +14,7 @@ import { OrderActions } from "@/components/orders/order-actions";
 import { OrderRelationsSection } from "@/components/orders/order-relations-section";
 import { OrderVisitSection } from "@/components/orders/order-visit-section";
 import { Avatar } from "@/components/ui/avatar";
+import { BackLink } from "@/components/ui/back-link";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoneyMinor, formatShortDate } from "@/lib/format";
 import { getAuthMode } from "@/server/auth/config";
@@ -167,6 +167,10 @@ export default async function OrderDetailPage({
     }
   }
 
+  if (order.assignedMasterId && order.master && !options.masters.some((master) => master.id === order.assignedMasterId)) {
+    options.masters.push({ id: order.assignedMasterId, name: order.master, phone: order.masterPhone ?? "" });
+  }
+
   const dispatchVisit =
     orderVisits.find(
       (visit) =>
@@ -181,12 +185,9 @@ export default async function OrderDetailPage({
       <header className="surface-panel animate-rise p-5 sm:p-6">
         <div className="flex flex-col gap-5 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
           <div>
-            <Link
-              href="/orders"
-              className="focus-ring mb-4 inline-flex items-center gap-2 rounded-lg text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-            >
-              <ArrowLeft className="size-4" />К заказам
-            </Link>
+            <BackLink href="/orders" className="mb-4">
+              К заказам
+            </BackLink>
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="display-title text-[var(--text)]">
                 Заказ {order.number}
@@ -208,7 +209,7 @@ export default async function OrderDetailPage({
       </header>
 
       <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)]">
-        <main className="space-y-5">
+        <section aria-label="Детали заказа" className="space-y-5">
           <section
             className="surface-panel animate-rise p-5 sm:p-6"
             style={{ animationDelay: "80ms" }}
@@ -357,7 +358,7 @@ export default async function OrderDetailPage({
               </p>
             )}
           </section>
-        </main>
+        </section>
 
         <aside className="space-y-5">
           <section
@@ -497,10 +498,10 @@ export default async function OrderDetailPage({
                 </p>
               )}
               <Link
-                href="/documents"
+                href={`/documents?client=${order.clientId}&object=${order.objectId}&order=${order.id}`}
                 className="focus-ring mt-4 inline-flex rounded-lg text-xs text-[var(--accent)] hover:underline"
               >
-                Открыть архив
+                Все документы заказа
               </Link>
             </section>
           ) : null}

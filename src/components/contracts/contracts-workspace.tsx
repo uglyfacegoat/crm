@@ -6,6 +6,7 @@ import {
   ChevronRight,
   FileSignature,
   History,
+  Link2,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -60,15 +61,14 @@ const statuses: Array<{ value: "all" | ContractStatus; label: string }> = [
   { value: "completed", label: "Завершён" },
   { value: "cancelled", label: "Отменён" },
 ];
-const quickFilters: Array<{ value: QuickFilter; label: string; tone: string }> =
+const quickFilters: Array<{ value: QuickFilter; label: string }> =
   [
-    { value: "all", label: "Все договоры", tone: "var(--accent)" },
-    { value: "active", label: "Действуют", tone: "var(--success)" },
-    { value: "expiring", label: "Требуют продления", tone: "var(--warning)" },
+    { value: "all", label: "Все договоры" },
+    { value: "active", label: "Действуют" },
+    { value: "expiring", label: "Требуют продления" },
     {
       value: "scheduled",
       label: "С плановыми выездами",
-      tone: "var(--support)",
     },
   ];
 const statusPresentation = {
@@ -97,6 +97,11 @@ const statusPresentation = {
     className:
       "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]",
   },
+} as const;
+const relationLabels = {
+  related: "Связанный",
+  supplement: "Доп. соглашение",
+  framework: "Рамочный",
 } as const;
 
 function formatDate(date: string) {
@@ -243,6 +248,7 @@ export function ContractsWorkspace({
         contract.objectName,
         contract.objectAddress,
         contract.schedule?.defaultMasterName,
+        ...contract.relations.map((relation) => relation.contractNumber),
       ]);
     });
     return filtered.toSorted((left, right) => {
@@ -302,7 +308,7 @@ export function ContractsWorkspace({
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] space-y-4">
       <section
         aria-label="Быстрые фильтры договоров"
-        className="flex gap-1 overflow-x-auto rounded-[14px] border border-[var(--line)] bg-[var(--surface-inset)] p-1.5"
+        className="surface-panel scrollbar-hidden flex gap-1 overflow-x-auto p-2"
       >
         {quickFilters.map((entry) => (
           <button
@@ -310,15 +316,11 @@ export function ContractsWorkspace({
             type="button"
             onClick={() => setQuickFilter(entry.value)}
             aria-pressed={quickFilter === entry.value}
-            className={`focus-ring flex min-h-10 shrink-0 items-center gap-2 rounded-[10px] px-3 text-xs transition-colors ${quickFilter === entry.value ? "bg-[var(--surface)] text-[var(--text)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
+            className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors ${quickFilter === entry.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
           >
-            <span
-              className="size-1.5 rounded-full"
-              style={{ backgroundColor: entry.tone }}
-            />
             {entry.label}
             <span
-              className={`rounded-full px-1.5 py-0.5 font-display text-[9px] ${quickFilter === entry.value ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "bg-[var(--surface-soft)] text-[var(--muted)]"}`}
+              className={`font-display text-[9px] ${quickFilter === entry.value ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}`}
             >
               {counts[entry.value]}
             </span>
@@ -326,7 +328,7 @@ export function ContractsWorkspace({
         ))}
       </section>
 
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <header className="flex flex-col gap-3 border-b border-[var(--line)] p-3 sm:p-4 lg:flex-row lg:items-center">
           <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 lg:max-w-md">
             <Search className="size-4 shrink-0 text-[var(--muted)]" />
@@ -373,7 +375,7 @@ export function ContractsWorkspace({
           ) : null}
         </header>
 
-        <div className="hidden min-w-[68rem] grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_8rem] items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-[9px] uppercase tracking-[0.1em] text-[var(--muted)] lg:grid">
+        <div className="hidden min-w-[70rem] grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_10rem] items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-[9px] uppercase tracking-[0.1em] text-[var(--muted)] lg:grid">
           <span>Договор</span>
           <span>Клиент / объект</span>
           <span>Период</span>
@@ -396,7 +398,7 @@ export function ContractsWorkspace({
                     router.push(`/contracts/${contract.id}`);
                   }
                 }}
-                className="cursor-pointer border-b border-[var(--line)] p-4 transition-colors last:border-0 hover:bg-[var(--surface-soft)] lg:grid lg:min-w-[68rem] lg:grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_8rem] lg:items-center lg:gap-4 lg:px-5 lg:py-4"
+                className="cursor-pointer border-b border-[var(--line)] p-4 transition-colors last:border-0 hover:bg-[var(--surface-soft)] lg:grid lg:min-w-[70rem] lg:grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_10rem] lg:items-center lg:gap-4 lg:px-5 lg:py-4"
               >
                 <div className="flex items-start justify-between gap-3 lg:block">
                   <div>
@@ -438,6 +440,12 @@ export function ContractsWorkspace({
                   {contract.renewedFromContractId ? (
                     <p className="mt-1 text-[9px] text-[var(--support)]">
                       Продление предыдущего периода
+                    </p>
+                  ) : null}
+                  {contract.relations.length ? (
+                    <p className="mt-1 flex items-center gap-1.5 text-[9px] font-medium text-[var(--accent-ink)]">
+                      <Link2 className="size-3" />
+                      {contract.relations.map((relation) => `${relationLabels[relation.relationType]} ${relation.contractNumber}`).join(" · ")}
                     </p>
                   ) : null}
                 </div>
@@ -488,6 +496,7 @@ export function ContractsWorkspace({
                   <button
                     type="button"
                     onClick={() => open(contract, "history")}
+                    aria-label={`История договора ${contract.contractNumber}`}
                     title="История"
                     className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
                   >
@@ -497,7 +506,17 @@ export function ContractsWorkspace({
                     <>
                       <button
                         type="button"
+                        onClick={() => open(contract, "link")}
+                        aria-label={`Связать договор ${contract.contractNumber}`}
+                        title="Связать с другим договором"
+                        className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
+                      >
+                        <Link2 className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => open(contract, "edit")}
+                        aria-label={`Редактировать договор ${contract.contractNumber}`}
                         title="Редактировать"
                         className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
                       >
@@ -508,6 +527,7 @@ export function ContractsWorkspace({
                         <button
                           type="button"
                           onClick={() => open(contract, "renew")}
+                          aria-label={`Продлить договор ${contract.contractNumber}`}
                           title="Продлить"
                           className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)] hover:bg-[var(--accent)] hover:text-[var(--on-accent)]"
                         >
@@ -783,6 +803,7 @@ export function ContractsWorkspace({
       <ContractDialogs
         mode={dialogMode}
         contract={selected}
+        contractOptions={snapshot.contracts}
         objectOptions={snapshot.objectOptions}
         masterOptions={snapshot.masterOptions}
         onClose={close}

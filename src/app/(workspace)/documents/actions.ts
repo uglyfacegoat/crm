@@ -1,11 +1,15 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
+import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { requireSession } from "@/server/auth/session";
+import { consumeRequestLimit } from "@/server/request-limits/repository";
 import {
   DocumentFileValidationError,
+  assertDocumentFileSize,
   validateDocumentFile,
 } from "@/server/documents/file-validation";
 import {
@@ -44,6 +48,7 @@ export type DocumentUploadState = {
   status: "idle" | "success" | "error";
   message: string | null;
   fieldErrors: Record<string, string[]>;
+  refreshRequired?: true;
 };
 
 export type DocumentArchiveActionState = {
@@ -66,12 +71,12 @@ function logUnexpected(operation: string, memberId: string, error: unknown) {
       operation,
       category: "unexpected",
       memberId,
-      error: error instanceof Error ? error.message : "Unknown error",
+      errorCode: safeErrorCode(error),
     }),
   );
 }
 
-export async function uploadDocumentAction(
+async function uploadDocumentActionImpl(
   _previous: DocumentUploadState,
   formData: FormData,
 ): Promise<DocumentUploadState> {
@@ -109,26 +114,34 @@ export async function uploadDocumentAction(
     };
 
   let storageKey: string | null = null;
+  let fileWritten = false;
+  let committed = false;
+  let outcomeUnknown = false;
   try {
-    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    const file = validateDocumentFile({
-      filename: uploadedFile.name,
-      declaredMimeType: uploadedFile.type,
-      buffer,
-    });
+    assertDocumentFileSize(uploadedFile.size);
     if (await documentUploadExists(member, parsed.data.idempotencyKey))
       return {
         status: "success",
         message: "Документ уже загружен.",
         fieldErrors: {},
       };
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const file = validateDocumentFile({
+      filename: uploadedFile.name,
+      declaredMimeType: uploadedFile.type,
+      buffer,
+    });
     storageKey = createDocumentStorageKey(
       member.organizationId,
       parsed.data.idempotencyKey,
       file.extension,
     );
     await writeDocumentFile(storageKey, buffer);
+    fileWritten = true;
     await createDocument(member, { ...parsed.data, ...file, storageKey });
+    committed = true;
     revalidatePath("/documents");
     revalidatePath("/orders");
     revalidatePath(`/orders/${parsed.data.orderId}`);
@@ -140,6 +153,15 @@ export async function uploadDocumentAction(
       fieldErrors: {},
     };
   } catch (error) {
+    if (committed) {
+      logUnexpected("documents.upload.revalidate", member.memberId, error);
+      return {
+        status: "success",
+        message: "Документ сохранён, но страницу не удалось обновить. Обновите её вручную.",
+        fieldErrors: {},
+        refreshRequired: true,
+      };
+    }
     if (error instanceof DocumentFileValidationError)
       return {
         status: "error",
@@ -147,7 +169,6 @@ export async function uploadDocumentAction(
         fieldErrors: { file: [error.message] },
       };
     if (error instanceof DocumentReferenceError) {
-      if (storageKey) await removeDocumentFile(storageKey);
       const message =
         error.field === "order"
           ? "Заказ больше не существует или недоступен."
@@ -173,10 +194,21 @@ export async function uploadDocumentAction(
         fieldErrors: {},
       };
     }
-    if (storageKey) {
+    // A lost COMMIT response is not proof of rollback; retaining bytes is safer than deleting evidence.
+    outcomeUnknown = true;
+    markFileWriteUncertain();
+    logUnexpected("documents.upload", member.memberId, error);
+    return {
+      status: "error",
+      message: "Не удалось подтвердить сохранение документа. Обновите список и проверьте результат перед повторной загрузкой.",
+      fieldErrors: {},
+    };
+  } finally {
+    if (storageKey && fileWritten && !committed && !outcomeUnknown) {
       try {
         await removeDocumentFile(storageKey);
       } catch (cleanupError) {
+        markFileWriteUncertain();
         logUnexpected(
           "documents.upload.cleanup",
           member.memberId,
@@ -184,16 +216,10 @@ export async function uploadDocumentAction(
         );
       }
     }
-    logUnexpected("documents.upload", member.memberId, error);
-    return {
-      status: "error",
-      message: "Не удалось сохранить документ. Файл не добавлен.",
-      fieldErrors: {},
-    };
   }
 }
 
-export async function uploadDocumentVersionAction(
+async function uploadDocumentVersionActionImpl(
   _previous: DocumentUploadState,
   formData: FormData,
 ): Promise<DocumentUploadState> {
@@ -230,13 +256,9 @@ export async function uploadDocumentVersionAction(
   let storageKey: string | null = null;
   let fileWritten = false;
   let committed = false;
+  let outcomeUnknown = false;
   try {
-    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-    const file = validateDocumentFile({
-      filename: uploadedFile.name,
-      declaredMimeType: uploadedFile.type,
-      buffer,
-    });
+    assertDocumentFileSize(uploadedFile.size);
     if (
       await documentVersionUploadExists(
         member,
@@ -250,6 +272,14 @@ export async function uploadDocumentVersionAction(
         fieldErrors: {},
       };
     }
+    const budget = await consumeRequestLimit(member, "document_upload");
+    if (!budget.allowed) return { status: "error", message: `Слишком много загрузок. Повторите через ${budget.retryAfterSeconds} сек.`, fieldErrors: {} };
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const file = validateDocumentFile({
+      filename: uploadedFile.name,
+      declaredMimeType: uploadedFile.type,
+      buffer,
+    });
     const target = await getDocumentVersionUploadTarget(
       member,
       parsed.data.documentId,
@@ -279,6 +309,15 @@ export async function uploadDocumentVersionAction(
       fieldErrors: {},
     };
   } catch (error) {
+    if (committed) {
+      logUnexpected("documents.version_upload.revalidate", member.memberId, error);
+      return {
+        status: "success",
+        message: "Новая версия сохранена, но страницу не удалось обновить. Обновите её вручную.",
+        fieldErrors: {},
+        refreshRequired: true,
+      };
+    }
     if (error instanceof DocumentFileValidationError)
       return {
         status: "error",
@@ -333,17 +372,20 @@ export async function uploadDocumentVersionAction(
         fieldErrors: {},
       };
     }
+    outcomeUnknown = true;
+    markFileWriteUncertain();
     logUnexpected("documents.version_upload", member.memberId, error);
     return {
       status: "error",
-      message: "Не удалось сохранить новую версию. Текущий файл не изменён.",
+      message: "Не удалось подтвердить сохранение версии. Обновите историю документа и проверьте результат перед повторной загрузкой.",
       fieldErrors: {},
     };
   } finally {
-    if (storageKey && fileWritten && !committed) {
+    if (storageKey && fileWritten && !committed && !outcomeUnknown) {
       try {
         await removeDocumentFile(storageKey);
       } catch (cleanupError) {
+        markFileWriteUncertain();
         logUnexpected(
           "documents.version_upload.cleanup",
           member.memberId,
@@ -352,6 +394,30 @@ export async function uploadDocumentVersionAction(
       }
     }
   }
+}
+
+async function guardedDocumentUpload(operation: () => Promise<DocumentUploadState>): Promise<DocumentUploadState> {
+  if (getAuthMode() === "preview") return operation();
+  await requireSession();
+  try {
+    return await withFileWriteLease(operation);
+  } catch (error) {
+    if (error instanceof FileWritesPausedError) {
+      return { status: "error", message: "Загрузка файлов временно остановлена. Повторите позже; выбранный файл не сохранялся.", fieldErrors: {} };
+    }
+    if (error instanceof FileWriteLeaseLostError) {
+      return { status: "error", message: "Не удалось подтвердить состояние загрузки. Обновите историю документов перед повторной отправкой.", fieldErrors: {} };
+    }
+    throw error;
+  }
+}
+
+export async function uploadDocumentAction(previous: DocumentUploadState, formData: FormData): Promise<DocumentUploadState> {
+  return guardedDocumentUpload(() => uploadDocumentActionImpl(previous, formData));
+}
+
+export async function uploadDocumentVersionAction(previous: DocumentUploadState, formData: FormData): Promise<DocumentUploadState> {
+  return guardedDocumentUpload(() => uploadDocumentVersionActionImpl(previous, formData));
 }
 
 export async function favoriteDocumentAction(formData: FormData) {

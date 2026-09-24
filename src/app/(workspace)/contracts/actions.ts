@@ -1,20 +1,24 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
-import { contractIdSchema, createContractSchema, renewContractSchema, updateContractSchema } from "@/server/contracts/schemas";
+import { contractIdSchema, createContractSchema, linkContractSchema, renewContractSchema, updateContractSchema } from "@/server/contracts/schemas";
 import {
   ContractAlreadyRenewedError,
   ContractNotFoundError,
   ContractNumberConflictError,
   ContractPeriodLockedError,
+  ContractRelationConflictError,
+  ContractRelationReferenceError,
   ContractReferenceError,
   ContractScheduleConflictError,
   ContractStateTransitionError,
   ContractVersionConflictError,
   createContract,
   listContractHistory,
+  linkContracts,
   renewContract,
   updateContract,
 } from "@/server/contracts/repository";
@@ -43,11 +47,13 @@ function knownFailure(error: unknown) {
   if (error instanceof ContractPeriodLockedError) return "Период действующего договора нельзя переписать. Для нового периода используйте продление.";
   if (error instanceof ContractStateTransitionError) return "Такой переход статуса договора запрещён.";
   if (error instanceof ContractAlreadyRenewedError) return "Для этого договора продление уже создано.";
+  if (error instanceof ContractRelationConflictError) return "Эти договоры уже связаны.";
+  if (error instanceof ContractRelationReferenceError) return "Один из выбранных договоров больше недоступен.";
   return null;
 }
 
 function logUnexpected(operation: string, memberId: string, error: unknown) {
-  console.error(JSON.stringify({ operation, category: "unexpected", memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+  console.error(JSON.stringify({ operation, category: "unexpected", memberId, errorCode: safeErrorCode(error) }));
 }
 
 export async function createContractAction(_previous: ContractActionState, formData: FormData): Promise<ContractActionState> {
@@ -114,6 +120,30 @@ export async function renewContractAction(_previous: ContractActionState, formDa
     if (known) return { ...emptyState, status: "error", message: known };
     logUnexpected("contract.renew", member.memberId, error);
     return { ...emptyState, status: "error", message: "Не удалось продлить договор." };
+  }
+}
+
+export async function linkContractAction(_previous: ContractActionState, formData: FormData): Promise<ContractActionState> {
+  if (getAuthMode() === "preview") return { ...emptyState, status: "error", message: "Предпросмотр не изменяет связи договоров." };
+  const member = await requireSession();
+  const parsed = linkContractSchema.safeParse({
+    contractId: formData.get("contractId"),
+    relatedContractId: formData.get("relatedContractId"),
+    relationType: formData.get("relationType"),
+    note: formData.get("note"),
+  });
+  if (!parsed.success) return { ...emptyState, status: "error", message: "Выберите другой договор и тип связи.", fieldErrors: fieldErrors(parsed.error) };
+  try {
+    await linkContracts(member, parsed.data);
+    revalidatePath("/contracts");
+    revalidatePath(`/contracts/${parsed.data.contractId}`);
+    revalidatePath(`/contracts/${parsed.data.relatedContractId}`);
+    return { status: "success", message: "Договоры связаны.", fieldErrors: {}, contractId: parsed.data.contractId };
+  } catch (error) {
+    const known = knownFailure(error);
+    if (known) return { ...emptyState, status: "error", message: known };
+    logUnexpected("contract.link", member.memberId, error);
+    return { ...emptyState, status: "error", message: "Не удалось связать договоры." };
   }
 }
 

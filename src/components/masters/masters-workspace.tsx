@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowUpRight,
   ChevronDown,
   MapPin,
   MessageCircle,
@@ -102,42 +101,28 @@ function loadTone(master: MasterListItem) {
 function MasterRosterRow({
   master,
   index,
-  onOpen,
 }: {
   master: MasterListItem;
   index: number;
-  onOpen: (masterId: string) => void;
 }) {
+  const router = useRouter();
   const visits = master.todayVisits.slice(0, 2);
+  const href = `/masters/${master.id}`;
 
   return (
-    <article
-      role="link"
-      tabIndex={0}
-      aria-label={`Открыть карточку мастера ${master.fullName}`}
-      onClick={(event) => {
-        if (!(event.target as HTMLElement).closest("a, button"))
-          onOpen(master.id);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen(master.id);
-        }
-      }}
-      className="group relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--focus)] focus-visible:outline-offset-[-2px] md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] md:items-center sm:px-5"
-    >
+    <article role="link" tabIndex={0} aria-label={`Открыть карточку мастера ${master.fullName}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return; router.push(href); }} onKeyDown={(event) => { if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); router.push(href); }} className="relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem] md:items-center sm:px-5">
       <span className="hidden font-display text-[10px] tabular-nums text-[var(--muted-subtle)] md:block">
         {String(index + 1).padStart(2, "0")}
       </span>
-      <div className="min-w-0">
-        <div className="flex items-start gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-full border border-[var(--line-strong)] bg-[var(--surface-inset)] font-display text-xs font-medium text-[var(--text)]">
+      <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] gap-x-3">
+          <span className="row-span-2 grid size-11 shrink-0 self-center place-items-center rounded-full border border-[var(--line-strong)] bg-[var(--surface-inset)] font-display text-xs font-medium text-[var(--text)]">
             {getInitials(master.fullName)}
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-[var(--text)]">
-              {master.fullName}
+              <Link href={`/masters/${master.id}`} aria-label={`Открыть карточку мастера ${master.fullName}`} className="focus-ring rounded hover:text-[var(--accent-ink)]">
+                {master.fullName}
+              </Link>
             </h2>
             <p className="mt-1 flex items-center gap-1 truncate text-[10px] text-[var(--muted)]">
               <MapPin className="size-3 shrink-0" />
@@ -156,8 +141,7 @@ function MasterRosterRow({
               ))}
             </div>
           </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 pl-14 text-[10px] text-[var(--text-secondary)]">
+        <div className="col-start-2 mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-[var(--text-secondary)]">
           <a
             href={`tel:${master.phone}`}
             className="focus-ring flex items-center gap-1.5 rounded-sm hover:text-[var(--accent-ink)]"
@@ -235,16 +219,11 @@ function MasterRosterRow({
               : formatMoneyMinor(master.basePaymentMinor)}
         </strong>
       </div>
-      <ArrowUpRight
-        aria-hidden
-        className="hidden size-4 shrink-0 text-[var(--muted)] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[var(--accent-ink)] md:block"
-      />
     </article>
   );
 }
 
 export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | MasterStatusCode>("all");
   const [region, setRegion] = useState("");
@@ -316,7 +295,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
         aria-label="Фильтры мастеров"
         className="surface-panel surface-panel-popover p-2"
       >
-        <div className="flex gap-1 overflow-x-auto rounded-[13px] bg-[var(--surface-inset)] p-1">
+        <div className="flex gap-1 overflow-x-auto">
           {statusFilters.map((entry) => (
             <button
               key={entry.value}
@@ -401,7 +380,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
       {filtered.length ? (
         <section
           aria-label="Реестр мастеров"
-          className="surface-panel mt-4 min-w-0 overflow-hidden"
+          className="surface-panel panel-stack mt-4 min-w-0 overflow-hidden"
         >
           <header className="hidden grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] gap-5 border-b border-[var(--line)] bg-[var(--surface-inset)] px-5 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] md:grid">
             <span>№</span>
@@ -412,12 +391,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
             <span />
           </header>
           {filtered.map((master, index) => (
-            <MasterRosterRow
-              key={master.id}
-              master={master}
-              index={index}
-              onOpen={(masterId) => router.push(`/masters/${masterId}`)}
-            />
+            <MasterRosterRow key={master.id} master={master} index={index} />
           ))}
         </section>
       ) : (

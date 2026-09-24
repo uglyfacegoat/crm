@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
@@ -69,7 +70,7 @@ export async function createOrganizationUnitAction(
       JSON.stringify({
         operation: "organization-unit.create",
         actorId: member.memberId,
-        error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: safeErrorCode(error),
       }),
     );
     return {

@@ -1,4 +1,5 @@
 import "server-only";
+import type { TransactionSql } from "postgres";
 import { z } from "zod";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
@@ -23,14 +24,24 @@ const invoiceRowSchema = z.object({
 const paymentRowSchema = z.object({
   id: uuidSchema, invoice_id: uuidSchema, amount_minor: minorSchema, received_on: z.string(),
   payment_method: z.enum(["bank_transfer", "cash", "card", "other"]), reference: z.string().nullable(),
-  note: z.string().nullable(), status: z.enum(["posted", "reversed"]), reversal_reason: z.string().nullable(), version: z.number().int().positive(),
+  note: z.string().nullable(), status: z.enum(["posted", "reversed"]), reversal_reason: z.string().nullable(), receipt_document_id: uuidSchema.nullable(), version: z.number().int().positive(),
 });
 const payoutRowSchema = z.object({
   id: uuidSchema, order_id: uuidSchema, order_number: z.string(), master_id: uuidSchema, master_name_snapshot: z.string(),
   amount_minor: minorSchema, paid_on: z.string(), payment_method: z.enum(["bank_transfer", "cash", "card", "other"]),
   reference: z.string().nullable(), note: z.string().nullable(), status: z.enum(["posted", "reversed"]),
-  reversal_reason: z.string().nullable(), version: z.number().int().positive(),
+  reversal_reason: z.string().nullable(), receipt_document_id: uuidSchema.nullable(), version: z.number().int().positive(),
 });
+
+export type FinanceReceiptFile = {
+  documentId: string;
+  filename: string;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
+};
 
 export class FinanceReferenceError extends Error {
   constructor(readonly field: "order" | "invoice" | "master") { super(`The selected ${field} is unavailable.`); this.name = "FinanceReferenceError"; }
@@ -50,8 +61,26 @@ export class FinanceEntryNotFoundError extends Error {
 export class FinanceEntryConflictError extends Error {
   constructor() { super("Ledger entry has already changed."); this.name = "FinanceEntryConflictError"; }
 }
+export class FinanceRequestConflictError extends Error {
+  constructor() { super("Idempotency key is already used by another or incomplete operation."); this.name = "FinanceRequestConflictError"; }
+}
 export class FinanceInvoiceHasPaymentsError extends Error {
   constructor() { super("An invoice with posted payments cannot be voided."); this.name = "FinanceInvoiceHasPaymentsError"; }
+}
+
+export async function financeMutationExists(
+  member: AuthenticatedMember,
+  idempotencyKey: string,
+  operation: "finance.payment.create" | "finance.payout.create",
+) {
+  requirePermission(member, "finance.write");
+  const sql = getDatabase();
+  const [existing] = await sql`SELECT operation, entity_id FROM idempotency_requests
+    WHERE organization_id = ${member.organizationId} AND idempotency_key = ${idempotencyKey}`;
+  if (!existing) return false;
+  if (existing.operation !== operation || !existing.entity_id) throw new FinanceRequestConflictError();
+  uuidSchema.parse(existing.entity_id);
+  return true;
 }
 
 function databaseConstraint(error: unknown) {
@@ -61,12 +90,48 @@ function databaseConstraint(error: unknown) {
 
 function mapPayment(value: unknown): FinancePayment {
   const row = paymentRowSchema.parse(value);
-  return { id: row.id, amountMinor: minorUnitsToSafeNumber(row.amount_minor), receivedOn: row.received_on, method: row.payment_method, reference: row.reference, note: row.note, status: row.status, reversalReason: row.reversal_reason, version: row.version };
+  return { id: row.id, amountMinor: minorUnitsToSafeNumber(row.amount_minor), receivedOn: row.received_on, method: row.payment_method, reference: row.reference, note: row.note, status: row.status, reversalReason: row.reversal_reason, receiptDocumentId: row.receipt_document_id, version: row.version };
 }
 
 function mapPayout(value: unknown): FinancePayout {
   const row = payoutRowSchema.parse(value);
-  return { id: row.id, orderId: row.order_id, orderNumber: row.order_number, masterId: row.master_id, masterName: row.master_name_snapshot, amountMinor: minorUnitsToSafeNumber(row.amount_minor), paidOn: row.paid_on, method: row.payment_method, reference: row.reference, note: row.note, status: row.status, reversalReason: row.reversal_reason, version: row.version };
+  return { id: row.id, orderId: row.order_id, orderNumber: row.order_number, masterId: row.master_id, masterName: row.master_name_snapshot, amountMinor: minorUnitsToSafeNumber(row.amount_minor), paidOn: row.paid_on, method: row.payment_method, reference: row.reference, note: row.note, status: row.status, reversalReason: row.reversal_reason, receiptDocumentId: row.receipt_document_id, version: row.version };
+}
+
+async function createReceiptDocument(
+  transaction: TransactionSql,
+  member: AuthenticatedMember,
+  receipt: FinanceReceiptFile,
+  order: { id: string; clientId: string; objectId: string },
+  title: string,
+  description: string,
+) {
+  await transaction`SELECT pg_advisory_xact_lock(hashtext(${member.organizationId}), hashtext('finance-receipts-folder'))`;
+  await transaction`INSERT INTO document_folders (organization_id, parent_folder_id, name, created_by)
+    VALUES (${member.organizationId}, NULL, 'Чеки', ${member.memberId})
+    ON CONFLICT DO NOTHING`;
+  const [folder] = await transaction`SELECT id FROM document_folders
+    WHERE organization_id = ${member.organizationId} AND parent_folder_id IS NULL AND lower(name) = lower('Чеки')`;
+  const folderId = uuidSchema.parse(folder?.id);
+  await transaction`INSERT INTO documents (
+      id, organization_id, client_id, object_id, order_id, title, category, description, folder_id, created_by
+    ) VALUES (
+      ${receipt.documentId}, ${member.organizationId}, ${order.clientId}, ${order.objectId}, ${order.id}, ${title}, 'receipt',
+      ${description}, ${folderId}, ${member.memberId}
+    )`;
+  const [version] = await transaction`INSERT INTO document_versions (
+      organization_id, document_id, version_number, original_filename, storage_key, mime_type, extension,
+      size_bytes, sha256, uploaded_by
+    ) VALUES (
+      ${member.organizationId}, ${receipt.documentId}, 1, ${receipt.filename}, ${receipt.storageKey}, ${receipt.mimeType},
+      ${receipt.extension}, ${receipt.sizeBytes}, ${receipt.sha256}, ${member.memberId}
+    ) RETURNING id`;
+  const versionId = uuidSchema.parse(version.id);
+  await transaction`UPDATE documents SET current_version_id = ${versionId}
+    WHERE organization_id = ${member.organizationId} AND id = ${receipt.documentId}`;
+  await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+    VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document.created', 'document', ${receipt.documentId},
+      ${transaction.json({ orderId: order.id, category: "receipt", filename: receipt.filename, sizeBytes: receipt.sizeBytes, sha256: receipt.sha256, source: "finance" })})`;
 }
 
 export async function getFinanceSnapshot(member: AuthenticatedMember): Promise<FinanceSnapshot> {
@@ -90,13 +155,13 @@ export async function getFinanceSnapshot(member: AuthenticatedMember): Promise<F
       WHERE order_invoices.organization_id = ${member.organizationId}
       GROUP BY order_invoices.id, organizations.timezone
       ORDER BY order_invoices.issued_on DESC, order_invoices.created_at DESC LIMIT 1000`,
-    sql`SELECT id, invoice_id, amount_minor, received_on::text, payment_method, reference, note, status, reversal_reason, version
+    sql`SELECT id, invoice_id, amount_minor, received_on::text, payment_method, reference, note, status, reversal_reason, receipt_document_id, version
       FROM order_payments WHERE organization_id = ${member.organizationId}
       ORDER BY received_on DESC, created_at DESC LIMIT 2000`,
     sql`SELECT order_master_payouts.id, order_master_payouts.order_id, orders.order_number,
         order_master_payouts.master_id, order_master_payouts.master_name_snapshot, order_master_payouts.amount_minor,
         order_master_payouts.paid_on::text, order_master_payouts.payment_method, order_master_payouts.reference,
-        order_master_payouts.note, order_master_payouts.status, order_master_payouts.reversal_reason, order_master_payouts.version
+        order_master_payouts.note, order_master_payouts.status, order_master_payouts.reversal_reason, order_master_payouts.receipt_document_id, order_master_payouts.version
       FROM order_master_payouts JOIN orders
         ON orders.organization_id = order_master_payouts.organization_id AND orders.id = order_master_payouts.order_id
       WHERE order_master_payouts.organization_id = ${member.organizationId}
@@ -185,8 +250,9 @@ export async function createInvoice(member: AuthenticatedMember, input: CreateIn
   }
 }
 
-export async function createPayment(member: AuthenticatedMember, input: CreatePaymentInput) {
+export async function createPayment(member: AuthenticatedMember, input: CreatePaymentInput, receipt: FinanceReceiptFile | null = null) {
   requirePermission(member, "finance.write");
+  if (receipt && receipt.documentId !== input.receiptDocumentId) throw new Error("Receipt document id does not match the request.");
   const amountMinor = parseMoneyToMinorUnits(input.amount);
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
@@ -195,12 +261,14 @@ export async function createPayment(member: AuthenticatedMember, input: CreatePa
       ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING idempotency_key`;
     if (!request.length) {
       const [existing] = await transaction`SELECT operation, entity_id FROM idempotency_requests WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
-      if (existing?.operation !== "finance.payment.create" || !existing.entity_id) throw new Error("Idempotency key is already used by another operation.");
-      return uuidSchema.parse(existing.entity_id);
+      if (existing?.operation !== "finance.payment.create" || !existing.entity_id) throw new FinanceRequestConflictError();
+      return { id: uuidSchema.parse(existing.entity_id), created: false };
     }
-    const [invoice] = await transaction`SELECT order_invoices.id, order_invoices.order_id, order_invoices.amount_minor, order_invoices.status,
+    const [invoice] = await transaction`SELECT order_invoices.id, order_invoices.order_id, order_invoices.invoice_number,
+        order_invoices.amount_minor, order_invoices.status, orders.client_id, orders.object_id,
         (now() AT TIME ZONE organizations.timezone)::date::text AS today
       FROM order_invoices JOIN organizations ON organizations.id = order_invoices.organization_id
+      JOIN orders ON orders.organization_id = order_invoices.organization_id AND orders.id = order_invoices.order_id
       WHERE order_invoices.organization_id = ${member.organizationId} AND order_invoices.id = ${input.invoiceId} FOR UPDATE OF order_invoices`;
     if (!invoice || invoice.status !== "issued") throw new FinanceReferenceError("invoice");
     if (input.receivedOn > invoice.today) throw new FinanceFutureDateError();
@@ -208,21 +276,29 @@ export async function createPayment(member: AuthenticatedMember, input: CreatePa
       FROM order_payments WHERE organization_id = ${member.organizationId} AND invoice_id = ${input.invoiceId}`;
     const available = BigInt(invoice.amount_minor) - BigInt(totals.paid_minor);
     if (amountMinor > available) throw new FinanceAmountExceedsBalanceError(available);
+    if (receipt) {
+      await createReceiptDocument(transaction, member, receipt, {
+        id: uuidSchema.parse(invoice.order_id),
+        clientId: uuidSchema.parse(invoice.client_id),
+        objectId: uuidSchema.parse(invoice.object_id),
+      }, `Чек по счёту ${String(invoice.invoice_number)}`, `Подтверждение оплаты от ${input.receivedOn}.`);
+    }
     const [payment] = await transaction`INSERT INTO order_payments (
-        organization_id, order_id, invoice_id, amount_minor, received_on, payment_method, reference, note, idempotency_key, created_by
+        organization_id, order_id, invoice_id, amount_minor, received_on, payment_method, reference, note, receipt_document_id, idempotency_key, created_by
       ) VALUES (${member.organizationId}, ${invoice.order_id}, ${input.invoiceId}, ${amountMinor.toString()}, ${input.receivedOn},
-        ${input.paymentMethod}, ${input.reference}, ${input.note}, ${input.idempotencyKey}, ${member.memberId}) RETURNING id`;
+        ${input.paymentMethod}, ${input.reference}, ${input.note}, ${receipt?.documentId ?? null}, ${input.idempotencyKey}, ${member.memberId}) RETURNING id`;
     const paymentId = uuidSchema.parse(payment.id);
     await transaction`UPDATE idempotency_requests SET entity_id = ${paymentId} WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'finance.payment.create', 'order_payment', ${paymentId},
         ${transaction.json({ orderId: invoice.order_id, invoiceId: input.invoiceId, amountMinor: amountMinor.toString(), receivedOn: input.receivedOn, paymentMethod: input.paymentMethod })})`;
-    return paymentId;
+    return { id: paymentId, created: true };
   });
 }
 
-export async function createMasterPayout(member: AuthenticatedMember, input: CreatePayoutInput) {
+export async function createMasterPayout(member: AuthenticatedMember, input: CreatePayoutInput, receipt: FinanceReceiptFile | null = null) {
   requirePermission(member, "finance.write");
+  if (receipt && receipt.documentId !== input.receiptDocumentId) throw new Error("Receipt document id does not match the request.");
   const amountMinor = parseMoneyToMinorUnits(input.amount);
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
@@ -231,10 +307,10 @@ export async function createMasterPayout(member: AuthenticatedMember, input: Cre
       ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING idempotency_key`;
     if (!request.length) {
       const [existing] = await transaction`SELECT operation, entity_id FROM idempotency_requests WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
-      if (existing?.operation !== "finance.payout.create" || !existing.entity_id) throw new Error("Idempotency key is already used by another operation.");
-      return uuidSchema.parse(existing.entity_id);
+      if (existing?.operation !== "finance.payout.create" || !existing.entity_id) throw new FinanceRequestConflictError();
+      return { id: uuidSchema.parse(existing.entity_id), created: false };
     }
-    const [order] = await transaction`SELECT orders.id, orders.assigned_master_id, orders.master_name_snapshot,
+    const [order] = await transaction`SELECT orders.id, orders.order_number, orders.client_id, orders.object_id, orders.assigned_master_id, orders.master_name_snapshot,
         orders.master_payment_snapshot_minor, orders.master_paid_total_minor,
         (now() AT TIME ZONE organizations.timezone)::date::text AS today
       FROM orders JOIN organizations ON organizations.id = orders.organization_id
@@ -244,18 +320,25 @@ export async function createMasterPayout(member: AuthenticatedMember, input: Cre
     if (input.paidOn > order.today) throw new FinanceFutureDateError();
     const available = BigInt(order.master_payment_snapshot_minor) - BigInt(order.master_paid_total_minor);
     if (amountMinor > available) throw new FinanceAmountExceedsBalanceError(available);
+    if (receipt) {
+      await createReceiptDocument(transaction, member, receipt, {
+        id: uuidSchema.parse(order.id),
+        clientId: uuidSchema.parse(order.client_id),
+        objectId: uuidSchema.parse(order.object_id),
+      }, `Чек выплаты мастеру · ${String(order.order_number)}`, `Подтверждение выплаты ${String(order.master_name_snapshot)} от ${input.paidOn}.`);
+    }
     const [payout] = await transaction`INSERT INTO order_master_payouts (
         organization_id, order_id, master_id, master_name_snapshot, amount_minor, paid_on, payment_method,
-        reference, note, idempotency_key, created_by
+        reference, note, receipt_document_id, idempotency_key, created_by
       ) VALUES (${member.organizationId}, ${input.orderId}, ${order.assigned_master_id}, ${order.master_name_snapshot},
         ${amountMinor.toString()}, ${input.paidOn}, ${input.paymentMethod}, ${input.reference}, ${input.note},
-        ${input.idempotencyKey}, ${member.memberId}) RETURNING id`;
+        ${receipt?.documentId ?? null}, ${input.idempotencyKey}, ${member.memberId}) RETURNING id`;
     const payoutId = uuidSchema.parse(payout.id);
     await transaction`UPDATE idempotency_requests SET entity_id = ${payoutId} WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'finance.payout.create', 'order_master_payout', ${payoutId},
         ${transaction.json({ orderId: input.orderId, masterId: order.assigned_master_id, amountMinor: amountMinor.toString(), paidOn: input.paidOn, paymentMethod: input.paymentMethod })})`;
-    return payoutId;
+    return { id: payoutId, created: true };
   });
 }
 

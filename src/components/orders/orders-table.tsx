@@ -94,7 +94,7 @@ export function OrdersTable({ orders }: { orders: OrderListItem[] }) {
   const totalFilterCount = advancedCount + (status === "Все" ? 0 : 1) + (query.trim() ? 1 : 0);
 
   return <div className="animate-rise" style={{ animationDelay: "100ms" }}>
-    <section className="surface-panel overflow-hidden">
+    <section className="surface-panel panel-stack overflow-hidden">
       <div className="flex flex-col gap-3 border-b border-[var(--line)] p-3.5 min-[420px]:p-4 lg:flex-row lg:items-center lg:justify-between sm:px-5 2xl:py-5">
         <label className="soft-button flex h-10 min-w-0 items-center gap-2 rounded-[13px] px-3 sm:w-80 2xl:w-96"><Search className="size-4 shrink-0 text-[var(--muted)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]" placeholder="Номер, клиент, адрес, услуга или мастер" /></label>
         <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto pb-1 sm:gap-2 sm:pb-0">
@@ -103,8 +103,42 @@ export function OrdersTable({ orders }: { orders: OrderListItem[] }) {
           <div className="ml-auto flex shrink-0 rounded-[11px] border border-[var(--line)] p-1"><button type="button" onClick={() => setView("list")} aria-label="Показать списком" aria-pressed={view === "list"} className={`grid size-8 place-items-center rounded-[8px] ${view === "list" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--muted)]"}`}><List className="size-4" /></button><button type="button" onClick={() => setView("grid")} aria-label="Показать карточками" aria-pressed={view === "grid"} className={`grid size-8 place-items-center rounded-[8px] ${view === "grid" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--muted)]"}`}><Grid2X2 className="size-4" /></button></div>
         </div>
       </div>
-      <div className="flex gap-1.5 overflow-x-auto border-b border-[var(--line)] bg-[var(--surface-inset)] px-4 py-3 [scrollbar-width:none] sm:px-5 [&::-webkit-scrollbar]:hidden" aria-label="Фильтр по статусу">{statusOptions.map((option) => <button key={option} type="button" onClick={() => setStatus(option)} aria-pressed={status === option} className={`focus-ring flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[10px] font-medium transition-colors ${status === option ? "bg-[var(--surface-raised)] text-[var(--text)] ring-1 ring-[var(--line-strong)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>{option}<span className={status === option ? "text-[var(--accent)]" : "text-[var(--muted-subtle)]"}>{statusCounts.get(option)}</span></button>)}</div>
-      <div className={`${view === "list" ? "hidden lg:block" : "hidden"} overflow-x-auto`}><table className="w-full min-w-[900px] text-left"><thead className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]"><tr><th className="px-5 py-3 font-medium">№ заказа</th><th className="px-4 py-3 font-medium">Клиент</th><th className="px-4 py-3 font-medium">Объект</th><th className="px-4 py-3 font-medium">Дата</th><th className="px-4 py-3 font-medium">Мастер</th><th className="px-4 py-3 font-medium">Статус</th><th className="px-5 py-3 text-right font-medium">Сумма</th></tr></thead><tbody className="divide-y divide-[var(--line)]">{filteredOrders.map((order) => <tr key={order.id} role="link" tabIndex={0} aria-label={`Открыть заказ ${order.number}`} onClick={() => router.push(`/orders/${order.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/orders/${order.id}`); } }} className="group cursor-pointer transition-colors hover:bg-[var(--surface-raised)] focus-visible:bg-[var(--surface-raised)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] focus-visible:outline-offset-[-2px]"><td className="px-5 py-4"><Link href={`/orders/${order.id}`} className="focus-ring rounded font-display text-[11px] font-semibold text-[var(--text)] transition-colors hover:text-[var(--accent)]">{order.number}</Link></td><td className="px-4 py-4 text-xs font-medium text-[var(--text)]">{order.client}</td><td className="px-4 py-4"><p className="text-xs text-[var(--text-secondary)]">{order.object}</p><p className="mt-1 text-[10px] text-[var(--muted)]">{order.address}</p></td><td className="px-4 py-4 text-xs text-[var(--text-secondary)]">{formatShortDate(order.createdAt)}</td><td className={`px-4 py-4 text-xs ${order.master ? "text-[var(--text-secondary)]" : "text-[var(--danger-ink)]"}`}>{order.master ?? "Не назначен"}</td><td className="px-4 py-4"><StatusBadge status={order.status} /></td><td className="px-5 py-4 text-right font-display text-[11px] text-[var(--text)]">{formatMoneyMinor(order.agreedTotalMinor)}</td></tr>)}</tbody></table></div>
+      <div className="scrollbar-hidden flex gap-1 overflow-x-auto border-b border-[var(--line)] px-4 py-3 sm:px-5" aria-label="Фильтр по статусу"><div className="flex gap-1">{statusOptions.map((option) => <button key={option} type="button" onClick={() => setStatus(option)} aria-pressed={status === option} className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-[10px] font-medium transition-colors ${status === option ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--line-strong)] hover:text-[var(--text)]"}`}>{option}<span className={status === option ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}>{statusCounts.get(option)}</span></button>)}</div></div>
+      <div className={`${view === "list" ? "hidden lg:block" : "hidden"} overflow-x-auto`}>
+        <table className="w-full min-w-[900px] text-left">
+          <thead className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+            <tr>
+              <th className="px-5 py-3 font-medium">№ заказа</th>
+              <th className="px-4 py-3 font-medium">Клиент</th>
+              <th className="px-4 py-3 font-medium">Объект</th>
+              <th className="px-4 py-3 font-medium">Дата</th>
+              <th className="px-4 py-3 font-medium">Мастер</th>
+              <th className="px-4 py-3 font-medium">Статус</th>
+              <th className="px-5 py-3 text-right font-medium">Сумма</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--line)]">
+            {filteredOrders.map((order) => (
+              <tr key={order.id} role="link" tabIndex={0} aria-label={`Открыть заказ ${order.number}`} onClick={() => router.push(`/orders/${order.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/orders/${order.id}`); } }} className="cursor-pointer transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]">
+                <td className="px-5 py-4">
+                  <span className="font-display text-[11px] font-semibold text-[var(--text)]">
+                    {order.number}
+                  </span>
+                </td>
+                <td className="px-4 py-4 text-xs font-medium text-[var(--text)]">{order.client}</td>
+                <td className="px-4 py-4">
+                  <p className="text-xs text-[var(--text-secondary)]">{order.object}</p>
+                  <p className="mt-1 text-[10px] text-[var(--muted)]">{order.address}</p>
+                </td>
+                <td className="px-4 py-4 text-xs text-[var(--text-secondary)]">{formatShortDate(order.createdAt)}</td>
+                <td className={`px-4 py-4 text-xs ${order.master ? "text-[var(--text-secondary)]" : "text-[var(--danger-ink)]"}`}>{order.master ?? "Не назначен"}</td>
+                <td className="px-4 py-4"><StatusBadge status={order.status} /></td>
+                <td className="px-5 py-4 text-right font-display text-[11px] text-[var(--text)]">{formatMoneyMinor(order.agreedTotalMinor)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className={`${view === "list" ? "divide-y divide-[var(--line)] lg:hidden" : "grid gap-px bg-[var(--line)] sm:grid-cols-2 xl:grid-cols-3"}`}>{filteredOrders.map((order) => <Link key={order.id} href={`/orders/${order.id}`} className="focus-ring block bg-[var(--surface)] p-4 transition-colors duration-200 hover:bg-[var(--surface-raised)] sm:px-5"><div className="flex items-start justify-between gap-3"><div><p className="font-display text-[11px] font-semibold text-[var(--text)]">{order.number}</p><p className="mt-2 text-sm font-medium text-[var(--text)]">{order.client}</p><p className="mt-1 text-xs text-[var(--muted)]">{order.object} · {order.address}</p></div><ChevronRight className="mt-1 size-4 text-[var(--muted)]" /></div><div className="mt-4 flex items-center justify-between gap-2"><StatusBadge status={order.status} /><span className="font-display text-xs text-[var(--text)]">{formatMoneyMinor(order.agreedTotalMinor)}</span></div></Link>)}</div>
       {!filteredOrders.length ? <div className="px-5 py-16 text-center"><p className="text-sm font-medium text-[var(--text)]">Заказы не найдены</p><p className="mt-2 text-xs text-[var(--muted)]">Измените условия или сбросьте фильтры.</p><button type="button" onClick={resetFilters} className="focus-ring mt-4 rounded-[10px] bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text)] hover:bg-[var(--accent-soft)]">Сбросить фильтры</button></div> : null}
       <div className="flex items-center justify-between gap-3 border-t border-[var(--line)] px-4 py-3.5 text-[11px] text-[var(--muted)] sm:px-5 sm:text-xs"><span>Показано {filteredOrders.length} из {orders.length}</span><span className="text-right">{totalFilterCount ? `${totalFilterCount} активных условий` : "Без ограничений"}</span></div>

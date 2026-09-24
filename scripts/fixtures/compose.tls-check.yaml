@@ -1,0 +1,65 @@
+services:
+  crm:
+    image: ${CRM_APP_IMAGE:-crm-app:tls-check}
+    entrypoint: ["/app/docker-entrypoint.sh"]
+    environment:
+      DATABASE_URL: postgresql://${CRM_DB_USER}:${CRM_DB_PASSWORD}@database:5432/${CRM_DB_NAME}
+      AUTH_MODE: required
+      AUTH_COOKIE_SECURE: "true"
+      CRM_TRUST_PROXY: "true"
+      CRM_ALLOWED_ORIGINS: ${CRM_PUBLIC_ORIGIN}
+      AUTH_THROTTLE_SECRET: ${AUTH_THROTTLE_SECRET}
+      CRM_WEBSITE_WEBHOOK_SECRET: ${CRM_WEBSITE_WEBHOOK_SECRET:-}
+      DOCUMENT_STORAGE_BACKEND: local
+      DOCUMENT_STORAGE_ROOT: /app/storage
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/v1/system/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
+    volumes:
+      - storage:/app/storage
+      - ../../scripts/create-admin.ts:/app/scripts/create-admin.ts:ro
+      - ../../src/server/auth/password.ts:/app/src/server/auth/password.ts:ro
+      - ../../src/server/auth/identity.ts:/app/src/server/auth/identity.ts:ro
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${CRM_DB_USER}
+      POSTGRES_PASSWORD: ${CRM_DB_PASSWORD}
+      POSTGRES_DB: ${CRM_DB_NAME}
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - database:/var/lib/postgresql/data
+  gateway:
+    image: nginx:stable-alpine
+    depends_on:
+      crm:
+        condition: service_healthy
+    environment:
+      CRM_PUBLIC_ORIGIN: ${CRM_PUBLIC_ORIGIN}
+      CRM_PUBLIC_HOST: ${CRM_PUBLIC_HOST}
+      NGINX_ENVSUBST_FILTER: ^CRM_PUBLIC_
+    ports:
+      - 127.0.0.1:${CRM_HTTP_PORT}:80
+      - 127.0.0.1:${CRM_HTTPS_PORT}:443
+    volumes:
+      - ../../gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${CRM_TLS_CERTIFICATE}:/etc/nginx/certs/certificate.pem:ro
+      - ${CRM_TLS_PRIVATE_KEY}:/etc/nginx/certs/private-key.pem:ro
+    healthcheck:
+      test: [CMD, nginx, -t]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+volumes:
+  storage:
+  database:

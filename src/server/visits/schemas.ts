@@ -67,6 +67,13 @@ export const startVisitSchema = z.object({
   expectedVersion: z.coerce.number().int().positive(),
 });
 
+export const uploadVisitEvidenceSchema = z.object({
+  idempotencyKey: z.string().uuid(),
+  visitId: z.string().uuid(),
+  kind: z.enum(["work_photo", "contract_photo"]),
+  note: optionalText(1_000),
+});
+
 export const rescheduleVisitSchema = z.object({
   visitId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
@@ -81,4 +88,5 @@ export type CreateVisitSeriesInput = z.infer<typeof createVisitSeriesSchema>;
 export type UpdateVisitInput = z.infer<typeof updateVisitSchema>;
 export type CompleteVisitInput = z.infer<typeof completeVisitSchema>;
 export type StartVisitInput = z.infer<typeof startVisitSchema>;
+export type UploadVisitEvidenceInput = z.infer<typeof uploadVisitEvidenceSchema>;
 export type RescheduleVisitInput = z.infer<typeof rescheduleVisitSchema>;

@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getAuthMode } from "@/server/auth/config";
@@ -46,7 +47,7 @@ export async function rejectIncomingLeadAction(
       category: "unexpected",
       actorId: member.memberId,
       leadId: parsed.data.leadId,
-      error: error instanceof Error ? error.message : "Unknown error",
+      errorCode: safeErrorCode(error),
     }));
     return { status: "error", message: "Не удалось отклонить заявку. Изменения не сохранены.", fieldErrors: {} };
   }

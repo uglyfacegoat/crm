@@ -67,7 +67,7 @@ function DispatchCardContent({ card, copyState, onCopy }: { card: VisitDispatchC
   </div>;
 }
 
-export function VisitDispatchCardButton({ visitId, compact = false, className = "" }: { visitId: string | null; compact?: boolean; className?: string }) {
+export function VisitDispatchCardButton({ visitId, compact = false, className = "", label = "Карточка мастеру" }: { visitId: string | null; compact?: boolean; className?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [card, setCard] = useState<VisitDispatchCard | null>(null);
@@ -118,7 +118,7 @@ export function VisitDispatchCardButton({ visitId, compact = false, className = 
 
   return <>
     <button type="button" draggable={false} disabled={!visitId} onPointerDown={(event) => event.stopPropagation()} onClick={openCard} aria-label={compact ? "Открыть карточку мастеру" : undefined} title={!visitId ? "Сначала добавьте выезд" : "Открыть готовое задание мастеру"} className={`${compact ? "grid size-7 place-items-center rounded-[8px] border border-[var(--line-strong)] bg-[var(--surface-inset)] text-[var(--text-secondary)] hover:text-[var(--text)]" : "soft-button flex h-10 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-[13px] px-3 text-xs font-medium text-[var(--text-secondary)]"} focus-ring disabled:cursor-not-allowed disabled:opacity-40 ${className}`}>
-      <ClipboardCopy className={compact ? "size-3.5" : "size-4"} />{compact ? null : <span>Карточка мастеру</span>}
+      <ClipboardCopy className={compact ? "size-3.5" : "size-4"} />{compact ? null : <span className="truncate">{label}</span>}
     </button>
     <Dialog open={open} onClose={close} title="Карточка выезда" description="Готовое задание можно проверить и отправить мастеру без ручного переписывания.">
       {loading ? <div className="grid min-h-80 place-items-center p-6 text-center"><div><LoaderCircle className="mx-auto size-6 animate-spin text-[var(--accent)]" /><p className="mt-3 text-xs text-[var(--muted)]">Собираем актуальные данные…</p></div></div> : error ? <div className="grid min-h-80 place-items-center p-6 text-center"><div className="max-w-sm"><AlertTriangle className="mx-auto size-7 text-[var(--danger)]" /><p role="alert" className="mt-3 text-sm text-[var(--text)]">{error}</p><button type="button" onClick={openCard} className="focus-ring mt-5 h-10 rounded-[12px] border border-[var(--line-strong)] px-4 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]">Повторить</button></div></div> : card ? <DispatchCardContent card={card} copyState={copyState} onCopy={handleCopy} /> : null}

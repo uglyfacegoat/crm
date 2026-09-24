@@ -1,5 +1,7 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
+import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
 import { createDocumentDownloadResponse } from "@/server/documents/download-response";
 import { DocumentNotFoundError, getDocumentDownload } from "@/server/documents/repository";
 
@@ -11,13 +13,15 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     const { id } = await context.params;
     const document = await getDocumentDownload(member, id);
+    const limited = await rejectLimitedFileRead(member, "document_download");
+    if (limited) return limited;
     const requestedInline = new URL(request.url).searchParams.get("disposition") === "inline";
     const previewable = document.mimeType === "application/pdf" || document.mimeType.startsWith("image/");
     return createDocumentDownloadResponse(document, "documents.download", requestedInline && previewable ? "inline" : "attachment");
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: "forbidden" }, { status: 403 });
     if (error instanceof DocumentNotFoundError) return Response.json({ error: "not_found" }, { status: 404 });
-    console.error(JSON.stringify({ operation: "documents.download", category: "unexpected", memberId: member.memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "documents.download", category: "unexpected", memberId: member.memberId, errorCode: safeErrorCode(error) }));
     return Response.json({ error: "download_failed" }, { status: 500 });
   }
 }

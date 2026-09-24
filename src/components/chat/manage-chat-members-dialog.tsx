@@ -32,6 +32,7 @@ const initialState: ChatMutationState = {
   entityId: null,
 };
 const roleLabels = {
+  developer: "Разработчик",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",

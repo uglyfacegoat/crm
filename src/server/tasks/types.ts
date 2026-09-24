@@ -31,6 +31,12 @@ export type TaskAssigneeOption = {
   role: "admin" | "dispatcher" | "manager" | "accountant" | "master";
 };
 
+export type TaskOrderOption = {
+  id: string;
+  orderNumber: string;
+  clientName: string;
+};
+
 export type TaskHistoryEvent = {
   id: string;
   eventType: "created" | "updated" | "rescheduled" | "reassigned" | "completed" | "cancelled";
@@ -50,6 +56,7 @@ export type TaskSnapshot = {
   tasks: TaskCard[];
   completedTasks: CompletedTaskCard[];
   assigneeOptions: TaskAssigneeOption[];
+  orderOptions: TaskOrderOption[];
   timeZone: string;
   currentMemberId: string;
   completedLast30Days: number;

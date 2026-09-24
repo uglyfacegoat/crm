@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getAuthMode } from "@/server/auth/config";
@@ -39,7 +40,7 @@ function logUnexpected(memberId: string, error: unknown) {
     operation: "quick_orders.create",
     category: "unexpected",
     memberId,
-    error: error instanceof Error ? error.message : "Unknown error",
+    errorCode: safeErrorCode(error),
   }));
 }
 

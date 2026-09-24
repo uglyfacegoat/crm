@@ -10,7 +10,7 @@ import type { WebsiteDetail, WebsiteHealthSnapshot, WebsiteIntegrationListItem, 
 const websiteRowSchema = z.object({ id: z.string().uuid(), name: z.string(), domain: z.string(), status: z.enum(["setup", "active", "attention", "disabled"]), version: z.number().int().positive() });
 const integrationRowSchema = z.object({ id: z.string().uuid(), website_id: z.string().uuid(), provider: z.enum(["yandex_metrica", "ga4", "google_search_console", "yandex_webmaster"]), external_property_id: z.string(), status: z.enum(["pending", "connected", "error", "revoked"]), last_successful_sync_at: z.coerce.date().nullable(), last_error_code: z.string().nullable() });
 const metricRowSchema = z.object({ website_id: z.string().uuid(), metric_date: z.string(), provider: z.enum(["yandex_metrica", "ga4", "google_search_console", "yandex_webmaster", "crm"]), visitors: z.string(), sessions: z.string(), pageviews: z.string(), goal_completions: z.string(), search_clicks: z.string(), search_impressions: z.string() });
-const leadRowSchema = z.object({ website_id: z.string().uuid(), leads: z.number().int().nonnegative(), paid_orders: z.number().int().nonnegative(), paid_revenue_minor: z.string() });
+const leadRowSchema = z.object({ website_id: z.string().uuid(), leads: z.number().int().nonnegative(), orders: z.number().int().nonnegative(), paid_orders: z.number().int().nonnegative(), paid_revenue_minor: z.string() });
 const sourceRowSchema = z.object({ source: z.string(), leads: z.number().int().positive() });
 const boundsRowSchema = z.object({ timezone: z.string(), start_date: z.string(), end_date: z.string(), start_at: z.coerce.date(), end_at: z.coerce.date() });
 const hostingRowSchema = z.object({ provider: z.string(), plan_name: z.string(), server_region: z.string(), monthly_cost_minor: z.string(), renewal_on: z.string(), ssl_expires_on: z.string(), disk_capacity_mb: z.number().int().positive(), memory_capacity_mb: z.number().int().positive(), notes: z.string().nullable() });
@@ -60,6 +60,7 @@ export async function getWebsiteSnapshot(member: AuthenticatedMember): Promise<W
       FROM website_daily_metrics WHERE organization_id = ${member.organizationId}
         AND metric_date BETWEEN ${bounds.start_date}::date AND ${bounds.end_date}::date ORDER BY metric_date`,
     sql`SELECT website_leads.website_id, count(DISTINCT website_leads.id)::integer AS leads,
+        count(DISTINCT orders.id)::integer AS orders,
         count(DISTINCT orders.id) FILTER (WHERE orders.paid_total_minor > 0)::integer AS paid_orders,
         coalesce(sum(orders.paid_total_minor), 0)::text AS paid_revenue_minor
       FROM website_leads LEFT JOIN orders ON orders.organization_id = website_leads.organization_id AND orders.source_lead_id = website_leads.id
@@ -86,42 +87,38 @@ export async function getWebsiteSnapshot(member: AuthenticatedMember): Promise<W
   const canonical = selectCanonicalWebsiteMetrics(metricRows);
   const trafficByWebsite = new Map<string, { visitors: number; pageviews: number }>();
   const trafficByDate = new Map<string, { visitors: number; pageviews: number }>();
+  const trafficByWebsiteAndDate = new Map<string, number>();
   for (const row of canonical.traffic) {
     const site = trafficByWebsite.get(row.websiteId) ?? { visitors: 0, pageviews: 0 };
     site.visitors += row.visitors; site.pageviews += row.pageviews; trafficByWebsite.set(row.websiteId, site);
     const day = trafficByDate.get(row.date) ?? { visitors: 0, pageviews: 0 };
     day.visitors += row.visitors; day.pageviews += row.pageviews; trafficByDate.set(row.date, day);
+    trafficByWebsiteAndDate.set(`${row.websiteId}:${row.date}`, row.visitors);
   }
-  const leadByWebsite = new Map(leadValues.map((value) => { const row = leadRowSchema.parse(value); return [row.website_id, { leads: row.leads, paidOrders: row.paid_orders, paidRevenueMinor: safeInteger(row.paid_revenue_minor) }] as const; }));
-  const sites: WebsiteListItem[] = websiteRows.map((row) => {
-    const traffic = trafficByWebsite.get(row.id) ?? { visitors: 0, pageviews: 0 };
-    const funnel = leadByWebsite.get(row.id) ?? { leads: 0, paidOrders: 0, paidRevenueMinor: 0 };
-    return { id: row.id, name: row.name, domain: row.domain, status: row.status, version: row.version, ...traffic, ...funnel, conversionPercent: traffic.visitors ? Number(((funnel.leads / traffic.visitors) * 100).toFixed(2)) : 0, integrations: integrationsByWebsite.get(row.id) ?? [] };
-  });
   const dates: string[] = [];
   const cursor = new Date(`${bounds.start_date}T00:00:00Z`);
   const end = new Date(`${bounds.end_date}T00:00:00Z`);
   while (cursor <= end) { dates.push(cursor.toISOString().slice(0, 10)); cursor.setUTCDate(cursor.getUTCDate() + 1); }
+  const leadByWebsite = new Map(leadValues.map((value) => { const row = leadRowSchema.parse(value); return [row.website_id, { leads: row.leads, orders: row.orders, paidOrders: row.paid_orders, paidRevenueMinor: safeInteger(row.paid_revenue_minor) }] as const; }));
+  const sites: WebsiteListItem[] = websiteRows.map((row) => {
+    const traffic = trafficByWebsite.get(row.id) ?? { visitors: 0, pageviews: 0 };
+    const funnel = leadByWebsite.get(row.id) ?? { leads: 0, orders: 0, paidOrders: 0, paidRevenueMinor: 0 };
+    return { id: row.id, name: row.name, domain: row.domain, status: row.status, version: row.version, ...traffic, ...funnel, conversionPercent: traffic.visitors ? Number(((funnel.leads / traffic.visitors) * 100).toFixed(2)) : 0, trafficHistory: dates.map((date) => trafficByWebsiteAndDate.get(`${row.id}:${date}`) ?? null), integrations: integrationsByWebsite.get(row.id) ?? [] };
+  });
   const searchClicks = [...canonical.search.values()].reduce((total, value) => total + value.clicks, 0);
-  const searchClicksByDate = new Map<string, number>();
-  for (const [key, value] of canonical.search) {
-    const date = key.slice(key.lastIndexOf(":") + 1);
-    searchClicksByDate.set(date, (searchClicksByDate.get(date) ?? 0) + value.clicks);
-  }
   const visitors = sites.reduce((total, site) => total + site.visitors, 0);
   const pageviews = sites.reduce((total, site) => total + site.pageviews, 0);
   const leads = sites.reduce((total, site) => total + site.leads, 0);
+  const orders = sites.reduce((total, site) => total + site.orders, 0);
   const paidOrders = sites.reduce((total, site) => total + site.paidOrders, 0);
   const sources = sourceValues.map((value) => sourceRowSchema.parse(value));
   const sourceTotal = sources.reduce((total, source) => total + source.leads, 0);
   return {
     period: { startDate: bounds.start_date, endDate: bounds.end_date, timezone: bounds.timezone },
-    summary: { totalSites: sites.length, activeSites: sites.filter((site) => site.status === "active").length, visitors, pageviews, searchClicks, leads, paidOrders, paidRevenueMinor: sites.reduce((total, site) => total + site.paidRevenueMinor, 0), conversionPercent: visitors ? Number(((leads / visitors) * 100).toFixed(2)) : 0 },
+    summary: { totalSites: sites.length, activeSites: sites.filter((site) => site.status === "active").length, visitors, pageviews, searchClicks, leads, orders, paidOrders, paidRevenueMinor: sites.reduce((total, site) => total + site.paidRevenueMinor, 0), conversionPercent: visitors ? Number(((leads / visitors) * 100).toFixed(2)) : 0 },
     sites,
     trafficTrend: { labels: dates.map(formatDateLabel), series: [
-      { label: "Посетители", color: "#000000", values: dates.map((date) => trafficByDate.get(date)?.visitors ?? 0), valueFormat: "integer" },
-      { label: "Просмотры", color: "#a2beff", values: dates.map((date) => trafficByDate.get(date)?.pageviews ?? 0), valueFormat: "integer" },
-      { label: "Поисковые клики", color: "#25272c", values: dates.map((date) => searchClicksByDate.get(date) ?? 0), valueFormat: "integer" },
+      { label: "Посетители", color: "#000000", values: dates.map((date) => trafficByDate.get(date)?.visitors ?? null), valueFormat: "integer" },
     ] },
     trafficSources: sources.map((source) => ({ label: source.source, amount: source.leads, value: sourceTotal ? Math.round((source.leads / sourceTotal) * 100) : 0 })),
   };

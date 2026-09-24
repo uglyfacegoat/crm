@@ -21,6 +21,7 @@ function requireCompleteDeadline(value: { localDate: string; localTime: string }
 
 export const createTaskSchema = z.object({
   idempotencyKey: z.string().uuid(),
+  relatedOrderId: optionalUuid,
   ...editableTaskFields,
 }).superRefine(requireCompleteDeadline);
 

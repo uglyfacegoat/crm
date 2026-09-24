@@ -1,6 +1,6 @@
 import type { AuthenticatedMember, OrganizationRole } from "./types";
 
-export const permissions = [
+export const configurablePermissions = [
   "clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write",
   "documents.read", "documents.write", "masters.read", "masters.write", "finance.read", "finance.write", "settings.write",
   "tasks.read", "tasks.write",
@@ -14,6 +14,11 @@ export const permissions = [
   "help.read", "support.write",
   "companies.read", "companies.write",
   "search.use", "assistant.use",
+] as const;
+export const permissions = [
+  ...configurablePermissions,
+  "support.manage",
+  "developer.preview",
 ] as const;
 export type Permission = (typeof permissions)[number];
 
@@ -39,11 +44,12 @@ export const permissionSections = [
 ] as const satisfies ReadonlyArray<{ label: string; description: string; permissions: ReadonlyArray<readonly [Permission, string]> }>;
 
 const grants: Record<OrganizationRole, ReadonlySet<Permission>> = {
-  admin: new Set(permissions),
+  developer: new Set(permissions),
+  admin: new Set(configurablePermissions),
   dispatcher: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "visits.write", "documents.read", "documents.write", "masters.read", "tasks.read", "tasks.write", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read", "leads.read", "leads.write", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
   manager: new Set(["clients.read", "clients.write", "orders.read", "orders.write", "visits.read", "documents.read", "documents.write", "masters.read", "finance.read", "tasks.read", "tasks.write", "contracts.read", "contracts.write", "chat.read", "chat.write", "chat.manage", "document_templates.read", "sites.read", "leads.read", "leads.write", "analytics.read", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
   accountant: new Set(["clients.read", "orders.read", "documents.read", "documents.write", "finance.read", "finance.write", "tasks.read", "contracts.read", "chat.read", "chat.write", "sites.read", "leads.read", "analytics.read", "notifications.read", "help.read", "support.write", "companies.read", "search.use", "assistant.use"]),
-  master: new Set(["visits.read", "visits.write", "document_templates.read", "notifications.read", "help.read", "support.write"]),
+  master: new Set(["visits.read", "visits.write", "chat.read", "chat.write", "document_templates.read", "notifications.read", "help.read", "support.write"]),
 };
 
 export class AuthorizationError extends Error {
@@ -55,6 +61,10 @@ export class AuthorizationError extends Error {
 
 export function hasPermission(subject: OrganizationRole | Pick<AuthenticatedMember, "role" | "permissionOverrides">, permission: Permission) {
   if (typeof subject === "string") return grants[subject].has(permission);
+  if (subject.role === "developer") return grants.developer.has(permission);
+  if (permission === "support.manage" || permission === "developer.preview") {
+    return false;
+  }
   return subject.permissionOverrides[permission] ?? grants[subject.role].has(permission);
 }
 

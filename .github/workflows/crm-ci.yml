@@ -1,0 +1,269 @@
+name: CRM quality gates
+
+on:
+  pull_request:
+  push:
+    branches: [main, master, 'recovery/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Types, lint, unit tests and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:auth-service
+      - run: npm run test:chat-send
+      - run: npm run test:website-webhook-limits
+      - run: npm run test:chat-picker-route
+      - run: npm run test:upload-commit
+      - run: npm run test:upload-lifecycle
+      - run: npm run test:chat-download
+      - run: npm run test:document-download
+      - run: npm run test:s3-storage
+      - run: npm run test:backup-export
+      - run: npm run test:backup-retention
+      - run: npm run build
+      - run: npm run test:startup
+
+  security:
+    name: Dependency and secret security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan Git history for secrets without container network access
+        run: >-
+          docker run --rm --network none --read-only
+          --mount "type=bind,source=$PWD,target=/repo,readonly"
+          -w /repo
+          ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git --redact --log-level error /repo
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+
+  tls-ingress:
+    name: Isolated HTTPS ingress acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Check production HTTPS Compose isolation
+        env:
+          CRM_APP_IMAGE: crm-app:tls-check
+          CRM_PUBLIC_ORIGIN: https://localhost:8443
+          CRM_PUBLIC_HOST: localhost
+          CRM_TLS_CERTIFICATE: /tmp/ci-certificate.pem
+          CRM_TLS_PRIVATE_KEY: /tmp/ci-private-key.pem
+          CRM_HTTP_PORT: '8080'
+          CRM_HTTPS_PORT: '8443'
+        run: |
+          touch .env.docker-crm .env.docker-database .env.docker-reminder-worker .env.docker-backup-worker
+          docker compose --env-file /dev/null -f compose.yaml -f compose.https.yaml config --no-env-resolution --format json > /tmp/crm-https-compose.json
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const { services } = JSON.parse(readFileSync('/tmp/crm-https-compose.json', 'utf8'));
+          for (const name of ['crm', 'reminder-worker', 'backup-worker']) {
+            assert.equal(services[name].image, 'crm-app:tls-check');
+          }
+          assert.equal(services.crm.ports?.length ?? 0, 0);
+          assert.equal(services.database.ports?.length ?? 0, 0);
+          assert.equal(services.gateway.ports.length, 2);
+          assert.equal(services.crm.environment.AUTH_COOKIE_SECURE, 'true');
+          assert.equal(services.crm.environment.CRM_TRUST_PROXY, 'true');
+          JS
+      - run: npx playwright-core install --with-deps chromium
+      - run: docker build -t crm-app:tls-check .
+      - run: npm run test:tls
+
+  backup-recovery:
+    name: Database and file restore integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t crm-app:backup-check .
+      - name: Restore files and database using the runtime image
+        run: >-
+          docker run --rm --network host
+          --mount "type=bind,source=$PWD/scripts/backup-restore.integration.mjs,target=/app/scripts/backup-restore.integration.mjs,readonly"
+          -e BACKUP_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:5432/postgres
+          --entrypoint node crm-app:backup-check --test scripts/backup-restore.integration.mjs
+      - name: Audit storage using the runtime image
+        run: >-
+          docker run --rm --network host
+          --mount "type=bind,source=$PWD/scripts/storage-audit.integration.mjs,target=/app/scripts/storage-audit.integration.mjs,readonly"
+          -e MIGRATION_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:5432/postgres
+          --entrypoint node crm-app:backup-check --test scripts/storage-audit.integration.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - name: Restore a coordinated private S3 backup using the runtime worker
+        run: S3_BACKUP_TEST_IMAGE=crm-app:backup-check BACKUP_TEST_ADMIN_URL=postgresql://postgres@host.docker.internal:5432/postgres npm run test:s3-backup
+      - name: Read-only S3 inventory and version reconciliation
+        run: S3_AUDIT_TEST_IMAGE=crm-app:backup-check MIGRATION_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:5432/postgres npm run test:s3-storage-audit
+
+  database-and-runtime:
+    name: Migration safety and production HTTP checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: crm_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      MIGRATION_TEST_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
+      DATABASE_URL: postgresql://postgres@127.0.0.1:5432/crm_ci
+      AUTH_MODE: required
+      CRM_ALLOWED_ORIGINS: http://127.0.0.1:3100
+      CRM_TRUST_PROXY: 'false'
+      AUTH_COOKIE_SECURE: 'false'
+      AUTH_BOOTSTRAP_ORGANIZATION_NAME: CI test company
+      AUTH_BOOTSTRAP_TIMEZONE: Europe/Moscow
+      AUTH_BOOTSTRAP_ADMIN_NAME: CI administrator
+      AUTH_BOOTSTRAP_ADMIN_EMAIL: ci@example.invalid
+      DOCUMENT_STORAGE_ROOT: /tmp/crm-ci-storage
+      SMOKE_BASE_URL: http://127.0.0.1:3100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Generate disposable test secrets
+        run: |
+          node --input-type=module <<'JS'
+          import { randomBytes } from 'node:crypto';
+          import { appendFileSync } from 'node:fs';
+          for (const key of ['AUTH_THROTTLE_SECRET', 'AUTH_BOOTSTRAP_ADMIN_PASSWORD', 'CRM_WEBSITE_WEBHOOK_SECRET']) {
+            const value = randomBytes(32).toString('hex');
+            console.log(`::add-mask::${value}`);
+            appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`);
+          }
+          JS
+      - run: npm run test:migrations
+      - run: npm run test:visit-conflicts
+      - run: npm run test:file-drain
+      - run: npm run test:file-recovery
+      - run: npm run test:file-quarantine
+      - run: npm run test:file-s3-export
+      - run: npm run test:file-s3-quarantine
+      - run: npm run test:storage-transfer
+      - run: npm run test:request-limits
+      - run: npm run test:chat-access
+      - run: npm run test:notifications-pagination
+      - run: npm run test:client-list-pagination
+      - run: npm run test:order-picker
+      - run: npm run test:finance-receipts
+      - run: npm run db:migrate
+      - run: npm run auth:create-admin
+      - run: npm run build
+      - run: npx playwright-core install --with-deps chromium
+      - name: Start production server and verify HTTP behavior
+        run: |
+          mkdir -p artifacts "$DOCUMENT_STORAGE_ROOT"
+          cp -R .next/static .next/standalone/.next/static
+          cp -R public .next/standalone/public
+          HOSTNAME=127.0.0.1 PORT=3100 node .next/standalone/server.js > artifacts/ci-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "$SMOKE_BASE_URL/api/v1/system/health" > /dev/null; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat artifacts/ci-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat artifacts/ci-server.log
+            exit 1
+          fi
+          npm run test:production-smoke
+          npm run test:perimeter
+          node scripts/request-body-check.mjs
+          node scripts/search-limits-check.mjs
+          node scripts/chat-limits-check.mjs
+          CHAT_VOICE_CHECK_BASE_URL="$SMOKE_BASE_URL" node scripts/chat-voice-flow-check.mjs
+          node scripts/chat-download-flow-check.mjs
+          npm run test:sites-production
+          SITES_CHECK_BASE_URL="$SMOKE_BASE_URL" node scripts/sites-flow-check.mjs
+      - name: Isolated document, finance, visit and chat upload acceptance
+        run: UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
+      - name: Session revocation with open browser tabs
+        run: SESSION_CHECK_RUNTIME=.next/standalone/server.js npm run test:session-revocation
+      - name: Private S3 upload, download and backup staging acceptance
+        run: UPLOAD_CHECK_STORAGE=s3 UPLOAD_CHECK_ARTIFACTS=artifacts/uploads-s3 UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crm-ci-runtime-log
+          path: |
+            artifacts/ci-server.log
+            artifacts/production/
+            artifacts/sites/
+            artifacts/uploads/
+            artifacts/uploads-s3/
+          retention-days: 7

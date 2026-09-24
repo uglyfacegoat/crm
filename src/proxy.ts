@@ -1,13 +1,75 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAllowedRequestOrigins } from "@/server/auth/request";
+import { matchesRequestOrigin } from "@/server/auth/same-origin";
 
 const SESSION_COOKIE_NAME = "crm_session";
+const MAX_SERVER_ACTION_BODY_BYTES = 16 * 1024 * 1024;
 
-export function proxy(request: NextRequest) {
+async function actionBodyTooLarge(request: NextRequest) {
+  const declared = request.headers.get("content-length");
+  if (declared && /^\d+$/.test(declared) && Number(declared) > MAX_SERVER_ACTION_BODY_BYTES) return true;
+  if (!request.body) return false;
+  const reader = request.body.getReader();
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return false;
+      size += value.byteLength;
+      if (size > MAX_SERVER_ACTION_BODY_BYTES) { await reader.cancel(); return true; }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function proxy(request: NextRequest) {
+  const allowedOrigins = getAllowedRequestOrigins(request);
+  const path = request.nextUrl.pathname;
+  const host = request.headers.get("host");
+  if (!["/api/v1/system/health", "/api/v1/system/live", "/api/v1/system/ready"].includes(path)
+    && !allowedOrigins.some((origin) => new URL(origin).host === host)) {
+    return NextResponse.json({ error: { code: "invalid_host", message: "Недопустимый адрес сервера." } }, { status: 421 });
+  }
+  const safeMethod = ["GET", "HEAD", "OPTIONS"].includes(request.method);
+  const bearerWebhook = path === "/api/v1/webhooks/website-leads";
+  if (!safeMethod && !bearerWebhook && !matchesRequestOrigin(request.headers.get("origin"), allowedOrigins)) {
+    return NextResponse.json({ error: { code: "invalid_origin", message: "Недопустимый источник запроса." } }, { status: 403 });
+  }
+  const isPage = !path.startsWith("/api/");
+  if (isPage && !safeMethod && (request.headers.has("next-action") || request.headers.get("content-type")?.startsWith("multipart/form-data"))) {
+    if (await actionBodyTooLarge(request)) {
+      return NextResponse.json({ error: { code: "payload_too_large", message: "Размер запроса не должен превышать 16 МБ." } }, { status: 413 });
+    }
+  }
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-forwarded-host", host ?? "");
+  if (process.env.CRM_TRUST_PROXY !== "true") {
+    for (const name of ["forwarded", "x-real-ip", "x-forwarded-for", "x-forwarded-proto"]) requestHeaders.delete(name);
+  }
+  let contentSecurityPolicy: string | undefined;
+  if (isPage) {
+    const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+    contentSecurityPolicy = [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+      // React/Recharts position elements with inline styles; scripts still require a nonce.
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:", "font-src 'self'", "media-src 'self' blob:",
+      `connect-src 'self'${process.env.NODE_ENV === "development" ? " ws: wss:" : ""}`,
+      "frame-src 'self' blob:", "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
+    ].join("; ");
+    requestHeaders.set("x-nonce", nonce);
+    requestHeaders.set("Content-Security-Policy", contentSecurityPolicy);
+  }
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  if (contentSecurityPolicy) response.headers.set("Content-Security-Policy", contentSecurityPolicy);
   const authMode = process.env.AUTH_MODE ?? (process.env.NODE_ENV === "production" ? null : "preview");
   if (!authMode) throw new Error("AUTH_MODE is required in production.");
-  if (authMode === "preview") return NextResponse.next();
+  if (authMode === "preview") return response;
   if (authMode !== "required") throw new Error("AUTH_MODE must be either preview or required.");
-  if (request.cookies.has(SESSION_COOKIE_NAME)) return NextResponse.next();
+  if (!isPage || path === "/login" || request.cookies.has(SESSION_COOKIE_NAME)) return response;
 
   const loginUrl = new URL("/login", request.url);
   loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
@@ -16,6 +78,6 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|login|_next/static|_next/image|favicon.ico|help/[^/]+\\.png$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest$|crm-app-icon\\.svg$|help/[^/]+\\.png$).*)",
   ],
 };

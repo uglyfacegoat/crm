@@ -1,102 +1,191 @@
-services:
-  crm:
-    image: crm-app:local
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
-      AUTH_MODE: required
-      AUTH_THROTTLE_SECRET: ${AUTH_THROTTLE_SECRET:?Set AUTH_THROTTLE_SECRET}
-      CRM_WEBSITE_WEBHOOK_SECRET: ${CRM_WEBSITE_WEBHOOK_SECRET:-}
-      DATABASE_URL: postgresql://${CRM_DB_USER:?Set CRM_DB_USER}:${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}@database:5432/${CRM_DB_NAME:?Set CRM_DB_NAME}
-      DOCUMENT_STORAGE_ROOT: /app/storage
-      HOSTNAME: 0.0.0.0
-      PORT: 3000
-    ports:
-      - "0.0.0.0:${CRM_APP_PORT:-3000}:3000"
-    depends_on:
-      database:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/system/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
-    restart: unless-stopped
-    stop_grace_period: 30s
-    volumes:
-      - crm_document_storage:/app/storage
-
-  reminder-worker:
-    image: crm-app:local
-    pull_policy: never
-    entrypoint: ["node", "scripts/reminder-worker.mjs"]
-    environment:
-      DATABASE_URL: postgresql://${CRM_DB_USER:?Set CRM_DB_USER}:${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}@database:5432/${CRM_DB_NAME:?Set CRM_DB_NAME}
-      REMINDER_WORKER_INTERVAL_MS: ${REMINDER_WORKER_INTERVAL_MS:-60000}
-    depends_on:
-      crm:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "scripts/reminder-worker.mjs", "--healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 4
-      start_period: 20s
-    restart: unless-stopped
-    stop_grace_period: 15s
-
-  backup-worker:
-    image: crm-app:local
-    pull_policy: never
-    entrypoint: ["node", "scripts/backup-worker.mjs"]
-    environment:
-      BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
-      BACKUP_RETRY_INTERVAL_MS: ${BACKUP_RETRY_INTERVAL_MS:-900000}
-      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
-      BACKUP_ROOT: /app/backups
-      BACKUP_EXPORT_ROOT: /app/backup-export
-      BACKUP_WORKER_POLL_MS: ${BACKUP_WORKER_POLL_MS:-60000}
-      DATABASE_URL: postgresql://${CRM_DB_USER:?Set CRM_DB_USER}:${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}@database:5432/${CRM_DB_NAME:?Set CRM_DB_NAME}
-      DOCUMENT_STORAGE_ROOT: /app/storage
-    depends_on:
-      crm:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "scripts/backup-worker.mjs", "--healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 6
-      start_period: 90s
-    restart: unless-stopped
-    stop_grace_period: 30s
-    volumes:
-      - crm_document_storage:/app/storage:ro
-      - crm_backups:/app/backups
-      - type: bind
-        source: ${CRM_BACKUP_EXPORT_PATH:-./backups}
-        target: /app/backup-export
-
-  database:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: ${CRM_DB_USER:?Set CRM_DB_USER}
-      POSTGRES_PASSWORD: ${CRM_DB_PASSWORD:?Set CRM_DB_PASSWORD}
-      POSTGRES_DB: ${CRM_DB_NAME:?Set CRM_DB_NAME}
-    ports:
-      - "127.0.0.1:${CRM_DB_PORT:?Set CRM_DB_PORT}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    volumes:
-      - crm_postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
-volumes:
-  crm_postgres_data:
-  crm_document_storage:
-  crm_backups:
+{
+  "name": "crm",
+  "services": {
+    "crm": {
+      "image": "crm-app:without-legacy-import-20260923",
+      "env_file": [
+        {
+          "path": ".env.docker-crm",
+          "format": "raw"
+        }
+      ],
+      "restart": "unless-stopped",
+      "build": {
+        "context": ".",
+        "dockerfile": "Dockerfile"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/v1/system/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
+        ],
+        "interval": "10000000000ns",
+        "timeout": "5000000000ns",
+        "start_period": "20000000000ns",
+        "retries": 6
+      },
+      "ports": [
+        "127.0.0.1:3000:3000/tcp"
+      ],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "crm_crm_document_storage",
+          "target": "/app/storage",
+          "read_only": false
+        }
+      ],
+      "networks": [
+        "crm_default"
+      ],
+      "depends_on": {
+        "database": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "reminder-worker": {
+      "image": "crm-app:worker-preflight-20260923",
+      "env_file": [
+        {
+          "path": ".env.docker-reminder-worker",
+          "format": "raw"
+        }
+      ],
+      "restart": "unless-stopped",
+      "entrypoint": [
+        "node",
+        "scripts/reminder-worker.mjs"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "scripts/reminder-worker.mjs",
+          "--healthcheck"
+        ],
+        "interval": "30000000000ns",
+        "timeout": "10000000000ns",
+        "start_period": "20000000000ns",
+        "retries": 4
+      },
+      "networks": [
+        "crm_default"
+      ],
+      "depends_on": {
+        "crm": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "backup-worker": {
+      "image": "crm-app:worker-preflight-20260923",
+      "env_file": [
+        {
+          "path": ".env.docker-backup-worker",
+          "format": "raw"
+        }
+      ],
+      "restart": "unless-stopped",
+      "entrypoint": [
+        "node",
+        "scripts/backup-worker.mjs"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "scripts/backup-worker.mjs",
+          "--healthcheck"
+        ],
+        "interval": "30000000000ns",
+        "timeout": "10000000000ns",
+        "start_period": "90000000000ns",
+        "retries": 6
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "./backups",
+          "target": "/app/backup-export",
+          "read_only": false
+        },
+        {
+          "type": "volume",
+          "source": "crm_crm_backups",
+          "target": "/app/backups",
+          "read_only": false
+        },
+        {
+          "type": "volume",
+          "source": "crm_crm_document_storage",
+          "target": "/app/storage",
+          "read_only": true
+        }
+      ],
+      "networks": [
+        "crm_default"
+      ],
+      "depends_on": {
+        "crm": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "database": {
+      "image": "postgres:17-alpine",
+      "env_file": [
+        {
+          "path": ".env.docker-database",
+          "format": "raw"
+        }
+      ],
+      "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""
+        ],
+        "interval": "5000000000ns",
+        "timeout": "3000000000ns",
+        "retries": 10
+      },
+      "ports": [
+        "127.0.0.1:54329:5432/tcp"
+      ],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "crm_crm_postgres_data",
+          "target": "/var/lib/postgresql/data",
+          "read_only": false
+        }
+      ],
+      "networks": [
+        "crm_default"
+      ]
+    }
+  },
+  "volumes": {
+    "crm_crm_document_storage": {
+      "external": true,
+      "name": "crm_crm_document_storage"
+    },
+    "crm_crm_backups": {
+      "external": true,
+      "name": "crm_crm_backups"
+    },
+    "crm_crm_postgres_data": {
+      "external": true,
+      "name": "crm_crm_postgres_data"
+    }
+  },
+  "networks": {
+    "crm_default": {
+      "external": true,
+      "name": "crm_default"
+    }
+  }
+}

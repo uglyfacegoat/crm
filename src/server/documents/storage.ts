@@ -1,9 +1,22 @@
 import "server-only";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import { access, lstat, mkdir, open, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { z } from "zod";
+import { storageRootSchema } from "@/server/config/environment";
+import { storageBackend } from "../storage/s3-config.mjs";
+import { recordFileWriteKey } from "../file-writes/gate.mjs";
+import { createS3Storage } from "../storage/s3-store.mjs";
+import { StoredFileIntegrityError, validateFileExpectation, validateStorageKey } from "../storage/file-integrity.mjs";
+import { FileScanRejectedError, FileScanUnavailableError, scanFileBuffer } from "../file-scan/clamd.mjs";
+import { DocumentFileValidationError } from "./file-validation";
 
-const storageRootSchema = z.string().min(1).refine(isAbsolute, "DOCUMENT_STORAGE_ROOT must be an absolute path");
+export { StoredFileIntegrityError };
+
+let s3: ReturnType<typeof createS3Storage> | undefined;
+function objectStorage() {
+  return s3 ??= createS3Storage(process.env);
+}
 
 function getStorageRoot() {
   const configuredRoot = process.env.DOCUMENT_STORAGE_ROOT;
@@ -13,9 +26,7 @@ function getStorageRoot() {
 }
 
 function resolveStorageKey(storageKey: string) {
-  if (!/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/v[1-9][0-9]*\.(pdf|jpg|png|webp|docx|xlsx)$/.test(storageKey)) {
-    throw new Error("Invalid document storage key.");
-  }
+  validateStorageKey(storageKey);
   const root = getStorageRoot();
   const absolutePath = resolve(root, ...storageKey.split("/"));
   const relativePath = relative(root, absolutePath);
@@ -23,6 +34,14 @@ function resolveStorageKey(storageKey: string) {
     throw new Error("Document storage key escapes the configured root.");
   }
   return absolutePath;
+}
+
+export async function checkDocumentStorageAvailability() {
+  if (storageBackend(process.env) === "s3") return objectStorage().checkAvailability();
+  const root = getStorageRoot();
+  const stat = await lstat(root);
+  if (!stat.isDirectory()) throw new Error("Document storage root is not a directory.");
+  await access(root, constants.R_OK | constants.W_OK);
 }
 
 export function createDocumentStorageKey(organizationId: string, documentId: string, extension: string) {
@@ -42,17 +61,56 @@ export function createChatAttachmentStorageKey(organizationId: string, messageId
   return `${organizationId}/${messageId}/v1.${extension}`;
 }
 
+export function createChatChannelAvatarStorageKey(organizationId: string, channelId: string, version: number, extension: string) {
+  if (!Number.isSafeInteger(version) || version < 1) throw new TypeError("Chat avatar version must be a positive integer.");
+  return `${organizationId}/${channelId}/v${version}.${extension}`;
+}
+
 export async function writeDocumentFile(storageKey: string, buffer: Buffer) {
+  try { await scanFileBuffer(buffer); }
+  catch (error) {
+    if (error instanceof FileScanRejectedError) throw new DocumentFileValidationError("Файл не прошёл проверку безопасности.");
+    if (error instanceof FileScanUnavailableError) throw new DocumentFileValidationError("Проверка файла временно недоступна. Повторите позже.");
+    throw error;
+  }
+  await recordFileWriteKey(storageKey);
+  if (storageBackend(process.env) === "s3") return objectStorage().write(storageKey, buffer);
   const absolutePath = resolveStorageKey(storageKey);
   await mkdir(dirname(absolutePath), { recursive: true, mode: 0o700 });
   await writeFile(absolutePath, buffer, { flag: "wx", mode: 0o600 });
 }
 
-export async function readDocumentFile(storageKey: string) {
-  return readFile(resolveStorageKey(storageKey));
+export async function readVerifiedDocumentFile(storageKey: string, expected: { sizeBytes: number; sha256: string }, maxBytes: number) {
+  if (storageBackend(process.env) === "s3") {
+    const buffer = await objectStorage().readVerified(storageKey, expected, maxBytes);
+    await scanFileBuffer(buffer);
+    return buffer;
+  }
+  validateFileExpectation(expected, maxBytes);
+  const file = await open(resolveStorageKey(storageKey), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const buffer = Buffer.alloc(expected.sizeBytes);
+  try {
+    const stats = await file.stat();
+    if (!stats.isFile() || stats.size !== expected.sizeBytes) throw new StoredFileIntegrityError();
+    // Allocate only the validated stored size, even if the file grows during reading.
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, offset);
+      if (bytesRead === 0) throw new StoredFileIntegrityError();
+      offset += bytesRead;
+    }
+    if ((await file.stat()).size !== expected.sizeBytes || createHash("sha256").update(buffer).digest("hex") !== expected.sha256) {
+      throw new StoredFileIntegrityError();
+    }
+  } finally {
+    await file.close();
+  }
+  await scanFileBuffer(buffer);
+  return buffer;
 }
 
 export async function removeDocumentFile(storageKey: string) {
+  if (storageBackend(process.env) === "s3") return objectStorage().remove(storageKey);
   try {
     await unlink(resolveStorageKey(storageKey));
   } catch (error) {

@@ -7,12 +7,13 @@ import {
   Check,
   CheckCircle2,
   CircleAlert,
-  FilePenLine,
   LoaderCircle,
+  Plus,
+  Search,
   Wrench,
   X,
 } from "lucide-react";
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import {
   createQuickOrderAction,
   type QuickOrderState,
@@ -26,6 +27,7 @@ import {
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
 import { formatMoney } from "@/lib/format";
+import type { OrderPickerResult } from "@/lib/order-picker";
 import { formatPhoneInput } from "@/lib/phone-input";
 import type { IncomingLeadPrefill } from "@/server/incoming-leads/types";
 import type { OrderCreationOptions } from "@/server/orders/types";
@@ -149,7 +151,7 @@ function SectionIntro({
         </span>
         Шаг из 04
       </p>
-      <h2 className="mt-3 font-display text-[clamp(1.45rem,1.24rem+0.6vw,1.9rem)] font-medium tracking-[-0.045em] text-[var(--text)]">
+      <h2 tabIndex={-1} className="mt-3 font-display text-[clamp(1.45rem,1.24rem+0.6vw,1.9rem)] font-medium tracking-[-0.045em] text-[var(--text)] outline-none">
         {title}
       </h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">
@@ -240,7 +242,7 @@ function SummaryLine({
   strong?: boolean;
 }) {
   return (
-    <div className="grid gap-1 py-3.5">
+    <div className="grid gap-1 py-2">
       <dt className="text-[10px] uppercase tracking-[0.13em] text-[var(--muted)]">
         {label}
       </dt>
@@ -293,7 +295,27 @@ export function QuickOrderWorkspace({
         ? "existing"
         : "new",
   );
+  const [clientQuery, setClientQuery] = useState("");
   const [clientId, setClientId] = useState(initialClientId);
+  const [clientMatches, setClientMatches] = useState(options.clients);
+  const [clientMatchesQuery, setClientMatchesQuery] = useState("");
+  const [clientHasMore, setClientHasMore] = useState(false);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [clientSearchError, setClientSearchError] = useState(false);
+  const [clientSearchRetry, setClientSearchRetry] = useState(0);
+  const [selectedClientRecord, setSelectedClientRecord] = useState(options.clients.find((client) => client.id === initialClientId));
+  const [relatedOptions, setRelatedOptions] = useState({ objects: options.objects, contacts: options.contacts });
+  const [relationsError, setRelationsError] = useState(false);
+  const [relationsRetry, setRelationsRetry] = useState(0);
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactMatches, setContactMatches] = useState(options.contacts);
+  const [contactMatchesQuery, setContactMatchesQuery] = useState("");
+  const [contactHasMore, setContactHasMore] = useState(false);
+  const [contactSearchError, setContactSearchError] = useState(false);
+  const [contactSearchLoading, setContactSearchLoading] = useState(false);
+  const [contactSearchRetry, setContactSearchRetry] = useState(0);
+  const [selectedContactRecord, setSelectedContactRecord] = useState<OrderCreationOptions["contacts"][number] | null>(null);
+  const [selectedObjectRecord, setSelectedObjectRecord] = useState<OrderCreationOptions["objects"][number] | null>(null);
   const [clientKind, setClientKind] = useState<"legal_entity" | "individual">(
     prefill ? "individual" : "legal_entity",
   );
@@ -322,6 +344,7 @@ export function QuickOrderWorkspace({
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
   const [masterId, setMasterId] = useState("");
+  const [selectedMasterRecord, setSelectedMasterRecord] = useState<OrderCreationOptions["masters"][number] | null>(null);
   const [masterPayment, setMasterPayment] = useState("");
   const [orderNotes, setOrderNotes] = useState(prefill?.orderNotes ?? "");
   const [visitDate, setVisitDate] = useState(defaultVisitDate);
@@ -329,29 +352,114 @@ export function QuickOrderWorkspace({
   const [durationMinutes, setDurationMinutes] = useState("120");
   const [visitNotes, setVisitNotes] = useState("");
 
+  useEffect(() => {
+    if (!options.remote || clientMode !== "existing") return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setClientSearchLoading(true);
+      setClientSearchError(false);
+      try {
+        const params = new URLSearchParams({ type: "clients", q: clientQuery });
+        const response = await fetch(`/api/v1/orders/options?${params}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Client picker request failed");
+        const payload = await response.json() as { data: OrderPickerResult };
+        if (!controller.signal.aborted) {
+          setClientMatches(payload.data.items.map((item) => ({ id: item.id, name: item.name })));
+          setClientMatchesQuery(clientQuery);
+          setClientHasMore(payload.data.hasMore);
+        }
+      } catch {
+        if (!controller.signal.aborted) setClientSearchError(true);
+      } finally {
+        if (!controller.signal.aborted) setClientSearchLoading(false);
+      }
+    }, clientQuery ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [clientMode, clientQuery, clientSearchRetry, options.remote]);
+  useEffect(() => {
+    if (!options.remote || !clientId || clientMode !== "existing") return;
+    const controller = new AbortController();
+    const load = async () => {
+      setRelationsError(false);
+      try {
+        const params = new URLSearchParams({ clientId });
+        const [objectsResponse, contactsResponse] = await Promise.all([
+          fetch(`/api/v1/orders/options?${params}&type=objects`, { signal: controller.signal, cache: "no-store" }),
+          fetch(`/api/v1/orders/options?${params}&type=contacts`, { signal: controller.signal, cache: "no-store" }),
+        ]);
+        if (!objectsResponse.ok || !contactsResponse.ok) throw new Error("Client relations request failed");
+        const objectsPayload = await objectsResponse.json() as { data: OrderPickerResult };
+        const contactsPayload = await contactsResponse.json() as { data: OrderPickerResult };
+        if (controller.signal.aborted) return;
+        const objects = objectsPayload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, address: item.detail ?? "" }));
+        const contacts = contactsPayload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, phone: item.detail ?? "", isPrimary: item.isPrimary ?? false }));
+        setRelatedOptions({ objects, contacts });
+        setContactMatches(contacts);
+        setContactMatchesQuery("");
+        setContactId(contacts.find((contact) => contact.isPrimary)?.id ?? contacts[0]?.id ?? "");
+        setObjectId(objects[0]?.id ?? "");
+        setContactMode(contacts.length ? "existing" : "new");
+        setObjectMode(objects.length ? "existing" : "new");
+      } catch {
+        if (!controller.signal.aborted) setRelationsError(true);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [clientId, clientMode, options.remote, relationsRetry]);
+  useEffect(() => {
+    if (!options.remote || !clientId || clientMode !== "existing" || contactMode !== "existing") return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setContactSearchLoading(true);
+      setContactSearchError(false);
+      try {
+        const params = new URLSearchParams({ type: "contacts", clientId, q: contactQuery });
+        const response = await fetch(`/api/v1/orders/options?${params}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Contact picker request failed");
+        const payload = await response.json() as { data: OrderPickerResult };
+        if (!controller.signal.aborted) {
+          setContactMatches(payload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, phone: item.detail ?? "", isPrimary: item.isPrimary ?? false })));
+          setContactMatchesQuery(contactQuery);
+          setContactHasMore(payload.data.hasMore);
+        }
+      } catch {
+        if (!controller.signal.aborted) setContactSearchError(true);
+      } finally {
+        if (!controller.signal.aborted) setContactSearchLoading(false);
+      }
+    }, contactQuery ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [clientId, clientMode, contactMode, contactQuery, contactSearchRetry, options.remote]);
   const availableContacts = useMemo(
-    () => options.contacts.filter((contact) => contact.clientId === clientId),
-    [clientId, options.contacts],
+    () => relatedOptions.contacts.filter((contact) => contact.clientId === clientId),
+    [clientId, relatedOptions.contacts],
   );
   const availableObjects = useMemo(
-    () => options.objects.filter((object) => object.clientId === clientId),
-    [clientId, options.objects],
+    () => relatedOptions.objects.filter((object) => object.clientId === clientId),
+    [clientId, relatedOptions.objects],
   );
-  const selectedClient = options.clients.find(
-    (client) => client.id === clientId,
-  );
-  const selectedContact = availableContacts.find(
-    (contact) => contact.id === contactId,
-  );
-  const selectedObject = availableObjects.find(
-    (object) => object.id === objectId,
-  );
-  const selectedMaster = options.masters.find(
-    (master) => master.id === masterId,
-  );
+  const selectedClient = selectedClientRecord?.id === clientId ? selectedClientRecord : options.clients.find((client) => client.id === clientId);
+  const selectedContact = availableContacts.find((contact) => contact.id === contactId) ?? (selectedContactRecord?.id === contactId ? selectedContactRecord : undefined);
+  const selectedObject = availableObjects.find((object) => object.id === objectId) ?? (selectedObjectRecord?.id === objectId ? selectedObjectRecord : undefined);
+  const selectedMaster = options.masters.find((master) => master.id === masterId) ?? (selectedMasterRecord?.id === masterId ? selectedMasterRecord : undefined);
+  const visibleClients = options.remote ? (clientMatchesQuery === clientQuery ? clientMatches : []) : options.clients.filter((client) => client.name.toLocaleLowerCase("ru").includes(clientQuery.trim().toLocaleLowerCase("ru")));
+  const visibleContacts = options.remote ? (contactMatchesQuery === contactQuery ? contactMatches.filter((contact) => contact.clientId === clientId) : []) : availableContacts;
   const contactEmailValid = isValidOptionalEmail(contactEmail);
 
   function selectClient(nextClientId: string) {
+    if (options.remote) {
+      setSelectedClientRecord(clientMatches.find((client) => client.id === nextClientId) ?? options.clients.find((client) => client.id === nextClientId));
+      setClientId(nextClientId);
+      setContactId("");
+      setObjectId("");
+      setRelatedOptions({ objects: [], contacts: [] });
+      setContactMatches([]);
+      setSelectedContactRecord(null);
+      setSelectedObjectRecord(null);
+      setContactQuery("");
+      return;
+    }
     const contacts = options.contacts.filter(
       (contact) => contact.clientId === nextClientId,
     );
@@ -503,6 +611,10 @@ export function QuickOrderWorkspace({
 
   const activeSectionId = steps[step].id;
 
+  useEffect(() => {
+    document.getElementById(activeSectionId)?.querySelector("h2")?.focus();
+  }, [activeSectionId]);
+
   if (state.status === "success" && state.result) {
     return (
       <section
@@ -522,7 +634,27 @@ export function QuickOrderWorkspace({
             открыть карточку и сразу отправить её мастеру.
           </p>
         </div>
-        <div className="mt-8 grid gap-3 border-t border-[var(--line)] pt-5 sm:grid-cols-2">
+        <dl className="mt-6 grid gap-x-6 border-t border-[var(--line)] pt-4 sm:grid-cols-2">
+          <SummaryLine label="Клиент" value={draftClientName} strong />
+          <SummaryLine
+            label="Объект"
+            value={[draftObjectName, draftAddress].filter(Boolean).join(" · ")}
+          />
+          <SummaryLine
+            label="Первый выезд"
+            value={`${formatDraftDate(visitDate)} · ${visitTime} · ${durationMinutes} мин`}
+          />
+          <SummaryLine
+            label="Мастер"
+            value={selectedMaster?.name ?? "Пока не назначен"}
+          />
+          <SummaryLine
+            label="Согласовано"
+            value={formatMoney(serviceTotal)}
+            strong
+          />
+        </dl>
+        <div className="mt-6 grid gap-3 border-t border-[var(--line)] pt-5 sm:grid-cols-2">
           <VisitDispatchCardButton
             visitId={state.result.visitId}
             className="!border-0 h-12 rounded-[12px] bg-[var(--accent)] font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-strong)]"
@@ -532,6 +664,9 @@ export function QuickOrderWorkspace({
             className="focus-ring flex h-12 items-center justify-center rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
           >
             Открыть заказ
+          </Link>
+          <Link href="/calendar" className="back-link justify-center">
+            Открыть календарь
           </Link>
           <a
             href={prefill ? "/inbox" : "/quick-order"}
@@ -548,7 +683,7 @@ export function QuickOrderWorkspace({
     <form
       action={formAction}
       data-testid="quick-order-form"
-      className="surface-panel w-full overflow-hidden"
+      className="w-full space-y-5"
       onSubmit={(event) => {
         if (pending) {
           event.preventDefault();
@@ -573,10 +708,11 @@ export function QuickOrderWorkspace({
     >
       <input type="hidden" name="payload" value={JSON.stringify(payload)} />
 
-      <header className="flex items-start justify-between gap-4 px-5 py-6 sm:items-center sm:px-8 sm:py-7 xl:px-10">
+      <header className="flex items-start justify-between gap-4 sm:items-center">
         <div className="min-w-0">
           <p className="eyebrow">
-            {prefill ? "Проверка входящей заявки" : "Новый заказ"}
+            {prefill ? "Проверка входящей заявки" : "Оформление"} / шаг{" "}
+            {step + 1} из {steps.length}
           </p>
           <h1 className="mt-2 font-display text-[clamp(1.65rem,1.35rem+0.8vw,2.25rem)] font-medium tracking-[-0.045em] text-[var(--text)]">
             {prefill ? "Уточнить и принять заявку" : "Оформить заказ"}
@@ -586,10 +722,6 @@ export function QuickOrderWorkspace({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <span className="hidden items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-raised)] px-3 py-2 text-xs text-[var(--muted)] sm:flex">
-            <FilePenLine className="size-4 text-[var(--accent)]" />
-            Черновик
-          </span>
           <Link
             href={prefill ? "/inbox" : "/orders"}
             aria-label="Закрыть оформление"
@@ -600,14 +732,11 @@ export function QuickOrderWorkspace({
         </div>
       </header>
 
-      <nav aria-label="Маршрут оформления" className="border-y border-[var(--line)] bg-[var(--surface-inset)] p-3 sm:p-4 xl:px-6">
-        <ol
-          aria-label="Этапы оформления"
-          className="grid grid-cols-2 gap-1 sm:grid-cols-4"
-        >
+      <nav aria-label="Маршрут оформления" className="border-b border-[var(--line)] pb-3">
+        <ol aria-label="Этапы оформления" className="grid grid-cols-4 gap-1">
           {steps.map((entry, index) => {
             const active = index === step;
-            const done = sectionValidity[index];
+            const done = index < step && sectionValidity[index];
             const available =
               index <= step || sectionValidity.slice(0, index).every(Boolean);
 
@@ -618,7 +747,7 @@ export function QuickOrderWorkspace({
                   onClick={() => goToSection(index)}
                   disabled={!available}
                   aria-current={active ? "step" : undefined}
-                  className={`focus-ring flex min-h-[3.75rem] w-full min-w-0 items-center gap-2.5 rounded-[12px] px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-35 sm:px-3 ${active ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
+                  className={`focus-ring flex min-h-[3.75rem] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-[12px] px-1 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55 sm:flex-row sm:justify-start sm:gap-2.5 sm:px-3 ${active ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
                 >
                   <span
                     className={`grid size-7 shrink-0 place-items-center rounded-full border text-[10px] font-semibold ${active ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]" : done ? "border-[var(--support)]/35 bg-[var(--support-soft)] text-[var(--support-strong)]" : "border-[var(--line-strong)] text-[var(--muted)]"}`}
@@ -649,73 +778,250 @@ export function QuickOrderWorkspace({
         </ol>
       </nav>
 
-      <div className="grid min-w-0 xl:grid-cols-[minmax(0,1fr)_19rem]">
-        <div className="relative min-w-0 max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16.5rem]">
+        <div className="surface-panel relative min-w-0 overflow-hidden">
           <section
             id="quick-client-section"
             aria-hidden={activeSectionId !== "quick-client-section"}
             className={
               activeSectionId === "quick-client-section"
-                ? "relative z-10 animate-rise p-5 sm:p-8 xl:p-10"
+                ? "relative z-10 animate-rise p-5 sm:p-6"
                 : "hidden"
             }
           >
-            <SectionIntro
-              number="01"
-              title="Кто заказывает"
-              description="Найдите клиента в CRM или заведите нового вместе с основным контактным лицом."
-            />
-            <ModeSwitch
-              value={clientMode}
-              onChange={(mode) => {
-                setClientMode(mode);
-                if (mode === "existing" && clientId) selectClient(clientId);
-              }}
-              existingLabel="Из CRM"
-              newLabel="Новый клиент"
-            />
-            {clientMode === "existing" ? (
-              <div className="mt-6 grid gap-4">
-                <OrderPicker
-                  label="Клиент"
-                  required
-                  value={clientId}
-                  onChange={selectClient}
-                  placeholder="Выберите клиента"
-                  options={options.clients.map((client) => ({
-                    value: client.id,
-                    label: client.name,
-                  }))}
-                  searchable
-                  searchPlaceholder="Название или ИНН"
+            <div className="grid gap-6 md:grid-cols-[minmax(11rem,0.7fr)_minmax(0,1.3fr)]">
+              <aside className="min-w-0 border-b border-[var(--line)] pb-5 md:border-b-0 md:border-r md:pb-0 md:pr-5">
+                <p className="eyebrow mb-4">Найти клиента</p>
+                <ModeSwitch
+                  value={clientMode}
+                  onChange={(mode) => {
+                    setClientMode(mode);
+                    if (mode === "existing" && clientId) selectClient(clientId);
+                  }}
+                  existingLabel="Из CRM"
+                  newLabel="Новый клиент"
                 />
-                {availableContacts.length ? (
-                  <ModeSwitch
-                    value={contactMode}
-                    onChange={setContactMode}
-                    existingLabel="Готовый контакт"
-                    newLabel="Новый контакт"
-                  />
-                ) : null}
-                {effectiveContactMode === "existing" ? (
-                  <OrderPicker
-                    label="Контакт"
-                    required
-                    value={contactId}
-                    onChange={setContactId}
-                    placeholder="Выберите контакт"
-                    options={availableContacts.map((contact) => ({
-                      value: contact.id,
-                      label: contact.name,
-                      detail: contact.phone,
-                    }))}
-                    searchable
-                    searchPlaceholder="Имя или телефон"
-                  />
+                {clientMode === "existing" ? (
+                  <>
+                    <label className="mt-4 flex h-11 items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] px-3">
+                      <Search className="size-4 shrink-0 text-[var(--muted)]" />
+                      <input
+                        aria-label="Поиск клиента"
+                        value={clientQuery}
+                        onChange={(event) => setClientQuery(event.target.value)}
+                        maxLength={100}
+                        placeholder="Имя или название"
+                        className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none"
+                      />
+                    </label>
+                    <p className="eyebrow mb-3 mt-5">Клиенты в CRM</p>
+                    <div
+                      aria-label="Клиенты в CRM"
+                      className="max-h-64 space-y-2 overflow-y-auto overscroll-contain md:max-h-96"
+                    >
+                      {visibleClients.map((client) => (
+                          <button
+                            key={client.id}
+                            type="button"
+                            aria-pressed={client.id === clientId}
+                            onClick={() => selectClient(client.id)}
+                            className={`focus-ring flex min-h-14 w-full items-center justify-between gap-2 rounded-[12px] p-3 text-left text-xs ${client.id === clientId ? "bg-[var(--accent-soft)] font-semibold text-[var(--text)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-inset)]"}`}
+                          >
+                            <span className="min-w-0 break-words">
+                              {client.name}
+                            </span>
+                            {client.id === clientId ? (
+                              <Check className="size-4 shrink-0" />
+                            ) : null}
+                          </button>
+                        ))}
+                      {!visibleClients.length && !clientSearchLoading && (!options.remote || clientMatchesQuery === clientQuery) ? (
+                        <p className="p-3 text-xs leading-5 text-[var(--muted)]">
+                          {clientSearchError ? "Не удалось загрузить клиентов." : "Клиенты не найдены. Измените запрос или выберите «Новый клиент»."}
+                        </p>
+                      ) : null}
+                      {clientSearchLoading || options.remote && clientMatchesQuery !== clientQuery ? <p className="p-3 text-xs text-[var(--muted)]">Загрузка…</p> : null}
+                      {options.remote && clientHasMore && !clientSearchLoading ? <p className="p-3 text-xs text-[var(--muted)]">Показаны первые 20. Уточните поиск.</p> : null}
+                      {options.remote && clientSearchError ? <button type="button" onClick={() => setClientSearchRetry((value) => value + 1)} className="focus-ring p-3 text-xs text-[var(--accent)]">Повторить</button> : null}
+                    </div>
+                  </>
                 ) : (
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <p className="mt-5 text-xs leading-5 text-[var(--muted)]">
+                    Новый клиент и контакт сохранятся вместе с заказом после
+                    последнего шага.
+                  </p>
+                )}
+              </aside>
+              <div className="min-w-0">
+                <SectionIntro
+                  number="01"
+                  title={
+                    clientMode === "existing"
+                      ? (selectedClient?.name ?? "Выберите клиента")
+                      : "Новый клиент"
+                  }
+                  description="Контактное лицо — с кем связаться по этому заказу."
+                />
+                {clientMode === "existing" ? (
+                  <div className="mt-6 grid gap-4">
+                    {relationsError ? <p role="alert" className="text-xs text-[var(--danger-ink)]">Не удалось загрузить контакты и объекты. <button type="button" onClick={() => setRelationsRetry((value) => value + 1)} className="underline">Повторить</button></p> : null}
+                    {availableContacts.length &&
+                    effectiveContactMode === "new" ? (
+                      <ModeSwitch
+                        value={contactMode}
+                        onChange={setContactMode}
+                        existingLabel="Готовый контакт"
+                        newLabel="Новый контакт"
+                      />
+                    ) : null}
+                    {effectiveContactMode === "existing" ? (
+                      <div className="grid gap-3">
+                        {options.remote ? <input aria-label="Поиск контакта" value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} maxLength={100} placeholder="Имя или телефон" className={orderInputClass} /> : null}
+                        {visibleContacts.map((contact) => (
+                          <button
+                            key={contact.id}
+                            type="button"
+                            aria-pressed={contactId === contact.id}
+                            onClick={() => { setContactId(contact.id); setSelectedContactRecord(contact); }}
+                            className={`focus-ring rounded-[14px] border p-4 text-left ${contactId === contact.id ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--line)] bg-[var(--surface-inset)] hover:bg-[var(--surface-soft)]"}`}
+                          >
+                            <span className="flex items-center justify-between gap-2 text-sm font-medium text-[var(--text)]">
+                              {contact.name}
+                              {contactId === contact.id ? (
+                                <Check className="size-4 shrink-0" />
+                              ) : null}
+                            </span>
+                            <span className="mt-2 block text-xs text-[var(--text-secondary)]">
+                              {contact.phone}
+                            </span>
+                            {contact.isPrimary ? (
+                              <span className="mt-2 block text-[10px] text-[var(--muted)]">
+                                Основной контакт
+                              </span>
+                            ) : null}
+                          </button>
+                        ))}
+                        {options.remote && contactSearchLoading ? <p className="text-xs text-[var(--muted)]">Загрузка…</p> : null}
+                        {options.remote && contactHasMore && !contactSearchLoading ? <p className="text-xs text-[var(--muted)]">Показаны первые 20. Уточните поиск.</p> : null}
+                        {options.remote && contactSearchError ? <p role="alert" className="text-xs text-[var(--danger-ink)]">Не удалось загрузить контакты. <button type="button" onClick={() => setContactSearchRetry((value) => value + 1)} className="underline">Повторить</button></p> : null}
+                        <button
+                          type="button"
+                          onClick={() => setContactMode("new")}
+                          className="focus-ring flex min-h-11 items-center justify-center gap-2 rounded-[12px] border border-[var(--line)] text-xs text-[var(--text)]"
+                        >
+                          Новый контакт
+                          <Plus className="size-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <OrderField label="Контактное лицо" required>
+                          <input
+                            value={contactName}
+                            onChange={(event) =>
+                              setContactName(event.target.value)
+                            }
+                            className={orderInputClass}
+                            placeholder="Имя и фамилия"
+                          />
+                        </OrderField>
+                        <OrderField label="Телефон" required>
+                          <input
+                            inputMode="tel"
+                            value={contactPhone}
+                            onChange={(event) =>
+                              setContactPhone(
+                                formatPhoneInput(event.target.value),
+                              )
+                            }
+                            className={orderInputClass}
+                            placeholder="+7 (999) 000-00-00"
+                          />
+                        </OrderField>
+                        <OrderField label="Должность">
+                          <input
+                            value={contactPosition}
+                            onChange={(event) =>
+                              setContactPosition(event.target.value)
+                            }
+                            className={orderInputClass}
+                            placeholder="Управляющий"
+                          />
+                        </OrderField>
+                        <OrderField
+                          label="Email"
+                          errors={
+                            contactEmailValid
+                              ? undefined
+                              : ["Введите адрес в формате name@company.ru"]
+                          }
+                        >
+                          <input
+                            type="email"
+                            maxLength={254}
+                            value={contactEmail}
+                            onChange={(event) =>
+                              setContactEmail(event.target.value)
+                            }
+                            className={orderInputClass}
+                            placeholder="mail@company.ru"
+                          />
+                        </OrderField>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <OrderPicker
+                      label="Тип клиента"
+                      required
+                      value={clientKind}
+                      onChange={(value) =>
+                        setClientKind(value as typeof clientKind)
+                      }
+                      placeholder="Тип клиента"
+                      options={[
+                        { value: "legal_entity", label: "Юридическое лицо" },
+                        { value: "individual", label: "Физическое лицо" },
+                      ]}
+                    />
+                    <OrderField
+                      label={
+                        clientKind === "legal_entity"
+                          ? "Название организации"
+                          : "ФИО"
+                      }
+                      required
+                    >
+                      <input
+                        data-testid="quick-client-name"
+                        value={clientName}
+                        onChange={(event) => setClientName(event.target.value)}
+                        className={orderInputClass}
+                        placeholder={
+                          clientKind === "legal_entity"
+                            ? "ООО «Компания»"
+                            : "Иванов Иван Иванович"
+                        }
+                      />
+                    </OrderField>
+                    {clientKind === "legal_entity" ? (
+                      <OrderField label="ИНН" required>
+                        <input
+                          data-testid="quick-tax-id"
+                          inputMode="numeric"
+                          value={taxId}
+                          onChange={(event) =>
+                            setTaxId(event.target.value.replace(/\D/g, ""))
+                          }
+                          className={orderInputClass}
+                          placeholder="10 или 12 цифр"
+                        />
+                      </OrderField>
+                    ) : null}
                     <OrderField label="Контактное лицо" required>
                       <input
+                        data-testid="quick-contact-name"
                         value={contactName}
                         onChange={(event) => setContactName(event.target.value)}
                         className={orderInputClass}
@@ -724,6 +1030,7 @@ export function QuickOrderWorkspace({
                     </OrderField>
                     <OrderField label="Телефон" required>
                       <input
+                        data-testid="quick-contact-phone"
                         inputMode="tel"
                         value={contactPhone}
                         onChange={(event) =>
@@ -731,16 +1038,6 @@ export function QuickOrderWorkspace({
                         }
                         className={orderInputClass}
                         placeholder="+7 (999) 000-00-00"
-                      />
-                    </OrderField>
-                    <OrderField label="Должность">
-                      <input
-                        value={contactPosition}
-                        onChange={(event) =>
-                          setContactPosition(event.target.value)
-                        }
-                        className={orderInputClass}
-                        placeholder="Управляющий"
                       />
                     </OrderField>
                     <OrderField
@@ -765,95 +1062,7 @@ export function QuickOrderWorkspace({
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <OrderPicker
-                  label="Тип клиента"
-                  required
-                  value={clientKind}
-                  onChange={(value) =>
-                    setClientKind(value as typeof clientKind)
-                  }
-                  placeholder="Тип клиента"
-                  options={[
-                    { value: "legal_entity", label: "Юридическое лицо" },
-                    { value: "individual", label: "Физическое лицо" },
-                  ]}
-                />
-                <OrderField
-                  label={
-                    clientKind === "legal_entity"
-                      ? "Название организации"
-                      : "ФИО"
-                  }
-                  required
-                >
-                  <input
-                    data-testid="quick-client-name"
-                    value={clientName}
-                    onChange={(event) => setClientName(event.target.value)}
-                    className={orderInputClass}
-                    placeholder={
-                      clientKind === "legal_entity"
-                        ? "ООО «Компания»"
-                        : "Иванов Иван Иванович"
-                    }
-                  />
-                </OrderField>
-                {clientKind === "legal_entity" ? (
-                  <OrderField label="ИНН" required>
-                    <input
-                      data-testid="quick-tax-id"
-                      inputMode="numeric"
-                      value={taxId}
-                      onChange={(event) =>
-                        setTaxId(event.target.value.replace(/\D/g, ""))
-                      }
-                      className={orderInputClass}
-                      placeholder="10 или 12 цифр"
-                    />
-                  </OrderField>
-                ) : null}
-                <OrderField label="Контактное лицо" required>
-                  <input
-                    data-testid="quick-contact-name"
-                    value={contactName}
-                    onChange={(event) => setContactName(event.target.value)}
-                    className={orderInputClass}
-                    placeholder="Имя и фамилия"
-                  />
-                </OrderField>
-                <OrderField label="Телефон" required>
-                  <input
-                    data-testid="quick-contact-phone"
-                    inputMode="tel"
-                    value={contactPhone}
-                    onChange={(event) =>
-                      setContactPhone(formatPhoneInput(event.target.value))
-                    }
-                    className={orderInputClass}
-                    placeholder="+7 (999) 000-00-00"
-                  />
-                </OrderField>
-                <OrderField
-                  label="Email"
-                  errors={
-                    contactEmailValid
-                      ? undefined
-                      : ["Введите адрес в формате name@company.ru"]
-                  }
-                >
-                  <input
-                    type="email"
-                    maxLength={254}
-                    value={contactEmail}
-                    onChange={(event) => setContactEmail(event.target.value)}
-                    className={orderInputClass}
-                    placeholder="mail@company.ru"
-                  />
-                </OrderField>
-              </div>
-            )}
+            </div>
           </section>
 
           <section
@@ -861,7 +1070,7 @@ export function QuickOrderWorkspace({
             aria-hidden={activeSectionId !== "quick-object-section"}
             className={
               activeSectionId === "quick-object-section"
-                ? "relative z-10 animate-rise p-5 sm:p-8 xl:p-10"
+                ? "relative z-10 animate-rise p-5 sm:p-6"
                 : "hidden"
             }
           >
@@ -880,20 +1089,36 @@ export function QuickOrderWorkspace({
             ) : null}
             <div className="mt-6">
               {effectiveObjectMode === "existing" ? (
-                <OrderPicker
-                  label="Объект"
-                  required
-                  value={objectId}
-                  onChange={setObjectId}
-                  placeholder="Выберите объект"
-                  options={availableObjects.map((object) => ({
-                    value: object.id,
-                    label: object.name,
-                    detail: object.address,
-                  }))}
-                  searchable
-                  searchPlaceholder="Название или адрес"
-                />
+                <div className="space-y-4">
+                  <OrderPicker
+                    key={`object-${clientId}`}
+                    label="Объект"
+                    required
+                    value={objectId}
+                    onChange={setObjectId}
+                    onSelected={(option) => setSelectedObjectRecord({ id: option.value, clientId, name: option.label, address: option.detail ?? "" })}
+                    placeholder="Выберите объект"
+                    options={availableObjects.map((object) => ({
+                      value: object.id,
+                      label: object.name,
+                      detail: object.address,
+                    }))}
+                    searchable
+                    remote={options.remote ? { type: "objects", clientId } : undefined}
+                    searchPlaceholder="Название или адрес"
+                  />
+                  {selectedObject ? (
+                    <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-inset)] p-5">
+                      <p className="eyebrow">Выбранный объект</p>
+                      <h3 className="mt-3 text-lg font-semibold text-[var(--text)]">
+                        {selectedObject.name}
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                        {selectedObject.address}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <ObjectFields value={newObject} onChange={setNewObject} />
               )}
@@ -905,7 +1130,7 @@ export function QuickOrderWorkspace({
             aria-hidden={activeSectionId !== "quick-work-section"}
             className={
               activeSectionId === "quick-work-section"
-                ? "relative z-10 animate-rise p-5 sm:p-8 xl:p-10"
+                ? "relative z-10 animate-rise p-5 sm:p-6"
                 : "hidden"
             }
           >
@@ -914,8 +1139,8 @@ export function QuickOrderWorkspace({
               title="Что нужно сделать"
               description="Зафиксируйте работу, стоимость и исполнителя. Финансовые значения сохранятся снимком."
             />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2">
+            <div className="grid gap-4 border-b border-[var(--line)] pb-6 sm:grid-cols-[minmax(0,2fr)_minmax(4rem,0.5fr)_minmax(6rem,0.8fr)_minmax(6rem,0.8fr)]">
+              <div>
                 <OrderField label="Услуга" required>
                   <input
                     data-testid="quick-service-name"
@@ -943,6 +1168,14 @@ export function QuickOrderWorkspace({
                   placeholder="25000"
                 />
               </OrderField>
+              <div className="self-end pb-3">
+                <p className="mb-3 text-xs text-[var(--muted)]">Сумма</p>
+                <output className="text-lg font-semibold text-[var(--text)]">
+                  {formatMoney(serviceTotal)}
+                </output>
+              </div>
+            </div>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <OrderPicker
                 label="Мастер"
                 value={masterId}
@@ -950,8 +1183,10 @@ export function QuickOrderWorkspace({
                   setMasterId(value);
                   if (!value) setMasterPayment("");
                 }}
+                onSelected={(option) => setSelectedMasterRecord({ id: option.value, name: option.label, phone: option.detail ?? "" })}
                 placeholder="Назначить позже"
                 searchable
+                remote={options.remote ? { type: "masters" } : undefined}
                 searchPlaceholder="ФИО или телефон"
                 options={[
                   { value: "", label: "Назначить позже" },
@@ -990,7 +1225,7 @@ export function QuickOrderWorkspace({
             aria-hidden={activeSectionId !== "quick-visit-section"}
             className={
               activeSectionId === "quick-visit-section"
-                ? "relative z-10 animate-rise p-5 sm:p-8 xl:p-10"
+                ? "relative z-10 animate-rise p-5 sm:p-6"
                 : "hidden"
             }
           >
@@ -1026,6 +1261,17 @@ export function QuickOrderWorkspace({
                   className={orderInputClass}
                 />
               </OrderField>
+              <div className="rounded-[14px] bg-[var(--accent-soft)] p-5 sm:col-span-3">
+                <p className="text-lg font-semibold text-[var(--text)]">
+                  {formatDraftDate(visitDate)} · {visitTime} · {durationMinutes}{" "}
+                  мин
+                </p>
+                <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+                  {selectedMaster
+                    ? `Мастер: ${selectedMaster.name}`
+                    : "Мастер пока не назначен. Его можно выбрать позже в заказе или календаре."}
+                </p>
+              </div>
               <div className="sm:col-span-3">
                 <OrderField label="Инструкция мастеру">
                   <textarea
@@ -1039,7 +1285,41 @@ export function QuickOrderWorkspace({
             </div>
           </section>
 
-          <footer className="relative z-0 border-t border-[var(--line)] px-5 py-5 max-md:fixed max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:left-[var(--workspace-gutter)] max-md:right-[var(--workspace-gutter)] max-md:z-40 max-md:rounded-[18px] max-md:border max-md:bg-[var(--surface-raised)] sm:px-8 xl:px-10">
+          <footer className="relative border-t border-[var(--line)] p-5 sm:px-6">
+            <details className="inset-panel mb-4 p-3 xl:hidden">
+              <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-3 text-xs [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0">
+                  <span className="block text-[10px] text-[var(--muted)]">
+                    Черновик · шаг {step + 1} из 4
+                  </span>
+                  <span className="mt-2 block truncate text-[var(--text)]">
+                    {[draftClientName, draftContactName]
+                      .filter(Boolean)
+                      .join(" · ") || "Клиент не выбран"}
+                  </span>
+                </span>
+                <strong className="shrink-0 text-base text-[var(--text)]">
+                  {formatMoney(serviceTotal)}
+                </strong>
+              </summary>
+              <dl className="mt-3 border-t border-[var(--line)] pt-2">
+                <SummaryLine
+                  label="Объект"
+                  value={[draftObjectName, draftAddress]
+                    .filter(Boolean)
+                    .join(" · ")}
+                />
+                <SummaryLine label="Работа" value={serviceName} />
+                <SummaryLine
+                  label="Мастер"
+                  value={selectedMaster?.name ?? "Назначить позже"}
+                />
+                <SummaryLine
+                  label="Выезд"
+                  value={`${formatDraftDate(visitDate)} · ${visitTime}`}
+                />
+              </dl>
+            </details>
             {stepError ? (
               <p
                 role="alert"
@@ -1059,7 +1339,7 @@ export function QuickOrderWorkspace({
                 {state.message}
               </p>
             ) : null}
-            <div className="flex gap-2">
+            <div className="flex justify-between gap-3">
               <button
                 type="button"
                 onClick={() => goToSection(Math.max(0, step - 1))}
@@ -1071,6 +1351,7 @@ export function QuickOrderWorkspace({
               </button>
               {step < steps.length - 1 ? (
                 <button
+                  key="continue"
                   data-testid="quick-next"
                   type="button"
                   onClick={continueFlow}
@@ -1082,6 +1363,7 @@ export function QuickOrderWorkspace({
                 </button>
               ) : (
                 <button
+                  key="submit"
                   data-testid="quick-submit"
                   type="submit"
                   disabled={pending}
@@ -1107,63 +1389,72 @@ export function QuickOrderWorkspace({
         <aside
           data-testid="quick-order-summary"
           aria-label="Черновик заказа"
-          className="border-t border-[var(--line)] bg-[var(--surface-inset)] p-5 sm:p-7 xl:border-l xl:border-t-0 xl:p-6"
+          className="surface-panel hidden p-5 xl:sticky xl:top-[calc(var(--header-height)+1rem)] xl:block"
         >
-          <div className="xl:sticky xl:top-[calc(var(--header-height)+1rem)] xl:rounded-[16px] xl:border xl:border-[var(--line)] xl:bg-[var(--surface)] xl:p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-display text-sm font-semibold text-[var(--text)]">
-                Черновик заказа
-              </p>
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                {completedSections} из {steps.length} разделов заполнено
-              </p>
+          <div className="min-w-0">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-display text-sm font-semibold text-[var(--text)]">
+                  Черновик заказа
+                </p>
+                <p className="mt-3 font-display text-2xl font-semibold text-[var(--text)]">
+                  0{step + 1} / 04
+                </p>
+                <p className="mt-2 text-[10px] text-[var(--muted)]">
+                  {completedSections} из 4 разделов заполнено
+                </p>
+              </div>
+              <span
+                className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 font-display text-[10px] font-semibold ${allSectionsValid ? "bg-[var(--success-bg)] text-[var(--success)]" : "bg-[var(--surface-raised)] text-[var(--muted)]"}`}
+              >
+                {allSectionsValid ? "Готов" : "В работе"}
+              </span>
             </div>
-            <span
-              className={`rounded-full px-2.5 py-1 font-display text-[10px] font-semibold ${allSectionsValid ? "bg-[var(--success-bg)] text-[var(--success)]" : "bg-[var(--surface-raised)] text-[var(--muted)]"}`}
+            <dl className="mt-5 grid gap-x-6 sm:grid-cols-2 xl:grid-cols-1">
+              <SummaryLine label="Клиент" value={draftClientName} strong />
+              <SummaryLine
+                label="Контакт"
+                value={[draftContactName, draftPhone]
+                  .filter(Boolean)
+                  .join(" · ")}
+              />
+              <SummaryLine
+                label="Объект"
+                value={[draftObjectName, draftAddress]
+                  .filter(Boolean)
+                  .join(" · ")}
+                strong
+              />
+              <SummaryLine label="Работа" value={serviceName} />
+              <SummaryLine
+                label="Мастер"
+                value={selectedMaster?.name ?? "Назначить позже"}
+              />
+              <SummaryLine
+                label="Выезд"
+                value={`${formatDraftDate(visitDate)}${visitTime ? ` · ${visitTime}` : ""}`}
+              />
+            </dl>
+            <div className="mt-3 flex items-end justify-between gap-4 border-t border-[var(--line-strong)] pt-4">
+              <span className="text-[10px] uppercase tracking-[0.13em] text-[var(--muted)]">
+                Итого
+              </span>
+              <strong className="font-display text-xl font-semibold text-[var(--text)]">
+                {serviceTotal > 0 ? formatMoney(serviceTotal) : "0 ₽"}
+              </strong>
+            </div>
+            <p
+              className={`mt-5 flex items-start gap-2 border-t border-[var(--line)] pt-4 text-xs leading-5 ${allSectionsValid ? "text-[var(--success)]" : "text-[var(--warning)]"}`}
             >
-              {allSectionsValid ? "Готов" : "В работе"}
-            </span>
-          </div>
-          <dl className="mt-5 divide-y divide-[var(--line)]">
-            <SummaryLine label="Клиент" value={draftClientName} strong />
-            <SummaryLine label="Контакт" value={draftContactName} />
-            <SummaryLine label="Телефон" value={draftPhone} />
-            {effectiveContactMode === "new" ? (
-              <SummaryLine label="Email" value={contactEmail} />
-            ) : null}
-            <SummaryLine label="Объект" value={draftObjectName} strong />
-            <SummaryLine label="Адрес" value={draftAddress} />
-            <SummaryLine label="Работа" value={serviceName} />
-            <SummaryLine
-              label="Мастер"
-              value={selectedMaster?.name ?? "Назначить позже"}
-            />
-            <SummaryLine
-              label="Выезд"
-              value={`${formatDraftDate(visitDate)}${visitTime ? ` · ${visitTime}` : ""}`}
-            />
-          </dl>
-          <div className="mt-3 flex items-end justify-between gap-4 border-t border-[var(--line-strong)] pt-4">
-            <span className="text-[10px] uppercase tracking-[0.13em] text-[var(--muted)]">
-              Итого
-            </span>
-            <strong className="font-display text-xl font-semibold text-[var(--text)]">
-              {serviceTotal > 0 ? formatMoney(serviceTotal) : "0 ₽"}
-            </strong>
-          </div>
-          <p
-            className={`mt-5 flex items-start gap-2 border-t border-[var(--line)] pt-4 text-xs leading-5 ${allSectionsValid ? "text-[var(--success)]" : "text-[var(--warning)]"}`}
-          >
-            {allSectionsValid ? (
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-            ) : (
-              <CircleAlert className="mt-0.5 size-4 shrink-0" />
-            )}
-            {allSectionsValid
-              ? "Черновик готов к созданию."
-              : "Заполните обязательные данные на каждом шаге."}
-          </p>
+              {allSectionsValid ? (
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+              ) : (
+                <CircleAlert className="mt-0.5 size-4 shrink-0" />
+              )}
+              {allSectionsValid
+                ? "Черновик готов к созданию."
+                : "Заполните обязательные данные на каждом шаге."}
+            </p>
           </div>
         </aside>
       </div>

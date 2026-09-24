@@ -1,7 +1,7 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
 import type { DocumentDownload } from "./types";
-import { readDocumentFile } from "./storage";
+import { readVerifiedDocumentFile as readStoredFile, StoredFileIntegrityError } from "./storage";
 
 function encodedFilename(filename: string) {
   return encodeURIComponent(filename).replace(
@@ -14,22 +14,20 @@ export async function readVerifiedDocumentFile(
   document: DocumentDownload,
   operation: string,
 ) {
-  const file = await readDocumentFile(document.storageKey);
-  const actualSha256 = createHash("sha256").update(file).digest("hex");
-  if (file.length !== document.sizeBytes || actualSha256 !== document.sha256) {
+  try {
+    return await readStoredFile(document.storageKey, document, MAX_DOCUMENT_SIZE_BYTES);
+  } catch (error) {
     console.error(
       JSON.stringify({
         operation,
-        category: "integrity_mismatch",
+        category: error instanceof StoredFileIntegrityError ? "integrity_mismatch" : "storage_read_failed",
         documentId: document.documentId,
         versionId: document.id,
         expectedSize: document.sizeBytes,
-        actualSize: file.length,
       }),
     );
-    throw new Error("Document file integrity check failed.");
+    throw error;
   }
-  return file;
 }
 
 export async function createDocumentDownloadResponse(

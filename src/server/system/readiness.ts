@@ -1,0 +1,42 @@
+import "server-only";
+import { getDatabase } from "@/server/database";
+import { checkDocumentStorageAvailability } from "@/server/documents/storage";
+import { checkScannerAvailability } from "@/server/file-scan/clamd.mjs";
+
+const headers = { "cache-control": "no-store" };
+
+export async function readinessResponse() {
+  const [database, storage, scanner] = await Promise.allSettled([
+    Promise.resolve().then(() => getDatabase()`SELECT job_name,
+      CASE
+        WHEN heartbeat_at IS NULL THEN 'not_started'
+        WHEN heartbeat_at > now() - interval '5 minutes' THEN 'available'
+        ELSE 'stale'
+      END AS status
+      FROM background_job_status
+      WHERE job_name IN ('chat.visit-reminders', 'system.backup')`),
+    Promise.resolve().then(checkDocumentStorageAvailability),
+    Promise.resolve().then(() => checkScannerAvailability()),
+  ]);
+  if (database.status === "rejected") console.error(JSON.stringify({ operation: "system.readiness", category: "database_unavailable" }));
+  if (storage.status === "rejected") console.error(JSON.stringify({ operation: "system.readiness", category: "storage_unavailable" }));
+  if (scanner.status === "rejected") console.error(JSON.stringify({ operation: "system.readiness", category: "scanner_unavailable" }));
+  const databaseState = database.status === "fulfilled" ? "available" : "unavailable";
+  const storageState = storage.status === "fulfilled" ? "available" : "unavailable";
+  const scannerState = scanner.status === "fulfilled" ? scanner.value : "unavailable";
+  if (database.status !== "fulfilled" || storage.status !== "fulfilled" || scanner.status !== "fulfilled") {
+    return Response.json({ status: "unavailable", service: "crm-web", database: databaseState, storage: storageState, scanner: scannerState }, { status: 503, headers });
+  }
+  const workerStatus = new Map(database.value.map((worker) => [worker.job_name, worker.status]));
+  return Response.json({
+    status: "ok",
+    service: "crm-web",
+    apiVersion: "v1",
+    database: databaseState,
+    storage: storageState,
+    scanner: scannerState,
+    reminderWorker: workerStatus.get("chat.visit-reminders") ?? "not_started",
+    backupWorker: workerStatus.get("system.backup") ?? "not_started",
+    checkedAt: new Date().toISOString(),
+  }, { headers });
+}

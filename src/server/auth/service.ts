@@ -29,11 +29,11 @@ export async function authenticateMember(input: z.input<typeof loginInputSchema>
   const clientAllowed = parsed.data.clientAddress
     ? await consumeRateLimit([createPrivateBucketHash(secret, `client:${parsed.data.clientAddress}`)], 50, 15)
     : true;
-  const rateLimitAllowed = identityAllowed && clientAllowed;
+  // Reject before credential lookup and scrypt so blocked traffic cannot exhaust the worker pool.
+  if (!identityAllowed || !clientAllowed) return { ok: false, reason: "rate_limited" };
 
   const credential = identity ? await findCredential(identity.kind, identity.normalizedValue) : null;
   const passwordValid = await verifyPassword(parsed.data.password, credential?.password_hash ?? DUMMY_PASSWORD_HASH);
-  if (!rateLimitAllowed) return { ok: false, reason: "rate_limited" };
 
   const accountLocked = credential?.locked_until ? credential.locked_until.getTime() > Date.now() : false;
   if (!credential || !passwordValid || !credential.active || accountLocked) {

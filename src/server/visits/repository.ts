@@ -6,7 +6,7 @@ import { getDatabase } from "@/server/database";
 import { generateVisitRecurrenceDates } from "@/lib/visits/recurrence";
 import type { VisitDispatchCard } from "@/lib/visits/dispatch-card";
 import { minorUnitsToSafeNumber } from "@/server/orders/money";
-import type { CompleteVisitInput, CreateVisitInput, CreateVisitSeriesInput, RescheduleVisitInput, StartVisitInput, UpdateVisitInput } from "./schemas";
+import type { CompleteVisitInput, CreateVisitInput, CreateVisitSeriesInput, RescheduleVisitInput, StartVisitInput, UpdateVisitInput, UploadVisitEvidenceInput } from "./schemas";
 import { buildVisitHistoryFeed, type VisitHistoryFeed } from "./history";
 import { visitStatusLabels, type ServiceVisit } from "./types";
 
@@ -602,6 +602,99 @@ type ValidatedClosingDocument = {
   sha256: string;
   storageKey: string;
 };
+
+type ValidatedVisitEvidence = {
+  filename: string;
+  mimeType: string;
+  extension: "jpg" | "png" | "webp";
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
+};
+
+export async function visitEvidenceExists(
+  member: AuthenticatedMember,
+  documentId: string,
+) {
+  const masterId = requireAssignedMaster(member, "visits.write");
+  const sql = getDatabase();
+  const rows = await sql`SELECT documents.id FROM documents
+    JOIN service_visits ON service_visits.organization_id = documents.organization_id
+      AND service_visits.id = documents.visit_id
+    WHERE documents.organization_id = ${member.organizationId}
+      AND documents.id = ${documentId}
+      AND service_visits.assigned_master_id = ${masterId}`;
+  return rows.length > 0;
+}
+
+export async function createAssignedVisitEvidence(
+  member: AuthenticatedMember,
+  input: UploadVisitEvidenceInput & ValidatedVisitEvidence,
+) {
+  const masterId = requireAssignedMaster(member, "visits.write");
+  const sql = getDatabase();
+  return sql.begin(async (transaction) => {
+    const [visit] = await transaction`SELECT service_visits.order_id, service_visits.status,
+        orders.client_id, orders.object_id, orders.order_number
+      FROM service_visits
+      JOIN orders ON orders.organization_id = service_visits.organization_id
+        AND orders.id = service_visits.order_id
+      WHERE service_visits.organization_id = ${member.organizationId}
+        AND service_visits.id = ${input.visitId}
+        AND service_visits.assigned_master_id = ${masterId}
+      FOR UPDATE OF service_visits`;
+    if (!visit) throw new VisitNotFoundError();
+    const status = z.enum(["planned", "confirmed", "in_progress", "completed", "cancelled"]).parse(visit.status);
+    if (status === "cancelled") throw new VisitImmutableError();
+    const existing = await transaction`SELECT id FROM documents
+      WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
+    if (existing.length) {
+      return { documentId: input.idempotencyKey, orderId: z.string().uuid().parse(visit.order_id) };
+    }
+
+    const orderNumber = z.string().parse(visit.order_number);
+    const title = input.kind === "work_photo"
+      ? `Фото выполненной работы · заказ №${orderNumber}`
+      : `Фото договора с объекта · заказ №${orderNumber}`;
+    const category = input.kind === "work_photo" ? "photo" : "contract";
+    await transaction`INSERT INTO documents (
+        id, organization_id, client_id, object_id, order_id, visit_id, title, category, description, created_by
+      ) VALUES (
+        ${input.idempotencyKey}, ${member.organizationId}, ${visit.client_id}, ${visit.object_id},
+        ${visit.order_id}, ${input.visitId}, ${title}, ${category}, ${input.note}, ${member.memberId}
+      )`;
+    const [documentVersion] = await transaction`INSERT INTO document_versions (
+        organization_id, document_id, version_number, original_filename, storage_key, mime_type, extension,
+        size_bytes, sha256, uploaded_by
+      ) VALUES (
+        ${member.organizationId}, ${input.idempotencyKey}, 1, ${input.filename}, ${input.storageKey}, ${input.mimeType},
+        ${input.extension}, ${input.sizeBytes}, ${input.sha256}, ${member.memberId}
+      ) RETURNING id`;
+    await transaction`UPDATE documents SET current_version_id = ${documentVersion.id}
+      WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
+    await transaction`INSERT INTO audit_events
+      (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+      VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
+        'document.created_by_master', 'document', ${input.idempotencyKey},
+        ${transaction.json({ orderId: visit.order_id, visitId: input.visitId, kind: input.kind, filename: input.filename, sizeBytes: input.sizeBytes, sha256: input.sha256 })})`;
+    await transaction`INSERT INTO notifications (
+        organization_id, recipient_member_id, kind, severity, title, body, source_type, source_id,
+        target_type, target_id, event_key, occurred_at
+      )
+      SELECT ${member.organizationId}, recipients.id, 'document_uploaded', 'info',
+        'Мастер добавил материал', ${title}, 'document', ${input.idempotencyKey},
+        'document', ${input.idempotencyKey},
+        'master_document_uploaded:' || ${input.idempotencyKey}::text, now()
+      FROM organization_members recipients
+      WHERE recipients.organization_id = ${member.organizationId}
+        AND recipients.active AND recipients.role <> 'master' AND recipients.deleted_at IS NULL
+      ON CONFLICT (organization_id, recipient_member_id, event_key) DO NOTHING`;
+    return {
+      documentId: input.idempotencyKey,
+      orderId: z.string().uuid().parse(visit.order_id),
+    };
+  });
+}
 
 export async function visitCompletionExists(member: AuthenticatedMember, visitId: string, documentId: string) {
   const assignedMasterId = masterVisitScope(member, "visits.write");

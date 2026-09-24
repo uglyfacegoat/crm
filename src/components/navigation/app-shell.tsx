@@ -28,12 +28,12 @@ import {
   UserRound,
   UsersRound,
   WalletCards,
-  Waypoints,
+  Workflow as WorkflowIcon,
   Wrench,
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   globalSearchResponseSchema,
   type GlobalSearchResult,
@@ -42,6 +42,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { WorkspaceAssistant } from "@/components/navigation/workspace-assistant";
+import { useNavigationState } from "@/components/navigation/use-navigation-state";
 import { logoutAction } from "@/app/(workspace)/actions";
 import type { OrganizationRole } from "@/server/auth/types";
 import { hasPermission, type Permission } from "@/server/auth/permissions";
@@ -65,16 +66,81 @@ const officeNavigation: NavigationItem[] = [
   { href: "/contracts", label: "Договоры", icon: FileSignature, permission: "contracts.read" },
   { href: "/finance", label: "Финансы", icon: WalletCards, permission: "finance.read" },
   { href: "/tasks", label: "Задачи", icon: CheckSquare2, permission: "tasks.read" },
+  { href: "/workflow", label: "Воркфлоу", icon: WorkflowIcon },
   { href: "/analytics", label: "Аналитика", icon: ChartNoAxesCombined, permission: "analytics.read" },
   { href: "/sites", label: "Сайты", icon: Globe2, permission: "sites.read" },
 ] as const;
 
 const masterNavigation: NavigationItem[] = [
   { href: "/my-visits", label: "Мои выезды", icon: CalendarDays, permission: "visits.read" },
+  { href: "/chat", label: "Чат", icon: MessageSquare, permission: "chat.read" },
 ];
 
 function isActivePath(pathname: string, href: string) {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+  return pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+}
+
+const navigationGroups = [
+  { label: "Заказы", icon: ClipboardList, paths: ["/orders", "/inbox", "/quick-order", "/calendar"] },
+  { label: "Команда", icon: UsersRound, paths: ["/masters", "/tasks"] },
+  { label: "Документы", icon: FileText, paths: ["/documents", "/contracts"] },
+  { label: "Финансы и отчёты", icon: ChartNoAxesCombined, paths: ["/finance", "/analytics"] },
+];
+
+function NavigationGroup({ label, icon: Icon, items, pathname, onNavigate, open, onToggle }: {
+  label: string;
+  icon: NavigationItem["icon"];
+  items: NavigationItem[];
+  pathname: string;
+  onNavigate?: () => void;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const id = useId();
+  const active = items.some((item) => isActivePath(pathname, item.href));
+
+  return (
+    <div>
+      <button type="button" aria-expanded={open} aria-controls={id}
+        onClick={onToggle}
+        className={`sidebar-branch focus-ring flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] ${active ? "text-[var(--text)]" : "text-[var(--muted)]"}`}>
+        <Icon className="size-[17px] shrink-0" strokeWidth={1.7} aria-hidden="true" />
+        <span className="flex-1 font-medium">{label}</span>
+        <ChevronRight className={`size-3.5 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden="true" />
+      </button>
+      <ul id={id} hidden={!open} className="sidebar-tree ml-5 pl-4">
+        {items.map((item) => (
+          <li key={item.href} className="relative">
+            <Link href={item.href} onClick={onNavigate} aria-current={isActivePath(pathname, item.href) ? "page" : undefined}
+              className="sidebar-leaf focus-ring my-0.5 flex min-h-9 items-center rounded-lg px-3 text-xs text-[var(--muted)]">
+              {item.href === "/orders" ? "Все заказы" : item.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function LogoutButton({
+  className,
+  iconClassName,
+  labelClassName,
+  role,
+}: {
+  className: string;
+  iconClassName: string;
+  labelClassName?: string;
+  role?: "menuitem";
+}) {
+  return (
+    <form action={logoutAction}>
+      <button type="submit" role={role} className={className}>
+        <LogOut className={iconClassName} strokeWidth={1.7} aria-hidden="true" />
+        <span className={labelClassName}>Выйти</span>
+      </button>
+    </form>
+  );
 }
 
 function SidebarContent({
@@ -85,6 +151,8 @@ function SidebarContent({
   expanded = false,
   collapsed = false,
   onToggleCollapsed,
+  navigationState,
+  onGroupChange,
 }: {
   pathname: string;
   navigation: NavigationItem[];
@@ -93,10 +161,12 @@ function SidebarContent({
   expanded?: boolean;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  navigationState: Record<string, boolean>;
+  onGroupChange: (key: string, open: boolean) => void;
 }) {
   const role = currentUser.role;
   const compact = collapsed && !expanded;
-  const labelClass = compact ? "hidden" : "block";
+  const labelClass = compact ? "sr-only" : "block";
   const itemAlignment = compact ? "justify-center px-0" : "px-3";
   const controlClass =
     "focus-ring flex h-11 items-center text-[var(--muted)] transition-colors duration-200 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]";
@@ -104,7 +174,7 @@ function SidebarContent({
   return (
     <>
       {expanded ? (
-        <div className="flex h-16 items-center justify-end border-b border-[var(--line)] px-4">
+        <div className="flex h-16 shrink-0 items-center justify-end border-b border-[var(--line)] px-4">
           <button
             onClick={onNavigate}
             aria-label="Закрыть меню"
@@ -116,9 +186,9 @@ function SidebarContent({
       ) : null}
 
       {role !== "master" || (!expanded && onToggleCollapsed) ? (
-        <div className={`px-3 pt-3 ${compact ? "grid gap-2" : ""}`}>
+        <div className={`shrink-0 px-3 pt-3 ${compact ? "grid gap-2" : ""}`}>
           <div
-            className={`flex overflow-hidden border border-[var(--line)] bg-[var(--surface)] ${compact ? "flex-col rounded-[13px]" : "rounded-[14px]"}`}
+            className={`flex gap-1 ${compact ? "flex-col" : "items-center"}`}
           >
           {role !== "master" && hasPermission(currentUser, "companies.read") ? (
             <Link
@@ -126,17 +196,19 @@ function SidebarContent({
               onClick={onNavigate}
               aria-label="Открыть структуру компаний"
               title="Компании"
-              className={`${controlClass} ${compact ? "w-full justify-center" : "min-w-0 flex-1 justify-start gap-3 px-3"}`}
+              aria-current={pathname === "/companies" ? "page" : undefined}
+              className={`focus-ring flex min-h-12 items-center rounded-[12px] ${pathname === "/companies" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "bg-[var(--surface-inset)] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]"} ${compact ? "w-full justify-center" : "min-w-0 flex-1 justify-start gap-2 px-3"}`}
             >
-              <Waypoints className="size-[18px] shrink-0" strokeWidth={1.65} />
+              <span aria-hidden="true" className="company-structure-icon size-[18px] shrink-0" />
               <span
                 className={
                   compact
                     ? "hidden"
-                    : "block flex-1 truncate text-left text-xs font-medium text-[var(--text-secondary)]"
+                    : "block min-w-0 flex-1 text-left text-xs font-medium"
                 }
               >
-                Компании
+                <span className="block">Компании</span>
+                <span className="mt-0.5 block truncate text-[9px] font-normal opacity-70">{currentUser.organizationName}</span>
               </span>
               {compact ? null : <ChevronRight className="size-3.5" />}
             </Link>
@@ -147,7 +219,7 @@ function SidebarContent({
               onClick={onToggleCollapsed}
               aria-label={compact ? "Развернуть меню" : "Свернуть меню"}
               title={compact ? "Развернуть меню" : "Свернуть меню"}
-              className={`${controlClass} grid shrink-0 place-items-center ${compact ? "w-full border-t border-[var(--line)]" : role !== "master" ? "w-11 border-l border-[var(--line)]" : "w-full"}`}
+              className={`${controlClass} grid shrink-0 place-items-center rounded-[10px] ${compact ? "w-full" : role !== "master" ? "w-8" : "w-full"}`}
             >
               {compact ? (
                 <PanelLeftOpen className="size-[18px]" strokeWidth={1.65} />
@@ -162,9 +234,17 @@ function SidebarContent({
 
       <nav
         aria-label="Основная навигация"
-        className="flex flex-1 flex-col gap-1 px-3 py-4"
+        className="sidebar-navigation flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-3 py-4"
       >
+        {!compact && role !== "master" ? <p className="px-3 pb-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Рабочее пространство</p> : null}
         {navigation.map((item) => {
+          const group = !compact && role !== "master" ? navigationGroups.find((entry) => entry.paths.includes(item.href)) : undefined;
+          if (group) {
+            const items = group.paths.flatMap((path) => navigation.filter((entry) => entry.href === path));
+            const key = group.paths[0];
+            const open = navigationState[key] ?? (items.some((entry) => isActivePath(pathname, entry.href)) || (pathname === "/" && key === "/orders"));
+            return items[0].href === item.href ? <NavigationGroup key={key} {...group} items={items} pathname={pathname} onNavigate={onNavigate} open={open} onToggle={() => onGroupChange(key, !open)} /> : null;
+          }
           const active = isActivePath(pathname, item.href);
           return (
             <Link
@@ -172,14 +252,16 @@ function SidebarContent({
               href={item.href}
               onClick={onNavigate}
               aria-current={active ? "page" : undefined}
-              className={`focus-ring group flex min-h-11 items-center gap-3 rounded-[14px] ${itemAlignment} text-sm transition-[background-color,color,transform,box-shadow] duration-200 ease-out ${
+              aria-label={compact ? item.label : undefined}
+              title={compact ? item.label : undefined}
+              className={`sidebar-leaf focus-ring group flex min-h-10 items-center gap-3 rounded-lg ${itemAlignment} text-[13px] transition-colors ${
                 active
-                  ? "bg-[var(--accent)] text-[var(--on-accent)] shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
-                  : "text-[var(--muted)] hover:translate-x-0.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
+                  ? "text-[var(--text)]"
+                  : "text-[var(--muted)]"
               }`}
             >
               <item.icon
-                className={`size-[18px] shrink-0 transition-colors ${active ? "text-[var(--on-accent)]" : "text-[var(--muted)]"}`}
+                className="size-[18px] shrink-0 transition-colors"
                 strokeWidth={active ? 2.2 : 1.7}
               />
               <span className={`${labelClass} font-medium`}>{item.label}</span>
@@ -188,7 +270,8 @@ function SidebarContent({
         })}
       </nav>
 
-      <div className="space-y-1 border-t border-[var(--line)] p-3">
+      <div className="shrink-0 space-y-1 border-t border-[var(--line)] bg-[var(--sidebar-surface)] p-3">
+        {!compact ? <p className="px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Поддержка</p> : null}
         {hasPermission(currentUser, "help.read") ? (
           <Link
             href="/help"
@@ -200,27 +283,6 @@ function SidebarContent({
             <span className={labelClass}>Помощь</span>
           </Link>
         ) : null}
-        {hasPermission(currentUser, "settings.write") ? (
-          <Link
-            href="/settings"
-            onClick={onNavigate}
-            aria-current={
-              isActivePath(pathname, "/settings") ? "page" : undefined
-            }
-            className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl ${itemAlignment} text-sm transition-colors ${isActivePath(pathname, "/settings") ? "bg-[var(--surface-soft)] text-[var(--text)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
-          >
-            <Settings className="size-[18px]" strokeWidth={1.7} />
-            <span className={labelClass}>Настройки</span>
-          </Link>
-        ) : null}
-        <form action={logoutAction}>
-          <button
-            className={`focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl ${itemAlignment} text-left text-sm text-[var(--danger-ink)] transition-colors hover:bg-[var(--danger-bg)]`}
-          >
-            <LogOut className="size-[18px]" strokeWidth={1.7} />
-            <span className={labelClass}>Выйти</span>
-          </button>
-        </form>
       </div>
     </>
   );
@@ -513,6 +575,7 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
 }
 
 const roleLabels: Record<OrganizationRole, string> = {
+  developer: "Разработчик",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -521,6 +584,7 @@ const roleLabels: Record<OrganizationRole, string> = {
 };
 
 type ShellUser = {
+  organizationName: string;
   displayName: string;
   email: string;
   role: OrganizationRole;
@@ -534,16 +598,17 @@ function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
   useDismissableLayer(menuRef, open, () => setOpen(false));
 
   return (
-    <div ref={menuRef} className="relative hidden lg:block">
+    <div ref={menuRef} className="relative block">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
+        aria-label="Открыть меню профиля"
         aria-haspopup="menu"
         aria-expanded={open}
         className="focus-ring flex items-center gap-2 rounded-[13px] p-1 pr-2 transition-colors hover:bg-[var(--surface-soft)]"
       >
         <Avatar name={currentUser.displayName} size="sm" tone="lime" />
-        <span className="text-left">
+        <span className="hidden text-left lg:block">
           <span className="block max-w-32 truncate text-xs font-medium text-[var(--text)]">
             {currentUser.displayName}
           </span>
@@ -552,7 +617,7 @@ function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
           </span>
         </span>
         <ChevronDown
-          className={`size-3.5 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
+          className={`hidden size-3.5 text-[var(--muted)] transition-transform lg:block ${open ? "rotate-180" : ""}`}
         />
       </button>
       {open ? (
@@ -574,15 +639,11 @@ function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
               Настройки системы
             </Link>
           ) : null}
-          <form action={logoutAction}>
-            <button
-              role="menuitem"
-              className="focus-ring flex min-h-10 w-full items-center gap-2.5 rounded-[11px] px-2.5 text-left text-xs text-[var(--danger-ink)] hover:bg-[var(--danger-bg)]"
-            >
-              <X className="size-4" />
-              Выйти
-            </button>
-          </form>
+          <LogoutButton
+            role="menuitem"
+            className="focus-ring flex min-h-10 w-full items-center gap-2.5 rounded-[11px] px-2.5 text-left text-xs text-[var(--danger-ink)] hover:bg-[var(--danger-bg)]"
+            iconClassName="size-4 shrink-0"
+          />
         </div>
       ) : null}
     </div>
@@ -597,6 +658,7 @@ export function AppShell({
   currentUser: ShellUser;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const canUseQuickOrder =
     hasPermission(currentUser, "clients.write") &&
     hasPermission(currentUser, "orders.write") &&
@@ -612,12 +674,28 @@ export function AppShell({
         });
   const mobileNavigation = navigation.slice(0, 4);
   const chatActive = isActivePath(pathname, "/chat");
+  const developerSupportActive = isActivePath(pathname, "/developer/support");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { preferences: navigationState, setPreference } = useNavigationState();
+  const sidebarCollapsed = navigationState.collapsed ?? false;
 
   function toggleSidebar() {
-    setSidebarCollapsed((current) => !current);
+    setPreference("collapsed", !sidebarCollapsed);
+  }
+
+  function openDeveloperSupportQueue() {
+    const supportWindow = window.open(
+      "/developer/support",
+      "crm-developer-support",
+      "popup,width=1440,height=920,resizable=yes,scrollbars=yes",
+    );
+    if (!supportWindow) {
+      router.push("/developer/support");
+      return;
+    }
+    supportWindow.opener = null;
+    supportWindow.focus();
   }
 
   useEffect(() => {
@@ -635,10 +713,22 @@ export function AppShell({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    const closeNativePopovers = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      const target = event.target;
+      document.querySelectorAll<HTMLDetailsElement>("details[open]").forEach((details) => {
+        if (!details.contains(target)) details.removeAttribute("open");
+      });
+    };
+    document.addEventListener("pointerdown", closeNativePopovers);
+    return () => document.removeEventListener("pointerdown", closeNativePopovers);
+  }, []);
+
   return (
     <div className="min-h-screen bg-transparent">
       <aside
-        className={`fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-[var(--line)] bg-[var(--surface-raised)] backdrop-blur-xl transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-20" : "w-56"}`}
+        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--sidebar-surface)] transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-20" : "w-56"}`}
       >
         <SidebarContent
           pathname={pathname}
@@ -646,6 +736,8 @@ export function AppShell({
           currentUser={currentUser}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={toggleSidebar}
+          navigationState={navigationState}
+          onGroupChange={setPreference}
         />
       </aside>
 
@@ -656,7 +748,7 @@ export function AppShell({
           role="presentation"
         >
           <aside
-            className="flex h-full w-[min(19rem,88vw)] flex-col border-r border-[var(--line-strong)] bg-[var(--surface-raised)] shadow-[0_20px_60px_rgba(0,0,0,0.24)]"
+            className="flex h-full w-[min(19rem,88vw)] flex-col overflow-hidden border-r border-[var(--line-strong)] bg-[var(--sidebar-surface)] shadow-[0_20px_60px_rgba(0,0,0,0.24)]"
             onClick={(event) => event.stopPropagation()}
           >
             <SidebarContent
@@ -665,16 +757,18 @@ export function AppShell({
               currentUser={currentUser}
               onNavigate={() => setMobileMenuOpen(false)}
               expanded
+              navigationState={navigationState}
+              onGroupChange={setPreference}
             />
           </aside>
         </div>
       ) : null}
 
       <div
-        className={`transition-[padding-left] duration-200 ${sidebarCollapsed ? "md:pl-20" : "md:pl-56"}`}
+        className={`transition-none md:transition-[padding-left] md:duration-200 ${sidebarCollapsed ? "md:pl-20" : "md:pl-56"}`}
       >
         <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-[var(--canvas)]">
-          <div className="topbar-inner flex h-16 min-w-0 items-center gap-2.5 sm:gap-3 2xl:h-[4.5rem]">
+          <div className="topbar-inner relative flex h-16 min-w-0 items-center gap-2.5 sm:gap-3 2xl:h-[4.5rem]">
             <button
               onClick={() => setMobileMenuOpen(true)}
               className="focus-ring soft-button grid size-10 shrink-0 place-items-center rounded-[13px] text-[var(--muted)] md:hidden"
@@ -706,12 +800,12 @@ export function AppShell({
                 </p>
               </div>
             )}
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-2 max-[479px]:absolute max-[479px]:right-[var(--workspace-gutter)]">
               {hasPermission(currentUser, "chat.read") ? (
                 <Link
                   href="/chat"
                   aria-current={chatActive ? "page" : undefined}
-                  className={`focus-ring grid size-10 place-items-center rounded-[13px] transition-colors ${chatActive ? "border border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "soft-button text-[var(--muted)] hover:text-[var(--text)]"}`}
+                  className={`focus-ring grid size-10 place-items-center rounded-[13px] transition-colors max-[479px]:hidden ${chatActive ? "border border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "soft-button text-[var(--muted)] hover:text-[var(--text)]"}`}
                   aria-label="Внутренний чат"
                 >
                   <MessageSquare
@@ -721,7 +815,21 @@ export function AppShell({
                 </Link>
               ) : null}
               {hasPermission(currentUser, "assistant.use") ? (
-                <WorkspaceAssistant />
+                <span className="max-[479px]:hidden"><WorkspaceAssistant /></span>
+              ) : null}
+              {hasPermission(currentUser, "support.manage") ? (
+                <button
+                  type="button"
+                  onClick={openDeveloperSupportQueue}
+                  aria-label="Открыть очередь обращений"
+                  title="Очередь обращений"
+                  className={`focus-ring grid size-10 place-items-center rounded-[13px] transition-colors max-[479px]:hidden ${developerSupportActive ? "border border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "soft-button text-[var(--muted)] hover:text-[var(--text)]"}`}
+                >
+                  <CircleHelp
+                    className="size-[18px]"
+                    strokeWidth={developerSupportActive ? 2.1 : 1.7}
+                  />
+                </button>
               ) : null}
               {hasPermission(currentUser, "notifications.read") ? (
                 <NotificationCenter />
@@ -740,7 +848,7 @@ export function AppShell({
 
       <nav
         aria-label="Мобильная навигация"
-        className={`fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-40 grid min-w-0 ${currentUser.role === "master" ? "grid-cols-2" : "grid-cols-5"} gap-0.5 rounded-[18px] border border-[var(--line-strong)] bg-[var(--surface-raised)]/94 p-1 shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl min-[380px]:inset-x-3 min-[380px]:gap-1 min-[380px]:p-1.5 md:hidden`}
+        className={`fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-40 grid min-w-0 ${currentUser.role === "master" ? "grid-cols-3" : "grid-cols-5"} gap-0.5 rounded-[18px] border border-[var(--line-strong)] bg-[var(--surface-raised)]/94 p-1 shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl min-[380px]:inset-x-3 min-[380px]:gap-1 min-[380px]:p-1.5 md:hidden`}
       >
         {mobileNavigation.map((item) => {
           const active = isActivePath(pathname, item.href);

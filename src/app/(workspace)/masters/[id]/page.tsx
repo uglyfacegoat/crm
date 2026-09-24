@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CalendarDays, MapPin, MessageCircle, Phone, Route } from "lucide-react";
+import { CalendarDays, MapPin, MessageCircle, Phone, Route } from "lucide-react";
 import { EditMasterButton } from "@/components/masters/master-dialog";
+import { BackLink } from "@/components/ui/back-link";
 import { formatMoneyMinor, getInitials } from "@/lib/format";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
@@ -86,10 +87,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
   return <div className="mx-auto max-w-[1720px]">
     <header className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <Link href="/masters" className="focus-ring inline-flex items-center gap-2 rounded-full px-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]">
-          <ArrowLeft className="size-4" />
-          К списку мастеров
-        </Link>
+        <BackLink href="/masters">К списку мастеров</BackLink>
         <div className="mt-4 flex min-w-0 items-center gap-3 sm:gap-4">
           <span className="grid size-12 shrink-0 place-items-center rounded-full border border-[var(--support)]/30 bg-[var(--support-soft)] font-display text-xs text-[var(--support-strong)] sm:size-14 sm:text-sm">
             {getInitials(master.fullName)}
@@ -186,7 +184,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
         </div> : null}
       </aside>
 
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <header className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
           <div>
             <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Журнал работы</p>

@@ -3,8 +3,8 @@
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { Check, History, LoaderCircle, Plus, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useMemo, useState } from "react";
-import { createContractAction, getContractHistoryAction, renewContractAction, updateContractAction, type ContractActionState } from "@/app/(workspace)/contracts/actions";
+import { useActionState, useEffect, useState } from "react";
+import { createContractAction, getContractHistoryAction, linkContractAction, renewContractAction, updateContractAction, type ContractActionState } from "@/app/(workspace)/contracts/actions";
 import { Dialog } from "@/components/ui/dialog";
 import { clientCrypto as crypto } from "@/lib/client-id";
 import type { ContractHistoryEvent, ContractListItem, ContractMasterOption, ContractObjectOption } from "@/server/contracts/types";
@@ -22,8 +22,8 @@ function ResultMessage({ state }: { state: ContractActionState }) {
   return state.message ? <p role="status" className={`rounded-[12px] border p-3 text-xs leading-5 ${state.status === "success" ? "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]" : "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p> : null;
 }
 
-function SubmitFooter({ pending, success, label, onClose }: { pending: boolean; success: boolean; label: string; onClose: () => void }) {
-  return <footer className="sticky bottom-0 flex gap-2 border-t border-[var(--line)] bg-[var(--surface)] p-4 sm:px-7"><button type="button" onClick={onClose} disabled={pending} className="focus-ring h-12 flex-1 rounded-[12px] border border-[var(--line)] text-xs text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={pending || success} className="focus-ring flex h-12 flex-[1.5] items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] text-xs font-semibold text-[var(--on-accent)] disabled:opacity-65">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем…</> : success ? <><Check className="size-4" />Сохранено</> : label}</button></footer>;
+function SubmitFooter({ pending, success, disabled = false, label, onClose }: { pending: boolean; success: boolean; disabled?: boolean; label: string; onClose: () => void }) {
+  return <footer className="sticky bottom-0 flex gap-2 border-t border-[var(--line)] bg-[var(--surface)] p-4 sm:px-7"><button type="button" onClick={onClose} disabled={pending} className="focus-ring h-12 flex-1 rounded-[12px] border border-[var(--line)] text-xs text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={pending || success || disabled} className="focus-ring flex h-12 flex-[1.5] items-center justify-center gap-2 rounded-[12px] bg-[var(--accent)] text-xs font-semibold text-[var(--on-accent)] disabled:opacity-65">{pending ? <><LoaderCircle className="size-4 animate-spin" />Сохраняем…</> : success ? <><Check className="size-4" />Сохранено</> : label}</button></footer>;
 }
 
 function useCloseAfterSuccess(state: ContractActionState, onClose: () => void) {
@@ -75,6 +75,28 @@ function RenewContractForm({ contract, onClose }: { contract: ContractListItem; 
   return <form action={action} className="flex flex-1 flex-col"><input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="sourceContractId" value={contract.id} /><input type="hidden" name="expectedVersion" value={contract.version} /><div className="flex-1 space-y-5 p-5 sm:p-7"><div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-inset)] p-4"><p className="text-xs font-semibold text-[var(--text)]">{contract.contractNumber}</p><p className="mt-1 text-[10px] text-[var(--muted)]">{contract.clientName} · {contract.objectName}</p><p className="mt-3 text-[10px] text-[var(--text-secondary)]">Старый период останется в истории без изменений.</p></div><label className={fieldLabelClass}><span>Новый номер договора *</span><input name="contractNumber" required placeholder={`${contract.contractNumber}-П1`} className={inputClass} /></label><div className="grid gap-4 sm:grid-cols-2"><label className={fieldLabelClass}><span>Новый период с</span><DateInput name="startsOn" defaultValue={startsOn} className={inputClass} /></label><label className={fieldLabelClass}><span>По</span><DateInput name="endsOn" defaultValue={addYear(startsOn)} className={inputClass} /></label></div><label className={fieldLabelClass}><span>Напомнить за, дней</span><input type="number" name="renewalNoticeDays" min={1} max={365} defaultValue={contract.renewalNoticeDays} className={inputClass} /></label><label className={`flex min-h-14 items-center gap-3 rounded-[13px] border border-[var(--line)] p-3.5 ${contract.schedule ? "cursor-pointer" : "opacity-50"}`}><input type="checkbox" name="copySchedule" defaultChecked={Boolean(contract.schedule)} disabled={!contract.schedule} className="size-4 accent-[var(--accent)]" /><span><strong className="block text-xs text-[var(--text)]">Перенести график работ</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">Создать даты выездов для нового периода</span></span></label><ResultMessage state={state} /></div><SubmitFooter pending={pending} success={state.status === "success"} label="Создать продление" onClose={onClose} /></form>;
 }
 
+function LinkContractForm({ contract, contractOptions, onClose }: { contract: ContractListItem; contractOptions: ContractListItem[]; onClose: () => void }) {
+  const [state, action, pending] = useActionState(linkContractAction, initialState);
+  useCloseAfterSuccess(state, onClose);
+  const linkedIds = new Set(contract.relations.map((relation) => relation.contractId));
+  const availableContracts = contractOptions.filter((option) => option.id !== contract.id && !linkedIds.has(option.id));
+  return <form action={action} className="flex flex-1 flex-col">
+    <input type="hidden" name="contractId" value={contract.id} />
+    <div className="flex-1 space-y-5 p-5 sm:p-7">
+      <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-inset)] p-4">
+        <p className="text-xs font-semibold text-[var(--text)]">{contract.contractNumber}</p>
+        <p className="mt-1 text-[10px] text-[var(--muted)]">{contract.clientName} · {contract.objectName}</p>
+      </div>
+      <label className={fieldLabelClass}><span>Связанный договор *</span><select name="relatedContractId" required defaultValue="" className={inputClass}><option value="" disabled>Выберите договор</option>{availableContracts.map((option) => <option key={option.id} value={option.id}>{option.contractNumber} · {option.clientName}</option>)}</select><FieldError errors={state.fieldErrors.relatedContractId} /></label>
+      <label className={fieldLabelClass}><span>Тип связи</span><select name="relationType" defaultValue="related" className={inputClass}><option value="related">Связанный договор</option><option value="supplement">Дополнительное соглашение</option><option value="framework">Рамочный договор</option></select></label>
+      <label className={fieldLabelClass}><span>Комментарий</span><textarea name="note" maxLength={1000} rows={4} placeholder="Что объединяет эти договоры" className="focus-ring resize-none rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] p-3.5 text-sm leading-6 text-[var(--text)] outline-none" /></label>
+      {!availableContracts.length ? <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] p-3 text-xs text-[var(--muted)]">Все доступные договоры уже связаны с текущим.</p> : null}
+      <ResultMessage state={state} />
+    </div>
+    <SubmitFooter pending={pending} disabled={!availableContracts.length} success={state.status === "success"} label="Связать договоры" onClose={onClose} />
+  </form>;
+}
+
 const eventLabels = { created: "Договор создан", updated: "Данные изменены", status_changed: "Статус изменён", renewed: "Создано продление" } as const;
 function HistoryContent({ contractId }: { contractId: string }) {
   const [events, setEvents] = useState<ContractHistoryEvent[] | null>(null);
@@ -85,11 +107,11 @@ function HistoryContent({ contractId }: { contractId: string }) {
   return <ol className="space-y-3 p-5 sm:p-7">{events.map((event) => <li key={event.id} className="rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] p-4"><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-[10px] bg-[var(--accent-soft)] text-[var(--accent-ink)]">{event.eventType === "renewed" ? <RefreshCw className="size-3.5" /> : <History className="size-3.5" />}</span><div className="min-w-0 flex-1"><p className="text-xs font-medium text-[var(--text)]">{eventLabels[event.eventType]}</p><p className="mt-1 text-[9px] text-[var(--muted)]">{event.actorName ?? "Система"} · {new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(new Date(event.createdAt))}</p></div></div>{event.reason ? <p className="mt-3 border-l border-[var(--accent)] pl-3 text-[10px] leading-5 text-[var(--text-secondary)]">{event.reason}</p> : null}</li>)}</ol>;
 }
 
-export type ContractDialogMode = "create" | "edit" | "renew" | "history" | null;
+export type ContractDialogMode = "create" | "edit" | "renew" | "link" | "history" | null;
 
-export function ContractDialogs({ mode, contract, objectOptions, masterOptions, onClose }: { mode: ContractDialogMode; contract: ContractListItem | null; objectOptions: ContractObjectOption[]; masterOptions: ContractMasterOption[]; onClose: () => void }) {
-  const title = useMemo(() => mode === "create" ? "Новый договор" : mode === "edit" ? "Редактировать договор" : mode === "renew" ? "Продлить договор" : "История договора", [mode]);
-  return <Dialog open={mode !== null} onClose={onClose} title={title} description={mode === "create" ? "Договор, график и все даты выездов сохранятся одной транзакцией." : contract ? `${contract.contractNumber} · ${contract.clientName}` : undefined}>{mode === "create" ? <CreateContractForm objectOptions={objectOptions} masterOptions={masterOptions} onClose={onClose} /> : mode === "edit" && contract ? <EditContractForm contract={contract} onClose={onClose} /> : mode === "renew" && contract ? <RenewContractForm contract={contract} onClose={onClose} /> : mode === "history" && contract ? <HistoryContent contractId={contract.id} /> : null}</Dialog>;
+export function ContractDialogs({ mode, contract, contractOptions, objectOptions, masterOptions, onClose }: { mode: ContractDialogMode; contract: ContractListItem | null; contractOptions: ContractListItem[]; objectOptions: ContractObjectOption[]; masterOptions: ContractMasterOption[]; onClose: () => void }) {
+  const title = mode === "create" ? "Новый договор" : mode === "edit" ? "Редактировать договор" : mode === "renew" ? "Продлить договор" : mode === "link" ? "Связать договор" : "История договора";
+  return <Dialog open={mode !== null} onClose={onClose} title={title} description={mode === "create" ? "Договор, график и все даты выездов сохранятся одной транзакцией." : contract ? `${contract.contractNumber} · ${contract.clientName}` : undefined}>{mode === "create" ? <CreateContractForm objectOptions={objectOptions} masterOptions={masterOptions} onClose={onClose} /> : mode === "edit" && contract ? <EditContractForm contract={contract} onClose={onClose} /> : mode === "renew" && contract ? <RenewContractForm contract={contract} onClose={onClose} /> : mode === "link" && contract ? <LinkContractForm contract={contract} contractOptions={contractOptions} onClose={onClose} /> : mode === "history" && contract ? <HistoryContent contractId={contract.id} /> : null}</Dialog>;
 }
 
 export function NewContractButton({ onClick }: { onClick: () => void }) {

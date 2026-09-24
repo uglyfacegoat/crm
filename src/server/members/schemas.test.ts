@@ -16,6 +16,28 @@ test("master account requires an explicit master profile", () => {
   assert.equal(createMemberSchema.safeParse({ ...base, role: "dispatcher", masterId: "2cad58eb-c26a-4f0d-9d44-f79a01abb953" }).success, false);
 });
 
+test("developer access cannot be assigned through organization settings", () => {
+  assert.equal(createMemberSchema.safeParse({ ...base, role: "developer", masterId: "" }).success, false);
+  assert.equal(updateMemberAccessSchema.safeParse({
+    memberId: "5b5ab8ec-8e07-4bc8-8f83-d2a383bd9d51",
+    expectedVersion: 2,
+    active: true,
+    role: "developer",
+    masterId: "",
+  }).success, false);
+});
+
+test("system-only permissions cannot be granted through organization settings", () => {
+  assert.equal(updateMemberAccessSchema.safeParse({
+    memberId: "5b5ab8ec-8e07-4bc8-8f83-d2a383bd9d51",
+    expectedVersion: 2,
+    active: true,
+    role: "admin",
+    masterId: "",
+    permissionOverrides: { "support.manage": true },
+  }).success, false);
+});
+
 test("member access update requires a version and consistent role link", () => {
   const input = { memberId: "5b5ab8ec-8e07-4bc8-8f83-d2a383bd9d51", expectedVersion: 2, active: true, role: "dispatcher", masterId: "" };
   assert.equal(updateMemberAccessSchema.safeParse(input).success, true);

@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -67,7 +68,7 @@ export async function switchOrganizationAction(
       JSON.stringify({
         operation: "organization.switch",
         actorId: member.memberId,
-        error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: safeErrorCode(error),
       }),
     );
     return {

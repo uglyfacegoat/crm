@@ -3,15 +3,17 @@ import { ClientsWorkspace } from "@/components/clients/clients-workspace";
 import { CreateClientButton } from "@/components/clients/create-client-dialog";
 import { PageHeading } from "@/components/ui/page-heading";
 import { clients } from "@/lib/mock-data";
+import { clientListQuerySchema } from "@/lib/client-list";
 import { getAuthMode } from "@/server/auth/config";
 import { requireOfficeSession } from "@/server/auth/session";
-import { listClients } from "@/server/clients/repository";
+import { listClientsPage } from "@/server/clients/repository";
 
 export const metadata: Metadata = { title: "Клиенты" };
 
 export default async function ClientsPage() {
   const member = await requireOfficeSession();
-  const clientRecords = getAuthMode() === "preview" ? clients : await listClients(member);
+  const preview = getAuthMode() === "preview";
+  const initialPage = preview ? null : await listClientsPage(member, clientListQuerySchema.parse({}));
   return (
     <div>
       <PageHeading
@@ -20,7 +22,7 @@ export default async function ClientsPage() {
         description="Контакты, объекты и вся история работы с заказчиком."
         action={<CreateClientButton />}
       />
-      <ClientsWorkspace clients={clientRecords} />
+      <ClientsWorkspace clients={preview ? clients : initialPage!.items} initialPage={initialPage} />
     </div>
   );
 }

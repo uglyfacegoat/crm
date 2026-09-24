@@ -278,6 +278,8 @@ export async function listDocuments(
     objectId: null,
     orderId: null,
     category: null,
+    folderId: null,
+    favoriteOnly: false,
   },
 ): Promise<DocumentListItem[]> {
   requirePermission(member, "documents.read");
@@ -317,7 +319,9 @@ export async function listDocuments(
       AND (${selection.objectId}::uuid IS NULL OR documents.object_id = ${selection.objectId}::uuid)
       AND (${selection.orderId}::uuid IS NULL OR documents.order_id = ${selection.orderId}::uuid)
       AND (${selection.category}::text IS NULL OR documents.category = ${selection.category}::text)
-    ORDER BY documents.created_at DESC
+      AND (${selection.folderId}::uuid IS NULL OR documents.folder_id = ${selection.folderId}::uuid)
+      AND (NOT ${selection.favoriteOnly}::boolean OR document_favorites.member_id IS NOT NULL)
+    ORDER BY (document_favorites.member_id IS NOT NULL) DESC, documents.created_at DESC
     LIMIT 500
   `;
   return rows.map(mapDocument);

@@ -15,10 +15,10 @@ function UploadDocumentVersionForm({ document, requestKey, onComplete }: { docum
   const [state, formAction, pending] = useActionState(uploadDocumentVersionAction, initialState);
   const router = useRouter();
   useEffect(() => {
-    if (state.status !== "success") return;
+    if (state.status !== "success" || state.refreshRequired) return;
     const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 850);
     return () => window.clearTimeout(timeout);
-  }, [onComplete, router, state.status]);
+  }, [onComplete, router, state.status, state.refreshRequired]);
 
   return <form action={formAction} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="idempotencyKey" value={requestKey} />

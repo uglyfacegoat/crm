@@ -18,6 +18,7 @@ const defaultBrowserPaths = {
 const visualCases = [
   { name: "dashboard-4k", path: "/", width: 3840, height: 2160 },
   { name: "dashboard-desktop", path: "/", width: 1920, height: 1080 },
+  { name: "dashboard-macbook", path: "/", width: 1440, height: 900 },
   { name: "dashboard-laptop", path: "/", width: 1366, height: 768 },
   { name: "dashboard-tablet", path: "/", width: 768, height: 1024 },
   { name: "dashboard-mobile", path: "/", width: 390, height: 844 },
@@ -46,6 +47,8 @@ const visualCases = [
   { name: "client-detail-mobile", path: "/clients/cl-1", width: 320, height: 568 },
   { name: "client-object-dialog-mobile", path: "/clients/cl-1", width: 360, height: 800, openObjectDialog: true },
   { name: "calendar-mobile", path: "/calendar", width: 390, height: 844 },
+  { name: "calendar-laptop", path: "/calendar", width: 1366, height: 768 },
+  { name: "calendar-macbook", path: "/calendar", width: 1440, height: 900 },
   { name: "calendar-desktop", path: "/calendar", width: 1920, height: 1080 },
   { name: "calendar-list-desktop", path: "/calendar", width: 1920, height: 1080, openCalendarList: true },
   { name: "calendar-list-mobile", path: "/calendar", width: 320, height: 568, openCalendarList: true },
@@ -64,6 +67,8 @@ const visualCases = [
   { name: "tasks-desktop", path: "/tasks", width: 1920, height: 1080 },
   { name: "tasks-filters-desktop", path: "/tasks", width: 1920, height: 1080, openFiltersDialog: "Фильтры задач" },
   { name: "tasks-filters-mobile", path: "/tasks", width: 320, height: 568, openFiltersDialog: "Фильтры задач" },
+  { name: "workflow-desktop", path: "/workflow", width: 1920, height: 1080 },
+  { name: "workflow-mobile", path: "/workflow", width: 320, height: 568 },
   { name: "contracts-4k", path: "/contracts", width: 3840, height: 2160 },
   { name: "contracts-mobile", path: "/contracts", width: 320, height: 568 },
   { name: "contracts-filters-desktop", path: "/contracts", width: 1920, height: 1080, openFiltersDialog: "Фильтры договоров" },
@@ -92,10 +97,6 @@ const visualCases = [
   { name: "analytics-4k", path: "/analytics", width: 3840, height: 2160 },
   { name: "analytics-desktop", path: "/analytics", width: 1920, height: 1080 },
   { name: "analytics-mobile", path: "/analytics", width: 320, height: 568 },
-  { name: "analytics-sales-desktop", path: "/analytics?view=sales", width: 1920, height: 1080 },
-  { name: "analytics-operations-desktop", path: "/analytics?view=operations", width: 1920, height: 1080 },
-  { name: "analytics-finance-desktop", path: "/analytics?view=finance", width: 1920, height: 1080 },
-  { name: "analytics-finance-mobile", path: "/analytics?view=finance", width: 320, height: 568 },
   { name: "sites-desktop", path: "/sites", width: 1920, height: 1080 },
   { name: "sites-micro", path: "/sites", width: 280, height: 653 },
   { name: "sites-filters-desktop", path: "/sites", width: 1920, height: 1080, openFiltersDialog: "Фильтры сайтов" },
@@ -191,11 +192,23 @@ try {
       }
     }
 
+    // The current calendar week may be empty; discover editable visits via orders.
+    await authenticationPage.goto(`${baseUrl}/orders`, { waitUntil: "networkidle" });
+    const orderCount = await authenticationPage.getByRole("link", { name: /Открыть заказ/ }).count();
+    for (let index = 0; index < Math.min(orderCount, 30); index++) {
+      if (index) await authenticationPage.goto(`${baseUrl}/orders`, { waitUntil: "networkidle" });
+      await authenticationPage.getByRole("link", { name: /Открыть заказ/ }).nth(index).click();
+      await authenticationPage.waitForURL((url) => url.pathname.startsWith("/orders/"));
+      if (await authenticationPage.getByRole("button", { name: /Редактировать выезд/ }).count()) {
+        return new URL(authenticationPage.url()).pathname;
+      }
+    }
+
     return null;
   }
 
   const clientDetailPath = await discoverInteractiveDetailPath("/clients", /Открыть клиента/, "/clients/");
-  const orderDetailPath = await discoverDetailPath("/orders", "/orders/");
+  const orderDetailPath = await discoverInteractiveDetailPath("/orders", /Открыть заказ/, "/orders/");
   const masterDetailPath = await discoverInteractiveDetailPath("/masters", /Открыть карточку мастера/, "/masters/");
   const memberDetailPath = await discoverDetailPath("/settings", "/settings/users/");
   const siteDetailPath = await discoverDetailPath("/sites", "/sites/");
@@ -338,6 +351,13 @@ try {
       failures.push(`${visualCase.name}: horizontal overflow ${viewportState.documentWidth}px > ${viewportState.viewportWidth}px`);
     }
 
+    if (await page.getByRole("dialog").count()) {
+      await page.waitForFunction(() => [...document.querySelectorAll('[role="dialog"]')].every((dialog) => {
+        const bounds = dialog.getBoundingClientRect();
+        const style = getComputedStyle(dialog);
+        return style.display === "none" || (Number(style.opacity) === 1 && bounds.width > 0 && bounds.height > 0 && bounds.left >= -1 && bounds.right <= window.innerWidth + 1);
+      }));
+    }
     await page.screenshot({ path: resolve(outputDirectory, `${visualCase.name}.png`) });
     await page.close();
     await isolatedLoginContext?.close();

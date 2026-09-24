@@ -1,3 +1,4 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError, hasPermission } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
@@ -22,7 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для просмотра карточки выезда." } }, { status: 403 });
     if (error instanceof VisitNotFoundError) return Response.json({ error: { code: "not_found", message: "Выезд не найден." } }, { status: 404 });
-    console.error(JSON.stringify({ operation: "visits.dispatch_card.read", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "visits.dispatch_card.read", category: "unexpected", errorCode: safeErrorCode(error) }));
     return Response.json({ error: { code: "service_unavailable", message: "Не удалось загрузить карточку выезда." } }, { status: 503 });
   }
 }

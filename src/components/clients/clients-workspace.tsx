@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Building2, ContactRound, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
+import type { ClientListPage } from "@/lib/client-list";
 import type { Client } from "@/lib/mock-data";
 import { matchesSearchText } from "@/lib/search-normalization";
 
@@ -20,7 +22,7 @@ const historyOptions: Array<{ value: ClientHistoryFilter; label: string }> = [
 function parseNonNegativeInteger(value: string) {
   if (!value.trim()) return null;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 1000000 ? parsed : null;
 }
 
 function Choice<T extends string>({ value, current, label, onChange }: { value: T; current: T; label: string; onChange: (value: T) => void }) {
@@ -28,7 +30,7 @@ function Choice<T extends string>({ value, current, label, onChange }: { value: 
   return <button type="button" role="radio" aria-checked={selected} onClick={() => onChange(value)} className={`focus-ring min-h-10 rounded-[11px] border px-3 text-left text-xs ${selected ? "border-[var(--accent)]/45 bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>{label}</button>;
 }
 
-export function ClientsWorkspace({ clients }: { clients: Client[] }) {
+export function ClientsWorkspace({ clients, initialPage }: { clients: Client[]; initialPage: ClientListPage | null }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<ClientHistoryFilter>("all");
@@ -36,13 +38,43 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
   const [advanced, setAdvanced] = useState(defaultAdvancedFilters);
   const [draft, setDraft] = useState(defaultAdvancedFilters);
   const [filterError, setFilterError] = useState<string | null>(null);
-  const summary = useMemo(() => ({
+  const [page, setPage] = useState(1);
+  const [remotePage, setRemotePage] = useState(initialPage);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const firstFetch = useRef(true);
+  useEffect(() => {
+    if (!initialPage) return;
+    if (firstFetch.current) { firstFetch.current = false; return; }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setLoadError(false);
+      const params = new URLSearchParams({ q: query, history, kind: advanced.kind, sort: advanced.sort, page: String(page) });
+      if (advanced.minimumOrders) params.set("minOrders", advanced.minimumOrders);
+      if (advanced.minimumObjects) params.set("minObjects", advanced.minimumObjects);
+      try {
+        const response = await fetch(`/api/v1/clients?${params}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Client list request failed");
+        const payload = await response.json() as { data: ClientListPage };
+        if (!controller.signal.aborted) { setRemotePage(payload.data); if (payload.data.page !== page) setPage(payload.data.page); }
+      } catch {
+        if (!controller.signal.aborted) setLoadError(true);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, query ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [advanced, history, initialPage, page, query]);
+  const localSummary = useMemo(() => ({
     objects: clients.reduce((total, client) => total + client.objects, 0),
     orders: clients.reduce((total, client) => total + client.orders, 0),
     active: clients.filter((client) => client.orders > 0).length,
     withoutOrders: clients.filter((client) => client.orders === 0).length,
   }), [clients]);
+  const summary = remotePage?.summary ?? { ...localSummary, total: clients.length };
   const filteredClients = useMemo(() => {
+    if (initialPage) return remotePage?.items ?? [];
     const minimumOrders = parseNonNegativeInteger(advanced.minimumOrders);
     const minimumObjects = parseNonNegativeInteger(advanced.minimumObjects);
     return clients.filter((client) => {
@@ -57,20 +89,21 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
       if (advanced.sort === "objects-desc") return right.objects - left.objects || left.name.localeCompare(right.name, "ru");
       return left.name.localeCompare(right.name, "ru");
     });
-  }, [advanced, clients, history, query]);
+  }, [advanced, clients, history, initialPage, query, remotePage]);
 
-  const historyCounts = new Map<ClientHistoryFilter, number>([["all", clients.length], ["with-orders", summary.active], ["without-orders", summary.withoutOrders]]);
+  const historyCounts = new Map<ClientHistoryFilter, number>([["all", summary.total], ["with-orders", summary.active], ["without-orders", summary.withoutOrders]]);
   const advancedCount = [advanced.kind !== "all", Boolean(advanced.minimumOrders), Boolean(advanced.minimumObjects), advanced.sort !== "name"].filter(Boolean).length;
   const totalFilterCount = advancedCount + (history === "all" ? 0 : 1) + (query.trim() ? 1 : 0);
 
-  function resetFilters() { setQuery(""); setHistory("all"); setAdvanced(defaultAdvancedFilters); setDraft(defaultAdvancedFilters); setFilterError(null); }
+  function resetFilters() { setQuery(""); setHistory("all"); setAdvanced(defaultAdvancedFilters); setDraft(defaultAdvancedFilters); setFilterError(null); setPage(1); }
   function openAdvancedFilters() { setDraft(advanced); setFilterError(null); setAdvancedOpen(true); }
   function applyAdvancedFilters() {
     if ((draft.minimumOrders && parseNonNegativeInteger(draft.minimumOrders) === null) || (draft.minimumObjects && parseNonNegativeInteger(draft.minimumObjects) === null)) {
-      setFilterError("Количество должно быть целым неотрицательным числом.");
+      setFilterError("Количество должно быть целым числом от 0 до 1 000 000.");
       return;
     }
     setAdvanced(draft);
+    setPage(1);
     setAdvancedOpen(false);
   }
 
@@ -80,11 +113,11 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
 
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--line)] p-4 lg:flex-row lg:items-center">
           <label className="soft-button flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl px-3 lg:max-w-md">
             <Search className="size-4 text-[var(--muted)]" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Клиент, ИНН, телефон или e-mail" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]" />
+            <input value={query} maxLength={100} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Клиент, ИНН, телефон или e-mail" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]" />
           </label>
           <button type="button" onClick={openAdvancedFilters} className={`focus-ring flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs ${advancedCount ? "border-[var(--accent)]/45 bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>
             <SlidersHorizontal className="size-4" />
@@ -95,11 +128,11 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
         </div>
 
         <div className="flex flex-col gap-3 border-b border-[var(--line)] bg-[var(--surface-raised)] px-4 py-3 sm:flex-row sm:items-center sm:px-5">
-          <div className="flex min-w-0 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Фильтр по истории заказов">
+          <div className="scrollbar-hidden flex min-w-0 gap-1 overflow-x-auto" aria-label="Фильтр по истории заказов">
             {historyOptions.map((option) => (
-              <button key={option.value} type="button" onClick={() => setHistory(option.value)} aria-pressed={history === option.value} className={`focus-ring flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[10px] font-medium ${history === option.value ? "bg-[var(--surface-soft)] text-[var(--text)]" : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}>
+              <button key={option.value} type="button" onClick={() => { setHistory(option.value); setPage(1); }} aria-pressed={history === option.value} className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-[10px] font-medium transition-colors ${history === option.value ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]" : "border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>
                 {option.label}
-                <span className={history === option.value ? "text-[var(--accent)]" : "text-[var(--muted-subtle)]"}>{historyCounts.get(option.value)}</span>
+                <span className={history === option.value ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}>{historyCounts.get(option.value)}</span>
               </button>
             ))}
           </div>
@@ -116,8 +149,8 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
             </thead>
             <tbody className="divide-y divide-[var(--line)]">
               {filteredClients.map((client) => (
-                <tr key={client.id} role="link" tabIndex={0} aria-label={`Открыть клиента ${client.name}`} onClick={() => router.push(`/clients/${client.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/clients/${client.id}`); } }} className="cursor-pointer hover:bg-[var(--surface-raised)] focus-visible:bg-[var(--surface-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]">
-                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] font-display text-[10px] text-[var(--accent-ink)]">{client.name.replace(/[^А-ЯA-Z]/g, "").slice(0, 2)}</span><div><span className="text-xs font-semibold text-[var(--text)]">{client.name}</span><p className="mt-1 text-[9px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div></div></td>
+                <tr key={client.id} role="link" tabIndex={0} aria-label={`Открыть клиента ${client.name}`} onClick={() => router.push(`/clients/${client.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/clients/${client.id}`); } }} className="cursor-pointer transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]">
+                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] font-display text-[10px] text-[var(--accent-ink)]">{client.name.replace(/[^А-ЯA-Z]/g, "").slice(0, 2)}</span><div><p className="text-xs font-semibold text-[var(--text)]">{client.name}</p><p className="mt-1 text-[9px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div></div></td>
                   <td className="px-4 py-3.5 text-xs text-[var(--text-secondary)]">{client.contact}</td>
                   <td className="px-4 py-3.5"><p className="text-xs text-[var(--text-secondary)]">{client.phone}</p><p className="mt-1 text-[9px] text-[var(--muted)]">{client.email}</p></td>
                   <td className="px-4 py-3.5 text-center font-display text-xs text-[var(--text)]">{client.objects}</td>
@@ -131,17 +164,22 @@ export function ClientsWorkspace({ clients }: { clients: Client[] }) {
 
         <div className="grid gap-px bg-[var(--line)] sm:grid-cols-2 lg:hidden">
           {filteredClients.map((client) => (
-            <article key={client.id} role="link" tabIndex={0} aria-label={`Открыть клиента ${client.name}`} onClick={() => router.push(`/clients/${client.id}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); router.push(`/clients/${client.id}`); } }} className="cursor-pointer bg-[var(--surface)] p-4 hover:bg-[var(--surface-raised)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]">
+            <Link key={client.id} href={`/clients/${client.id}`} aria-label={`Открыть клиента ${client.name}`} className="focus-ring block bg-[var(--surface)] p-4 hover:bg-[var(--surface-raised)]">
               <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-[var(--text)]">{client.name}</h2><p className="mt-1 text-[10px] text-[var(--muted)]">{client.taxId ? `ИНН ${client.taxId}` : client.kind}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[8px] ${client.orders > 0 ? activeClientBadgeClass : inactiveClientBadgeClass}`}>{client.orders > 0 ? "Есть заказы" : "Без заказов"}</span></div>
               <p className="mt-4 text-xs text-[var(--text-secondary)]">{client.contact}</p>
               <p className="mt-1 text-[10px] text-[var(--muted)]">{client.phone} · {client.email}</p>
               <div className="mt-4 text-[10px] text-[var(--muted)]">{client.objects} объектов · {client.orders} заказов</div>
-            </article>
+            </Link>
           ))}
         </div>
 
-        {filteredClients.length === 0 ? <div className="p-12 text-center"><p className="text-sm text-[var(--muted)]">Клиенты не найдены</p><button type="button" onClick={resetFilters} className="focus-ring mt-4 rounded-[10px] bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text)] hover:bg-[var(--surface-raised)]">Сбросить фильтры</button></div> : null}
-        <footer className="flex items-center justify-between border-t border-[var(--line)] px-4 py-3 text-[10px] text-[var(--muted)] sm:px-5"><span>Показано {filteredClients.length} из {clients.length}</span><span>{totalFilterCount ? `${totalFilterCount} активных условий` : "Без ограничений"}</span></footer>
+        {loadError ? <p role="alert" className="p-4 text-xs text-[var(--danger-ink)]">Не удалось загрузить клиентов. Измените фильтр или обновите страницу.</p> : null}
+        {filteredClients.length === 0 && !loading && !loadError ? <div className="p-12 text-center"><p className="text-sm text-[var(--muted)]">Клиенты не найдены</p><button type="button" onClick={resetFilters} className="focus-ring mt-4 rounded-[10px] bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text)] hover:bg-[var(--surface-raised)]">Сбросить фильтры</button></div> : null}
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] px-4 py-3 text-[10px] text-[var(--muted)] sm:px-5">
+          <span>{loading ? "Загрузка…" : initialPage ? `Показано ${filteredClients.length ? (page - 1) * remotePage!.pageSize + 1 : 0}–${(page - 1) * remotePage!.pageSize + filteredClients.length} из ${remotePage?.total ?? 0}` : `Показано ${filteredClients.length} из ${clients.length}`}</span>
+          {initialPage ? <div className="flex items-center gap-2"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => current - 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Назад</button><span>Страница {page}</span><button type="button" disabled={loading || page * (remotePage?.pageSize ?? 50) >= (remotePage?.total ?? 0)} onClick={() => setPage((current) => current + 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Далее</button></div> : null}
+          <span>{totalFilterCount ? `${totalFilterCount} активных условий` : "Без ограничений"}</span>
+        </footer>
       </section>
 
       <Dialog open={advancedOpen} onClose={() => setAdvancedOpen(false)} title="Фильтры клиентов" description="Отберите базу по типу клиента, количеству объектов и истории заказов.">

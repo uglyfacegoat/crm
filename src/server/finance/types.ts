@@ -10,6 +10,7 @@ export type FinancePayment = {
   note: string | null;
   status: "posted" | "reversed";
   reversalReason: string | null;
+  receiptDocumentId: string | null;
   version: number;
 };
 
@@ -42,6 +43,7 @@ export type FinancePayout = {
   note: string | null;
   status: "posted" | "reversed";
   reversalReason: string | null;
+  receiptDocumentId: string | null;
   version: number;
 };
 

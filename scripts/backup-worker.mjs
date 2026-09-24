@@ -1,32 +1,29 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import { randomBytes } from "node:crypto";
 import {
-  cp,
   mkdir,
-  readdir,
   rename,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 import postgres from "postgres";
 import {
   backupWorkerHealthWindow,
   databaseProcessEnvironment,
-  parseBackupWorkerConfig,
 } from "./backup-worker-config.mjs";
 import { runProcess, sha256File } from "./backup-process.mjs";
+import { exportArchive } from "./backup-export.mjs";
+import { removeExpiredArchives } from "./backup-retention.mjs";
 import { verifyBackupRestore } from "./backup-restore.mjs";
+import { withStorageSnapshot } from "./backup-snapshot.mjs";
+import { validateBackupWorkerEnvironment } from "./worker-runtime-config.mjs";
+import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 
 const JOB_NAME = "system.backup";
-const ARCHIVE_PATTERN = /^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$/;
-const databaseUrl = process.env.DATABASE_URL;
-const storageRoot = resolve(process.env.DOCUMENT_STORAGE_ROOT ?? "/app/storage");
-const backupRoot = resolve(process.env.BACKUP_ROOT ?? "/app/backups");
-const backupExportRoot = process.env.BACKUP_EXPORT_ROOT ? resolve(process.env.BACKUP_EXPORT_ROOT) : null;
-const config = parseBackupWorkerConfig(process.env);
-
-if (!databaseUrl) throw new Error("DATABASE_URL is required to run the backup worker.");
+const { databaseUrl, config, backend, storageRoot, backupRoot, backupExportRoot } = validateBackupWorkerEnvironment(process.env);
+const objectStorage = backend === "s3" ? createS3Storage(process.env) : undefined;
 
 const sql = postgres(databaseUrl, {
   max: 2,
@@ -48,48 +45,13 @@ async function prepareDirectories() {
   if (storageRoot === backupRoot || isPathInside(storageRoot, backupRoot) || isPathInside(backupRoot, storageRoot)) {
     throw new Error("Backup and document storage directories must not contain each other.");
   }
-  await stat(storageRoot);
+  if (!objectStorage) await stat(storageRoot);
   await mkdir(backupRoot, { recursive: true, mode: 0o700 });
   if (backupExportRoot) {
     if (backupExportRoot === backupRoot || backupExportRoot === storageRoot || isPathInside(backupRoot, backupExportRoot) || isPathInside(backupExportRoot, backupRoot) || isPathInside(storageRoot, backupExportRoot) || isPathInside(backupExportRoot, storageRoot)) {
       throw new Error("Backup export, protected backup, and document storage directories must be separate.");
     }
     await mkdir(backupExportRoot, { recursive: true, mode: 0o700 });
-  }
-}
-
-async function removeExpiredArchives(root, now) {
-  const cutoff = now.getTime() - config.retentionDays * 86_400_000;
-  const entries = await readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !ARCHIVE_PATTERN.test(entry.name)) continue;
-    const timestamp = Date.UTC(
-      Number(entry.name.slice(0, 4)),
-      Number(entry.name.slice(4, 6)) - 1,
-      Number(entry.name.slice(6, 8)),
-      Number(entry.name.slice(9, 11)),
-      Number(entry.name.slice(11, 13)),
-      Number(entry.name.slice(13, 15)),
-    );
-    if (!Number.isFinite(timestamp) || timestamp >= cutoff) continue;
-    const archivePath = resolve(root, entry.name);
-    if (!isPathInside(root, archivePath)) throw new Error("Refusing to remove a backup outside the configured root.");
-    await rm(archivePath, { recursive: true });
-  }
-}
-
-async function exportArchive(archiveName, archiveDirectory) {
-  if (!backupExportRoot) return null;
-  const partialDirectory = join(backupExportRoot, `.partial-${archiveName}`);
-  const exportedDirectory = join(backupExportRoot, archiveName);
-  await rm(partialDirectory, { recursive: true, force: true });
-  try {
-    await cp(archiveDirectory, partialDirectory, { recursive: true, force: false, errorOnExist: true });
-    await rename(partialDirectory, exportedDirectory);
-    return new Date().toISOString();
-  } catch (error) {
-    await rm(partialDirectory, { recursive: true, force: true });
-    throw error;
   }
 }
 
@@ -104,15 +66,18 @@ async function createArchive(runId) {
     const databaseDumpPath = join(partialDirectory, "database.dump");
     const documentsArchivePath = join(partialDirectory, "documents.tar.gz");
     const { databaseName, processEnvironment } = databaseProcessEnvironment(databaseUrl);
-    await runProcess("pg_dump", [
-      "--format=custom",
-      "--no-owner",
-      "--no-privileges",
-      "--file",
-      databaseDumpPath,
-      databaseName,
-    ], { environment: processEnvironment });
-    await runProcess("tar", ["-czf", documentsArchivePath, "-C", storageRoot, "."], { environment: processEnvironment });
+    const stagingDirectory = join(partialDirectory, "documents");
+    const snapshot = await withStorageSnapshot({
+      databaseUrl, storageRoot, objectStorage, stagingDirectory, copyTimeoutMs: config.snapshotCopyTimeoutMs,
+    }, async (snapshot) => {
+      await runProcess("pg_dump", [
+        "--format=custom", "--no-owner", "--no-privileges",
+        `--snapshot=${snapshot.snapshotId}`, "--file", databaseDumpPath, databaseName,
+      ], { environment: processEnvironment, timeoutMs: 240_000 });
+      return snapshot;
+    });
+    await runProcess("tar", ["-czf", documentsArchivePath, "-C", stagingDirectory, "."], { environment: processEnvironment });
+    await rm(stagingDirectory, { recursive: true });
 
     const [databaseFile, documentsFile, databaseSha256, documentsSha256] = await Promise.all([
       stat(databaseDumpPath),
@@ -122,10 +87,12 @@ async function createArchive(runId) {
     ]);
     const metadataPath = join(partialDirectory, "metadata.json");
     await writeFile(metadataPath, `${JSON.stringify({
-      formatVersion: 1,
+      formatVersion: 2,
       archiveName,
       createdAt: now.toISOString(),
       databaseName,
+      consistency: "postgres-exported-snapshot",
+      ...snapshot,
     }, null, 2)}\n`, { mode: 0o600 });
     const metadataSha256 = await sha256File(metadataPath);
     await writeFile(join(partialDirectory, "manifest.sha256"), [
@@ -150,6 +117,7 @@ async function createArchive(runId) {
       archiveDirectory,
       databaseBytes: databaseFile.size,
       documentsBytes: documentsFile.size,
+      ...snapshot,
     };
   } catch (error) {
     await rm(partialDirectory, { recursive: true, force: true });
@@ -158,7 +126,7 @@ async function createArchive(runId) {
 }
 
 async function markJobFailure(runId, error) {
-  const failureCode = error instanceof Error && error.name !== "Error" ? error.name.slice(0, 120) : "backup_execution_failed";
+  const failureCode = safeCliErrorCode(error, "backup_execution_failed");
   await sql.begin(async (transaction) => {
     await transaction`
       UPDATE backup_runs SET status = 'failed', completed_at = now(), failure_code = ${failureCode}
@@ -192,19 +160,37 @@ async function executeBackup() {
     `;
     const archive = await createArchive(run.id);
     const restoreResult = await verifyBackupRestore({ archiveDirectory: archive.archiveDirectory, databaseUrl });
-    const hostExportedAt = await exportArchive(archive.archiveName, archive.archiveDirectory);
+    const hostExportedAt = await exportArchive({ backupExportRoot, archiveName: archive.archiveName,
+      archiveDirectory: archive.archiveDirectory });
     const result = {
       archiveName: archive.archiveName,
       databaseBytes: archive.databaseBytes,
       documentsBytes: archive.documentsBytes,
       restoreVerified: true,
       migrationCount: restoreResult.migrationCount,
+      verifiedFileCounts: restoreResult.verifiedFileCounts,
+      verifiedFileBytes: restoreResult.verifiedFileBytes,
+      restoreDurationMs: restoreResult.restoreDurationMs,
+      recoveryPointAt: archive.recoveryPointAt,
+      fileLockDurationMs: archive.fileLockDurationMs,
+      snapshotCopyTimeoutMs: config.snapshotCopyTimeoutMs,
       backupIntervalMs: config.backupIntervalMs,
       retryIntervalMs: config.retryIntervalMs,
       retentionDays: config.retentionDays,
       hostExportEnabled: backupExportRoot !== null,
       hostExportedAt,
     };
+    const completedAt = new Date();
+    const [lastAccepted] = await sql`
+      SELECT archive_name FROM backup_runs
+      WHERE status = 'succeeded' AND restore_verified_at IS NOT NULL AND archive_name IS NOT NULL
+      ORDER BY completed_at DESC LIMIT 1
+    `;
+    const protectedArchiveNames = [lastAccepted?.archive_name, archive.archiveName];
+    await removeExpiredArchives(backupRoot, completedAt, config.retentionDays, protectedArchiveNames);
+    if (backupExportRoot) {
+      await removeExpiredArchives(backupExportRoot, completedAt, config.retentionDays, protectedArchiveNames);
+    }
     await sql.begin(async (transaction) => {
       await transaction`
         UPDATE backup_runs SET status = 'succeeded', completed_at = now(), restore_verified_at = now()
@@ -221,12 +207,11 @@ async function executeBackup() {
         WHERE job_name = ${JOB_NAME}
       `;
     });
-    const completedAt = new Date();
-    await removeExpiredArchives(backupRoot, completedAt);
-    if (backupExportRoot) await removeExpiredArchives(backupExportRoot, completedAt);
     console.log(JSON.stringify({ operation: "backup_worker.run", status: "succeeded", runId: run.id, ...result }));
+    return true;
   } catch (error) {
     await markJobFailure(run.id, error);
+    return false;
   }
 }
 
@@ -253,7 +238,7 @@ async function runCycle() {
     locked = lockResult?.locked === true;
     if (!locked) return;
     if (await isBackupDue()) {
-      await executeBackup();
+      return await executeBackup();
     } else {
       await connection`
         UPDATE background_job_status SET heartbeat_at = now(), updated_at = now()
@@ -288,7 +273,7 @@ async function main() {
   }
   if (process.argv.includes("--run-once")) {
     try {
-      await runCycle();
+      if (await runCycle() === false) process.exitCode = 1;
     } finally {
       await sql.end();
     }
@@ -319,4 +304,10 @@ async function main() {
   await sql.end({ timeout: 5 });
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  console.error(JSON.stringify({ operation: "backup_worker.main", status: "failed", errorCode: safeCliErrorCode(error, "BACKUP_WORKER_FAILED") }));
+  process.exitCode = 1;
+  try { await sql.end({ timeout: 5 }); } catch { /* Preserve the original failure category. */ }
+}

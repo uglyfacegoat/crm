@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
@@ -9,6 +10,7 @@ import {
   MemberMasterConflictError,
   MemberMasterNotFoundError,
   MemberNotFoundError,
+  MemberProtectedAccountError,
   MemberSelfPasswordResetError,
   MemberSelfModificationError,
   MemberVersionConflictError,
@@ -48,7 +50,7 @@ function unexpected(operation: string, actorId: string, error: unknown) {
     operation,
     category: "unexpected",
     actorId,
-    error: error instanceof Error ? error.message : "Unknown error",
+    errorCode: safeErrorCode(error),
   }));
 }
 
@@ -115,6 +117,9 @@ export async function updateMemberAccessAction(
     if (error instanceof MemberSelfModificationError) {
       return { status: "error", message: "Нельзя менять собственную роль или отключать свою учётную запись.", fieldErrors: {} };
     }
+    if (error instanceof MemberProtectedAccountError) {
+      return { status: "error", message: "Системной учётной записью разработчика нельзя управлять из настроек организации.", fieldErrors: {} };
+    }
     if (error instanceof MemberVersionConflictError) {
       return { status: "error", message: "Данные уже изменил другой администратор. Обновите страницу и повторите.", fieldErrors: {} };
     }
@@ -156,6 +161,9 @@ export async function resetMemberPasswordAction(
   } catch (error) {
     if (error instanceof MemberSelfPasswordResetError) {
       return { status: "error", message: "Собственный пароль меняется в разделе безопасности профиля.", fieldErrors: {} };
+    }
+    if (error instanceof MemberProtectedAccountError) {
+      return { status: "error", message: "Пароль системной учётной записи разработчика нельзя менять из настроек организации.", fieldErrors: {} };
     }
     if (error instanceof MemberVersionConflictError) {
       return { status: "error", message: "Данные сотрудника уже изменились. Обновите страницу и повторите.", fieldErrors: {} };

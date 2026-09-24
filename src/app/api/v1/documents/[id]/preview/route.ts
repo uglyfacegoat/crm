@@ -1,6 +1,7 @@
 import mammoth from "mammoth";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
+import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
 import { readVerifiedDocumentFile } from "@/server/documents/download-response";
 import {
   DocumentNotFoundError,
@@ -50,6 +51,8 @@ export async function GET(
     const document = await getDocumentDownload(member, id);
     if (document.mimeType !== docxMimeType)
       return Response.json({ error: "preview_not_supported" }, { status: 415 });
+    const limited = await rejectLimitedFileRead(member, "document_download");
+    if (limited) return limited;
     const file = await readVerifiedDocumentFile(document, "documents.preview");
     const { value } = await mammoth.extractRawText({ buffer: file });
     return new Response(previewDocument(document.filename, value), {
@@ -72,7 +75,6 @@ export async function GET(
         operation: "documents.preview",
         category: "unexpected",
         memberId: member.memberId,
-        error: error instanceof Error ? error.message : "Unknown error",
       }),
     );
     return Response.json({ error: "preview_failed" }, { status: 500 });

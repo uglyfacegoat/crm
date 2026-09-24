@@ -526,7 +526,7 @@ export function OrderVisitSection({
   }
   return (
     <section
-      className="surface-panel animate-rise overflow-hidden"
+      className="surface-panel panel-stack animate-rise overflow-hidden"
       style={{ animationDelay: "140ms" }}
     >
       <div className="flex flex-col items-stretch gap-3 border-b border-[var(--line)] px-4 py-4 min-[480px]:flex-row min-[480px]:items-center min-[480px]:justify-between sm:px-6">

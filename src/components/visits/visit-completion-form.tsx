@@ -22,10 +22,10 @@ export function VisitCompletionForm({ visit, requestKey, onClose }: { visit: Ser
   const [filename, setFilename] = useState<string | null>(null);
 
   useEffect(() => {
-    if (state.status !== "success") return;
+    if (state.status !== "success" || state.refreshRequired) return;
     const timeout = window.setTimeout(onClose, 900);
     return () => window.clearTimeout(timeout);
-  }, [onClose, state.status]);
+  }, [onClose, state.status, state.refreshRequired]);
 
   const defaultTitle = `Акт выполненных работ · ${visit.orderNumber ?? "выезд"} · ${visitDate(visit)}`;
 

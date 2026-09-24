@@ -39,6 +39,7 @@ import {
   documentCategories,
   documentCategoryLabels,
   type DocumentCategory,
+  type DocumentFolder,
   type DocumentListItem,
   type DocumentUploadOptions,
 } from "@/server/documents/types";
@@ -182,7 +183,7 @@ function DocumentDetails({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/70 p-2 sm:p-3 2xl:static 2xl:z-auto 2xl:bg-transparent 2xl:p-0"
+      className="fixed inset-0 z-50 bg-black/70 p-2 sm:p-3 2xl:sticky 2xl:top-[5.25rem] 2xl:z-auto 2xl:h-[calc(100dvh-6.5rem)] 2xl:self-start 2xl:bg-transparent 2xl:p-0"
       onMouseDown={onClose}
     >
       <aside
@@ -387,6 +388,7 @@ function DocumentDetails({
                   </span>
                 </button>
               ))}
+              {related.length > 8 ? <Link href={`/documents?client=${document.clientId}`} className="focus-ring mt-3 inline-flex rounded-lg text-xs text-[var(--accent)] hover:underline">Все документы заказчика</Link> : null}
             </div>
           ) : (
             <p className="mt-3 text-[10px] leading-4 text-[var(--muted)]">
@@ -402,6 +404,7 @@ function DocumentDetails({
 export function DocumentsWorkspace({
   documents,
   archive,
+  folders,
   selection,
   uploadOptions,
   canWrite,
@@ -409,6 +412,7 @@ export function DocumentsWorkspace({
 }: {
   documents: DocumentListItem[];
   archive: DocumentArchiveTree;
+  folders: DocumentFolder[];
   selection: DocumentArchiveSelection;
   uploadOptions: DocumentUploadOptions;
   canWrite: boolean;
@@ -479,7 +483,9 @@ export function DocumentsWorkspace({
           document.id !== selected.id,
       )
     : [];
-  const selectionTitle = getArchiveSelectionTitle(archive, selection);
+  const selectionTitle = selection.folderId
+    ? (folders.find((folder) => folder.id === selection.folderId)?.name ?? "Папка архива")
+    : getArchiveSelectionTitle(archive, selection);
   const advancedFilterCount = [
     filters.category !== "all",
     filters.favorite !== "all",
@@ -617,9 +623,9 @@ export function DocumentsWorkspace({
             {archive.orderCount} заказов
           </p>
         </div>
-        <DocumentArchiveNavigator archive={archive} selection={selection} />
+        <DocumentArchiveNavigator archive={archive} folders={folders} selection={selection} />
       </aside>
-      <div className="surface-panel min-w-0 overflow-hidden">
+      <div className="surface-panel panel-stack min-w-0 overflow-hidden">
         <div className="border-b border-[var(--line)] p-3 sm:p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">

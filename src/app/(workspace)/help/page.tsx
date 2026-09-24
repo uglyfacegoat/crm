@@ -43,7 +43,7 @@ export default async function HelpPage() {
   if (!hasPermission(member, "help.read")) redirect("/");
   const support =
     getAuthMode() === "preview"
-      ? { administrators: [], requests: [] }
+      ? { developers: [], requests: [] }
       : await getSupportCenterSnapshot(member);
 
   return (
@@ -134,7 +134,7 @@ export default async function HelpPage() {
             ))}
           </nav>
         </aside>
-        <main className="space-y-5">
+        <section aria-label="Материалы помощи" className="space-y-5">
           {helpSections.map((section) => {
             const Icon = section.icon;
             return (
@@ -215,7 +215,7 @@ export default async function HelpPage() {
               </section>
             );
           })}
-        </main>
+        </section>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
@@ -223,26 +223,26 @@ export default async function HelpPage() {
           <div className="flex items-center gap-2">
             <LifeBuoy className="size-4 text-[var(--warning)]" />
             <h2 className="text-sm font-semibold text-[var(--text)]">
-              Контакты администратора
+              Контакты разработчика
             </h2>
           </div>
-          {support.administrators.length ? (
+          {support.developers.length ? (
             <div className="mt-4 divide-y divide-[var(--line)]">
-              {support.administrators.map((administrator) => (
+              {support.developers.map((developer) => (
                 <a
-                  key={administrator.id}
-                  href={`mailto:${administrator.email}`}
+                  key={developer.email}
+                  href={`mailto:${developer.email}`}
                   className="focus-ring flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:text-[var(--accent-ink)]"
                 >
                   <span className="grid size-9 place-items-center rounded-full bg-[var(--warning-bg)] text-[10px] font-semibold text-[var(--warning)]">
-                    {administrator.name.slice(0, 1).toUpperCase()}
+                    {developer.name.slice(0, 1).toUpperCase()}
                   </span>
                   <span className="min-w-0">
                     <strong className="block truncate text-xs text-[var(--text)]">
-                      {administrator.name}
+                      {developer.name}
                     </strong>
                     <span className="mt-1 block truncate text-[9px] text-[var(--muted)]">
-                      {administrator.email}
+                      {developer.email}
                     </span>
                   </span>
                   <Mail className="ml-auto size-4 text-[var(--muted)]" />
@@ -251,8 +251,7 @@ export default async function HelpPage() {
             </div>
           ) : (
             <p className="mt-4 text-xs leading-5 text-[var(--text-secondary)]">
-              Контакт поддержки появится после настройки администратора
-              организации.
+              Контакт разработчика пока не настроен.
             </p>
           )}
         </article>

@@ -15,7 +15,7 @@ import type { ClientDetail } from "@/server/clients/types";
 
 const initialState: ClientMutationState = { status: "idle", message: null, fieldErrors: {} };
 const inputClass = "focus-ring h-12 w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
-const textareaClass = "focus-ring min-h-24 w-full resize-y rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
+const textareaClass = "focus-ring min-h-24 w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
 const labelClass = "grid gap-2 text-[10px] text-[var(--muted)]";
 
 function Field({ label, required, errors, children }: { label: string; required?: boolean; errors?: string[]; children: React.ReactNode }) {

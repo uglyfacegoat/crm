@@ -1,11 +1,6 @@
 import "server-only";
 import postgres from "postgres";
-import { z } from "zod";
-
-const databaseUrlSchema = z.string().url().refine(
-  (value) => value.startsWith("postgresql://") || value.startsWith("postgres://"),
-  "DATABASE_URL must use the PostgreSQL protocol",
-);
+import { databaseUrlSchema } from "@/server/config/environment";
 
 let database: ReturnType<typeof postgres> | undefined;
 

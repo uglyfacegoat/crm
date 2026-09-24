@@ -151,7 +151,7 @@ function LeadDetails({
   return (
     <article id="incoming-lead-details" aria-live="polite" className="flex min-h-full min-w-0 flex-col">
       <header className="px-5 pb-2 pt-5 sm:px-7 sm:pt-7">
-        <button type="button" onClick={onBack} className="focus-ring mb-5 inline-flex h-9 items-center gap-2 rounded-full bg-[var(--surface-soft)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-inset)] hover:text-[var(--text)] lg:hidden"><ArrowLeft className="size-3.5" />К очереди</button>
+        <button type="button" onClick={onBack} className="back-link mb-5 lg:hidden"><ArrowLeft className="size-3.5" />Все обращения</button>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="eyebrow">Текущая заявка</p>
@@ -162,7 +162,7 @@ function LeadDetails({
         </div>
       </header>
 
-      <div className="grid flex-1 content-start gap-7 px-5 py-7 sm:px-7 sm:py-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(17rem,0.9fr)] xl:gap-10">
+      <div className="grid flex-1 content-start gap-6 px-5 py-6 sm:px-7">
         <div className="min-w-0 space-y-8">
           <section>
             <DetailLabel>Запрос клиента</DetailLabel>
@@ -210,7 +210,7 @@ function LeadDetails({
           ) : null}
 
           {lead.reviewNote ? (
-            <section className="rounded-[20px] bg-[var(--surface-raised)] px-4 py-4 sm:px-5">
+            <section className="inset-panel px-4 py-4 sm:px-5">
               <DetailLabel>Решение</DetailLabel>
               <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{lead.reviewNote}</p>
               {lead.reviewerName ? <p className="mt-3 text-xs text-[var(--muted)]">{lead.reviewerName}{lead.reviewedAt ? " · " + dateFormatter.format(new Date(lead.reviewedAt)) : ""}</p> : null}
@@ -218,23 +218,19 @@ function LeadDetails({
           ) : null}
         </div>
 
-        <aside className="border-t border-[var(--line)] pt-6 xl:border-l xl:border-t-0 xl:pl-10 xl:pt-0">
+        <aside className="border-t border-[var(--line)] pt-5">
           <DetailLabel>{actionable ? "Что произойдёт дальше" : "Статус обработки"}</DetailLabel>
           {actionable ? (
-            <ol className="mt-5 space-y-5">
-              <li className="flex gap-3">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--accent)]/[0.11] font-display text-[10px] font-semibold text-[var(--accent)]">01</span>
-                <div><p className="text-sm text-[var(--text-secondary)]">Уточнить данные</p><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Проверьте клиента, адрес и состав работ.</p></div>
-              </li>
-              <li className="flex gap-3">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--surface-inset)] font-display text-[10px] font-semibold text-[var(--muted)]">02</span>
-                <div><p className="text-sm text-[var(--text-secondary)]">Создать рабочий заказ</p><p className="mt-1 text-xs leading-5 text-[var(--muted)]">CRM свяжет обращение с клиентом и объектом.</p></div>
-              </li>
-              <li className="flex gap-3">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--surface-inset)] font-display text-[10px] font-semibold text-[var(--muted)]">03</span>
-                <div><p className="text-sm text-[var(--text-secondary)]">Запланировать выезд</p><p className="mt-1 text-xs leading-5 text-[var(--muted)]">После подтверждения заявка попадёт в расписание.</p></div>
-              </li>
+            <>
+            <ol className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {["Клиент", "Объект", "Заказ", "Выезд"].map((label, index) => (
+                <li key={label} className="flex items-center gap-2 rounded-[10px] bg-[var(--surface-inset)] p-3 text-xs text-[var(--text-secondary)]">
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full border border-[var(--line-strong)] text-[10px]">{index + 1}</span>{label}
+                </li>
+              ))}
             </ol>
+            <p className="mt-3 text-xs leading-5 text-[var(--muted)]">Данные сохранятся после подтверждения всех шагов оформления.</p>
+            </>
           ) : (
             <div className="mt-5">
               <StatusPill status={lead.status} />
@@ -253,7 +249,7 @@ function LeadDetails({
 
       {actionable ? (
         <footer className="mt-auto border-t border-[var(--line)] px-5 pb-5 pt-4 sm:px-7 sm:pb-7">
-          <div className="grid gap-2 sm:grid-cols-[minmax(10rem,0.7fr)_minmax(16rem,1.3fr)]">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <button type="button" onClick={onReject} className="focus-ring h-12 rounded-[14px] border border-transparent px-4 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--danger-border)] hover:bg-[var(--danger-bg)] hover:text-[var(--danger-ink)]">Отклонить</button>
             <Link href={"/quick-order?sourceLead=" + lead.id} className="focus-ring flex h-12 items-center justify-center gap-2 rounded-[14px] bg-[var(--accent)] px-4 text-xs font-semibold text-[var(--on-accent)] transition-transform hover:bg-[var(--accent-strong)] active:translate-y-px">Уточнить и принять<ArrowRight className="size-4" /></Link>
           </div>
@@ -273,7 +269,7 @@ function LeadQueue({
   onSelect: (leadId: string) => void;
 }) {
   return (
-    <div className="divide-y divide-[var(--line)]">
+    <div className="grid gap-2 p-3">
       {leads.map((lead) => {
         const selected = selectedId === lead.id;
         return (
@@ -283,15 +279,15 @@ function LeadQueue({
             onClick={() => onSelect(lead.id)}
             aria-current={selected ? "true" : undefined}
             aria-controls="incoming-lead-details"
-            className={"focus-ring relative block w-full border-l-2 px-5 py-4 text-left transition-[background-color,border-color,transform] active:translate-y-px sm:px-6 " + (selected ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-transparent bg-transparent hover:bg-[var(--surface-soft)]")}
+            className={"focus-ring block min-h-32 w-full rounded-[15px] border p-4 text-left transition-[background-color,border-color,transform] active:translate-y-px " + (selected ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]")}
           >
-            <span className="flex items-start justify-between gap-3">
+            <span className="flex min-h-16 flex-col items-start gap-2">
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
                   <span className={"size-1.5 shrink-0 rounded-full " + statusDotTone[lead.status]} />
-                  <strong className="truncate text-sm font-medium text-[var(--text)]">{lead.contactName || lead.phone || lead.email || "Без имени"}</strong>
+                  <strong className="line-clamp-2 text-sm font-medium leading-5 text-[var(--text)]">{lead.contactName || lead.phone || lead.email || "Без имени"}</strong>
                 </span>
-                <span className="mt-2 block truncate text-xs text-[var(--text-secondary)]">{lead.serviceInterest || "Услуга не указана"}</span>
+                <span className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{lead.serviceInterest || "Услуга не указана"}</span>
               </span>
               <time dateTime={lead.receivedAt} className="shrink-0 text-[11px] text-[var(--muted)]">{dateFormatter.format(new Date(lead.receivedAt))}</time>
             </span>
@@ -332,9 +328,9 @@ export function IncomingLeadsWorkspace({
     <div>
       <PageHeading eyebrow="Первичный разбор" title="Входящие заявки" description="Новые обращения с сайтов проверяются здесь до создания клиента, объекта, заказа и первого выезда." />
 
-      <section className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
-        <header className="flex flex-col gap-4 border-b border-[var(--line)] py-4 sm:py-5 xl:flex-row xl:items-end xl:justify-between">
-          <nav aria-label="Статусы входящих заявок" className="scrollbar-hidden -mb-px flex min-w-0 gap-1 overflow-x-auto">
+      <section className="mt-6">
+        <header className="flex flex-col gap-4 border-b border-[var(--line)] pb-4 xl:flex-row xl:items-end xl:justify-between">
+          <nav aria-label="Статусы входящих заявок" className="scrollbar-hidden flex max-w-full min-w-0 gap-1 overflow-x-auto rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-1">
             {tabs.map((tab) => {
               const active = filter.status === tab.value;
               return (
@@ -342,10 +338,10 @@ export function IncomingLeadsWorkspace({
                   key={tab.value}
                   href={inboxHref(tab.value, filter.query)}
                   aria-current={active ? "page" : undefined}
-                  className={"focus-ring flex h-10 shrink-0 items-center gap-2 border-b-2 px-3 text-xs transition-colors " + (active ? "border-[var(--accent)] text-[var(--accent-ink)]" : "border-transparent text-[var(--text-secondary)] hover:border-[var(--line-strong)] hover:text-[var(--text)]")}
+                  className={"focus-ring flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-3 text-xs transition-colors " + (active ? "bg-[var(--accent)] font-semibold text-[var(--on-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}
                 >
                   <span>{tab.label}</span>
-                  <span className={active ? "text-[var(--accent)]" : "text-[var(--muted)]"}>{snapshot.counts[tab.value]}</span>
+                  <span className={active ? "text-[var(--on-accent)]/75" : "text-[var(--muted)]"}>{snapshot.counts[tab.value]}</span>
                 </Link>
               );
             })}
@@ -362,24 +358,24 @@ export function IncomingLeadsWorkspace({
         </header>
 
         {snapshot.leads.length ? (
-          <div className="grid lg:min-h-[36rem] lg:grid-cols-[minmax(20rem,0.76fr)_minmax(0,1.24fr)]">
-            <section aria-label="Список входящих заявок" className={(mobileDetailOpen ? "hidden lg:flex " : "flex ") + "min-h-0 flex-col overflow-hidden border-b border-[var(--line)] lg:border-b-0 lg:border-r lg:pr-8"}>
-              <div className="flex items-center justify-between border-b border-[var(--line)] py-5 lg:pt-0">
+          <div className="mt-5 grid min-w-0 items-start gap-4 lg:grid-cols-[18rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)]">
+            <section aria-label="Список входящих заявок" className={(mobileDetailOpen ? "hidden lg:flex " : "flex ") + "surface-panel min-w-0 flex-col overflow-hidden"}>
+              <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4 sm:px-6">
                 <div>
                   <p className="text-sm font-semibold text-[var(--text)]">Очередь проверки</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">Выберите обращение для разбора</p>
                 </div>
-                <span className="inline-flex min-h-8 items-center rounded-full bg-[var(--surface-inset)] px-3 text-[11px] text-[var(--text-secondary)]">{snapshot.leads.length} из {snapshot.counts[filter.status]}</span>
+                <span className="inline-flex min-h-8 shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--surface-inset)] px-3 text-[11px] text-[var(--text-secondary)]">{snapshot.leads.length} из {snapshot.counts[filter.status]}</span>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto"><LeadQueue leads={snapshot.leads} selectedId={selectedLead?.id ?? null} onSelect={selectLead} /></div>
+              <div className="min-h-0 overflow-y-auto overscroll-contain lg:max-h-[calc(100dvh-20rem)]"><LeadQueue leads={snapshot.leads} selectedId={selectedLead?.id ?? null} onSelect={selectLead} /></div>
             </section>
 
-            <section className={(mobileDetailOpen ? "flex " : "hidden lg:flex ") + "min-w-0 flex-col overflow-hidden lg:pl-8"}>
+            <section className={(mobileDetailOpen ? "flex " : "hidden lg:flex ") + "surface-panel min-h-[32rem] min-w-0 flex-col overflow-hidden"}>
               {selectedLead ? <LeadDetails lead={selectedLead} canWrite={canWrite} onReject={() => setRejectingLead(selectedLead)} onBack={() => setMobileDetailOpen(false)} /> : <div className="grid min-h-[20rem] flex-1 place-items-center px-8 text-center"><div><Link2 className="mx-auto size-7 text-[var(--muted)]" /><p className="mt-3 text-sm text-[var(--muted)]">Выберите заявку в очереди</p></div></div>}
             </section>
           </div>
         ) : (
-          <div className="grid justify-items-center border-b border-[var(--line)] px-8 py-16 text-center sm:py-20">
+          <div className="mt-4 grid justify-items-center rounded-[18px] border border-[var(--line)] bg-[var(--surface-raised)] px-8 py-16 text-center sm:py-20">
             <div><Inbox className="mx-auto size-6 text-[var(--muted)]" /><h2 className="mt-4 text-sm font-medium text-[var(--text)]">{filter.query || filter.status !== "all" ? "Заявки не найдены" : "Очередь пуста"}</h2><p className="mx-auto mt-2 max-w-xs text-xs leading-5 text-[var(--muted)]">{preview ? "В рабочем режиме обращения появятся после подключения webhook сайта." : "Новые обращения появятся автоматически после отправки формы на подключённом сайте."}</p></div>
           </div>
         )}

@@ -12,12 +12,14 @@ test("archive selection accepts a complete hierarchy", () => {
     objectId,
     orderId,
     category: "act",
+    folderId: null,
+    favoriteOnly: false,
   });
 });
 
 test("archive selection rejects orphaned and malformed levels", () => {
-  assert.deepEqual(parseDocumentArchiveSelection({ order: orderId }), { clientId: null, objectId: null, orderId: null, category: null });
-  assert.deepEqual(parseDocumentArchiveSelection({ client: "not-a-uuid" }), { clientId: null, objectId: null, orderId: null, category: null });
+  assert.deepEqual(parseDocumentArchiveSelection({ order: orderId }), { clientId: null, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: false });
+  assert.deepEqual(parseDocumentArchiveSelection({ client: "not-a-uuid" }), { clientId: null, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: false });
 });
 
 test("archive tree aggregates counts without duplicating hierarchy nodes", () => {

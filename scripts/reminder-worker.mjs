@@ -1,16 +1,14 @@
+import { safeCliErrorCode } from "./safe-cli-error.mjs";
 import postgres from "postgres";
 import {
   parseOperationalNotificationResult,
-  parseReminderWorkerInterval,
   parseReminderWorkerResult,
   reminderWorkerHealthWindow,
 } from "./reminder-worker-config.mjs";
+import { validateReminderWorkerEnvironment } from "./worker-runtime-config.mjs";
 
 const JOB_NAME = "chat.visit-reminders";
-const databaseUrl = process.env.DATABASE_URL;
-const intervalMs = parseReminderWorkerInterval(process.env.REMINDER_WORKER_INTERVAL_MS);
-
-if (!databaseUrl) throw new Error("DATABASE_URL is required to run the reminder worker.");
+const { databaseUrl, intervalMs } = validateReminderWorkerEnvironment(process.env);
 
 const sql = postgres(databaseUrl, {
   max: 1,
@@ -66,7 +64,7 @@ async function runCycle() {
     `;
     console.log(JSON.stringify({ operation: "reminder_worker.cycle", status: "succeeded", ...safeResult }));
   } catch (error) {
-    const errorCode = error instanceof Error && error.name ? error.name.slice(0, 120) : "UnknownError";
+    const errorCode = safeCliErrorCode(error, "REMINDER_WORKER_FAILED");
     try {
       await connection`
         INSERT INTO background_job_status (
@@ -124,4 +122,10 @@ async function main() {
   await sql.end({ timeout: 5 });
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  console.error(JSON.stringify({ operation: "reminder_worker.main", status: "failed", errorCode: safeCliErrorCode(error, "REMINDER_WORKER_FAILED") }));
+  process.exitCode = 1;
+  try { await sql.end({ timeout: 5 }); } catch { /* Preserve the original failure category. */ }
+}
