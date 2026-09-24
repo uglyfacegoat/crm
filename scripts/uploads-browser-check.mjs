@@ -12,6 +12,7 @@ import { unzipSync, zipSync } from "fflate";
 import { runMigrations } from "./migrate.mjs";
 import { setFileWriteMode } from "./file-write-drain.mjs";
 import { startS3Fixture } from "./fixtures/s3-server.mjs";
+import { startCommitLossProxy } from "./fixtures/postgres-commit-proxy.mjs";
 import { createS3Storage } from "../src/server/storage/s3-store.mjs";
 import { withStorageSnapshot } from "./backup-snapshot.mjs";
 import { verifyRestoredFiles } from "./backup-integrity.mjs";
@@ -50,6 +51,7 @@ let archiveClient;
 let s3Fixture;
 let objectStorage;
 let scannerProxy;
+let commitProxy;
 let disableScanner;
 let stallScanner;
 let resumeScanner;
@@ -1434,6 +1436,57 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
+  if (storageMode === "local" && environment.CRM_FILE_SCAN_MODE !== "required") {
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    server.kill("SIGTERM");
+    await serverExit;
+    commitProxy = await startCommitLossProxy(environment.DATABASE_URL);
+    server = spawn(process.execPath, [resolve(runtime)], {
+      env: { ...environment, DATABASE_URL: commitProxy.databaseUrl }, stdio: ["ignore", "pipe", "pipe"],
+    });
+    serverExit = once(server, "exit");
+    server.stderr.on("data", (chunk) => process.stderr.write(chunk));
+    await new Promise((resolveReady, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Commit-loss standalone startup exceeded 30 seconds")), 30_000);
+      server.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`Commit-loss standalone exited ${code}`)); });
+      server.stdout.on("data", (chunk) => {
+        if (chunk.toString().includes("Ready in")) { clearTimeout(timeout); resolveReady(); }
+      });
+    });
+    const commitContext = await browser.newContext({ storageState: await archiveClient.storageState(), viewport: { width: 1440, height: 1000 } });
+    const commitPage = await commitContext.newPage();
+    const commitPageErrors = [];
+    commitPage.on("pageerror", (error) => commitPageErrors.push(error.message));
+    await commitPage.goto(`${baseUrl}/documents`);
+    await commitPage.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+    const commitDialog = commitPage.getByRole("dialog", { name: "Новый документ", exact: true });
+    await commitDialog.locator('summary[aria-label="Заказ"]').click();
+    await commitDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+    await commitDialog.locator('input[name="title"]').fill("Lost database COMMIT acknowledgement");
+    const commitBytes = pdfFixture("Lost database COMMIT acknowledgement");
+    await commitDialog.locator('input[name="file"]').setInputFiles({ name: "commit-lost.pdf", mimeType: "application/pdf", buffer: commitBytes });
+    const commitDocumentId = await commitDialog.locator('input[name="idempotencyKey"]').inputValue();
+    await commitDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await commitDialog.getByRole("status").filter({ hasText: "Не удалось подтвердить" }).waitFor();
+    assert.equal(commitProxy.droppedCommits, 1);
+    assert.deepEqual(commitProxy.errors, []);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${commitDocumentId}`)[0].count, 1);
+    const [committedVersion] = await sql`SELECT storage_key FROM document_versions WHERE document_id = ${commitDocumentId}`;
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await commitDialog.locator('input[name="idempotencyKey"]').inputValue(), commitDocumentId);
+    assert.equal(await commitDialog.locator('input[name="title"]').inputValue(), "Lost database COMMIT acknowledgement");
+    assert.equal(await commitDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "commit-lost.pdf");
+    assert.deepEqual(commitPageErrors, []);
+    await commitPage.screenshot({ path: join(artifacts, "document-lost-commit.png") });
+    await commitDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+    await commitDialog.waitFor({ state: "hidden" });
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${commitDocumentId}`)[0].count, 1);
+    await verifyVersion(commitDocumentId, 1, commitBytes);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    console.log("lost database COMMIT acknowledgement: committed document and file survived; retry did not duplicate or erase the durable unresolved operation.");
+    await commitContext.close();
+  }
   console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
@@ -1451,6 +1504,7 @@ try {
   await archiveClient?.dispose();
   await browser?.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }
+  await commitProxy?.close();
   if (scannerProxy) await new Promise((resolveClosed) => scannerProxy.close(resolveClosed));
   await sql?.end();
   try { if (databaseCreated) await admin`DROP DATABASE ${admin(databaseName)}`; }
