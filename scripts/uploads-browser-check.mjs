@@ -1515,6 +1515,35 @@ try {
     await verifyVersion(commitDocumentId, 1, commitBytes);
     assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
     console.log("lost database COMMIT acknowledgement: committed document and file survived; retry did not duplicate or erase the durable unresolved operation.");
+
+    await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+      WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+    await commitPage.goto(`${baseUrl}/documents?document=${commitDocumentId}`);
+    await commitPage.getByRole("button", { name: "Новая версия", exact: true }).click();
+    const commitVersionDialog = commitPage.getByRole("dialog", { name: "Новая версия документа", exact: true });
+    await commitVersionDialog.locator('textarea[name="changeNote"]').fill("Lost version COMMIT acknowledgement");
+    const commitVersionBytes = pdfFixture("Lost version COMMIT acknowledgement");
+    await commitVersionDialog.locator('input[name="file"]').setInputFiles({ name: "version-commit-lost.pdf", mimeType: "application/pdf", buffer: commitVersionBytes });
+    const commitVersionKey = await commitVersionDialog.locator('input[name="idempotencyKey"]').inputValue();
+    commitProxy.armNextCommit();
+    await commitVersionDialog.getByRole("button", { name: "Сохранить версию 2", exact: true }).click();
+    await commitVersionDialog.getByRole("status").filter({ hasText: "Не удалось подтвердить сохранение версии" }).waitFor();
+    assert.equal(commitProxy.droppedCommits, 2);
+    assert.deepEqual(commitProxy.errors, []);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${commitDocumentId}`)[0].count, 2);
+    const [committedSecondVersion] = await sql`SELECT storage_key FROM document_versions WHERE document_id = ${commitDocumentId} AND version_number = 2`;
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedSecondVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    assert.equal(await commitVersionDialog.locator('input[name="idempotencyKey"]').inputValue(), commitVersionKey);
+    assert.equal(await commitVersionDialog.locator('textarea[name="changeNote"]').inputValue(), "Lost version COMMIT acknowledgement");
+    assert.equal(await commitVersionDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "version-commit-lost.pdf");
+    assert.deepEqual(commitPageErrors, []);
+    await commitVersionDialog.getByRole("button", { name: "Сохранить версию 2", exact: true }).click();
+    await commitVersionDialog.waitFor({ state: "hidden" });
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${commitDocumentId}`)[0].count, 2);
+    await verifyVersion(commitDocumentId, 1, commitBytes);
+    await verifyVersion(commitDocumentId, 2, commitVersionBytes);
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations WHERE ${committedSecondVersion.storage_key} = ANY(storage_keys)`)[0].count, 1);
+    console.log("lost version COMMIT acknowledgement: both versions survived; retry did not duplicate or erase the durable unresolved operation.");
     await commitContext.close();
   }
   if (objectStorage) {
@@ -1525,7 +1554,7 @@ try {
     assert.equal((await fetch(`${baseUrl}/api/v1/system/live`, { signal: AbortSignal.timeout(10_000) })).status, 200);
     console.log("S3 outage makes readiness fail while liveness remains available.");
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 2 lost PostgreSQL COMMIT acknowledgements, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
