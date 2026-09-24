@@ -144,6 +144,8 @@ try {
   let duplicateDocumentResponse = null;
   let duplicateFinancePost = false;
   let duplicateFinanceResponse = null;
+  let duplicateOtherPost = null;
+  let duplicateOtherResponse = null;
   // This injects the already-tested action state, not a backend cache failure.
   await page.route("**/*", async (route) => {
     if (duplicateDocumentPost && route.request().method() === "POST" && route.request().headers()["next-action"]
@@ -174,6 +176,22 @@ try {
           }),
         ]);
         duplicateFinanceResponse = { status: duplicate.status(), body: await duplicate.text() };
+        await route.fulfill({ response });
+      } catch (error) { interceptionError = error; await route.abort(); }
+      return;
+    }
+    if (duplicateOtherPost && route.request().method() === "POST" && route.request().headers()["next-action"]
+      && new URL(route.request().url()).pathname === duplicateOtherPost) {
+      duplicateOtherPost = null;
+      try {
+        const [response, duplicate] = await Promise.all([
+          route.fetch(),
+          archiveClient.post(route.request().url(), {
+            data: route.request().postDataBuffer(),
+            headers: route.request().headers(),
+          }),
+        ]);
+        duplicateOtherResponse = { status: duplicate.status(), body: await duplicate.text() };
         await route.fulfill({ response });
       } catch (error) { interceptionError = error; await route.abort(); }
       return;
@@ -306,9 +324,29 @@ try {
     dialog = page.getByRole("dialog", { name: "Новая версия документа", exact: true });
     const versionBytes = pdfFixture(`Version two ${suffix}`);
     await dialog.locator('input[name="file"]').setInputFiles({ name: "version.pdf", mimeType: "application/pdf", buffer: versionBytes });
-    await submit(dialog, "Сохранить версию 2", warn ? { saved: "Версия 2 сохранена. Предыдущие файлы доступны в истории.", warning: "Новая версия сохранена, но страницу не удалось обновить. Обновите её вручную." } : null, "version-warning.png");
+    if (!warn) {
+      duplicateOtherResponse = null;
+      duplicateOtherPost = "/documents";
+      await dialog.getByRole("button", { name: "Сохранить версию 2", exact: true }).click();
+      await page.waitForTimeout(1_300);
+      if (await dialog.isVisible()) {
+        assert.match(await dialog.getByRole("status").innerText(), /Следующая версия уже загружается|Эта версия уже загружена|Версия 2 сохранена/i);
+        await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+      }
+      if (interceptionError) throw interceptionError;
+      assert.ok(duplicateOtherResponse, "Concurrent duplicate document-version POST must run");
+      assert.equal(duplicateOtherResponse.status, 200);
+      assert.match(duplicateOtherResponse.body, /Следующая версия уже загружается|Эта версия уже загружена|Версия 2 сохранена/i);
+    } else {
+      await submit(dialog, "Сохранить версию 2", { saved: "Версия 2 сохранена. Предыдущие файлы доступны в истории.", warning: "Новая версия сохранена, но страницу не удалось обновить. Обновите её вручную." }, "version-warning.png");
+    }
     await verifyVersion(documentId, 1, documentBytes);
     await verifyVersion(documentId, 2, versionBytes);
+    if (!warn) {
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${documentId}`)[0].count, 2);
+      console.log("concurrent document version: two identical requests added one version and preserved both file bytes.");
+    }
     const currentDownload = await archiveClient.get(`${baseUrl}/api/v1/documents/${documentId}/download`);
     assert.equal(currentDownload.status(), 200);
     assert.deepEqual(await currentDownload.body(), versionBytes);
@@ -392,9 +430,28 @@ try {
       });
       assert.equal((await sql`SELECT count(*)::integer AS count FROM document_templates WHERE id = ${templateId}`)[0].count, 0);
     }
-    await submit(dialog, "Опубликовать шаблон", warn ? { saved: "Шаблон акта опубликован.", warning: "Шаблон опубликован, но страницу не удалось обновить. Обновите её вручную." } : null, "template-warning.png");
+    if (!warn) {
+      duplicateOtherResponse = null;
+      duplicateOtherPost = "/settings";
+      await dialog.getByRole("button", { name: "Опубликовать шаблон", exact: true }).click();
+      await page.waitForTimeout(1_300);
+      if (await dialog.isVisible()) {
+        assert.match(await dialog.getByRole("status").innerText(), /Эта загрузка ещё обрабатывается|Шаблон уже загружен|Шаблон акта опубликован/i);
+        await dialog.getByRole("button", { name: "Отмена", exact: true }).click();
+        await dialog.waitFor({ state: "hidden" });
+      }
+      if (interceptionError) throw interceptionError;
+      assert.ok(duplicateOtherResponse, "Concurrent duplicate template POST must run");
+      assert.equal(duplicateOtherResponse.status, 200);
+      assert.match(duplicateOtherResponse.body, /Эта загрузка ещё обрабатывается|Шаблон уже загружен|Шаблон акта опубликован/i);
+    } else {
+      await submit(dialog, "Опубликовать шаблон", { saved: "Шаблон акта опубликован.", warning: "Шаблон опубликован, но страницу не удалось обновить. Обновите её вручную." }, "template-warning.png");
+    }
     await verifyStoredReference("document_template_versions", "template_id", templateId, documentBytes);
-    if (!warn) assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${templateId}`)[0].count, 1);
+    if (!warn) {
+      assert.equal((await sql`SELECT count(*)::integer AS count FROM document_template_versions WHERE template_id = ${templateId}`)[0].count, 1);
+      console.log("concurrent template: two identical requests published one template version with matching bytes.");
+    }
     const templateDownload = await archiveClient.get(`${baseUrl}/api/v1/document-templates/${templateId}/download`);
     assert.equal(templateDownload.status(), 200);
     assert.deepEqual(await templateDownload.body(), documentBytes);
