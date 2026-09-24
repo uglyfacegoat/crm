@@ -814,6 +814,42 @@ try {
   await lostContext.close();
   await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
     WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
+  const abortedContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
+  const abortedPage = await abortedContext.newPage();
+  const abortedPageErrors = [];
+  abortedPage.on("pageerror", (error) => abortedPageErrors.push(error.message));
+  let abortBeforeDispatch = true;
+  await abortedPage.route("**/documents", async (route) => {
+    if (!abortBeforeDispatch || route.request().method() !== "POST" || !route.request().headers()["next-action"]) return route.continue();
+    abortBeforeDispatch = false;
+    await route.abort("failed");
+  });
+  await abortedPage.goto(`${baseUrl}/documents`);
+  await abortedPage.getByRole("button", { name: "Добавить документ", exact: true }).first().click();
+  const abortedDialog = abortedPage.getByRole("dialog", { name: "Новый документ", exact: true });
+  await abortedDialog.locator('summary[aria-label="Заказ"]').click();
+  await abortedDialog.getByRole("button", { name: /UPLOAD-1/ }).click();
+  await abortedDialog.locator('input[name="title"]').fill("Aborted before server dispatch");
+  const abortedBytes = pdfFixture("Aborted before server dispatch");
+  await abortedDialog.locator('input[name="file"]').setInputFiles({ name: "aborted-before.pdf", mimeType: "application/pdf", buffer: abortedBytes });
+  const abortedDocumentId = await abortedDialog.locator('input[name="idempotencyKey"]').inputValue();
+  await abortedDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await abortedDialog.getByRole("status").filter({ hasText: "Не удалось получить ответ сервера. Проверьте документ в архиве перед повторной отправкой." }).waitFor();
+  assert.equal(abortBeforeDispatch, false);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE id = ${abortedDocumentId}`)[0].count, 0);
+  assert.equal(await abortedDialog.locator('input[name="idempotencyKey"]').inputValue(), abortedDocumentId);
+  assert.equal(await abortedDialog.locator('input[name="title"]').inputValue(), "Aborted before server dispatch");
+  assert.equal(await abortedDialog.locator('input[name="file"]').evaluate((input) => input.files?.[0]?.name), "aborted-before.pdf");
+  if (!objectStorage) assert.ok(!(await readdir(directory, { recursive: true })).some((entry) => entry.includes(abortedDocumentId)));
+  assert.deepEqual(abortedPageErrors, []);
+  await abortedDialog.getByRole("button", { name: "Загрузить документ", exact: true }).click();
+  await abortedDialog.waitFor({ state: "hidden" });
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM document_versions WHERE document_id = ${abortedDocumentId}`)[0].count, 1);
+  await verifyVersion(abortedDocumentId, 1, abortedBytes);
+  console.log("aborted before dispatch: no document was written; retained form retried to one intact document.");
+  await abortedContext.close();
+  await sql`UPDATE request_rate_limits SET window_started_at = now() - interval '61 seconds'
+    WHERE organization_id = ${member.organization_id} AND operation = 'document_upload'`;
   const versionContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 1440, height: 1000 } });
   const versionPage = await versionContext.newPage();
   const versionPageErrors = [];
@@ -1487,7 +1523,7 @@ try {
     console.log("lost database COMMIT acknowledgement: committed document and file survived; retry did not duplicate or erase the durable unresolved operation.");
     await commitContext.close();
   }
-  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 9 injected warning states, no browser errors.");
+  console.log("Upload browser check passed: 24 standard submissions, 9 lost post-commit responses, 1 pre-dispatch abort, 9 injected warning states, no browser errors.");
   await page.context().tracing.stop();
 } catch (error) {
   if (page) {
