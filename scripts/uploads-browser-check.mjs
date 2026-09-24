@@ -2649,6 +2649,50 @@ try {
       await avatarContext.close();
     }
   }
+  if (process.env.UPLOAD_CHECK_PROFILE_BODY === "true") {
+    // Exercise Next's request-body clone without running a CRM action or changing business data.
+    const [{ count: documentsBeforeProfile }] = await sql`SELECT count(*)::integer AS count FROM documents`;
+    const cookie = (await page.context().cookies(baseUrl)).map(({ name, value }) => `${name}=${value}`).join("; ");
+    const boundary = `crm-profile-${randomUUID()}`;
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="0"\r\n\r\n`),
+      Buffer.alloc(15 * 1024 * 1024, 0x5a),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const rssKiB = () => {
+      const result = spawnSync("ps", ["-o", "rss=", "-p", String(server.pid)], { encoding: "utf8" });
+      const value = Number(result.stdout.trim());
+      assert.equal(result.status, 0, "Profiled web process must remain alive");
+      assert.ok(Number.isFinite(value) && value > 0, "Web RSS must be measurable");
+      return value;
+    };
+    const baselineKiB = rssKiB();
+    let peakKiB = baselineKiB;
+    const sampler = setInterval(() => { peakKiB = Math.max(peakKiB, rssKiB()); }, 50);
+    const startedAt = performance.now();
+    let statuses;
+    try {
+      statuses = await Promise.all(Array.from({ length: 4 }, async () => {
+        const response = await fetch(`${baseUrl}/documents`, {
+          method: "POST",
+          headers: { origin: baseUrl, cookie, "content-type": `multipart/form-data; boundary=${boundary}`, "next-action": "invalid-profile-action" },
+          body,
+          signal: AbortSignal.timeout(30_000),
+        });
+        await response.arrayBuffer();
+        return response.status;
+      }));
+    } finally { clearInterval(sampler); }
+    const finalKiB = rssKiB();
+    peakKiB = Math.max(peakKiB, finalKiB);
+    assert.deepEqual(statuses, [404, 404, 404, 404], "Invalid action IDs must not execute CRM writes");
+    assert.equal((await sql`SELECT count(*)::integer AS count FROM documents`)[0].count, documentsBeforeProfile);
+    assert.equal((await fetch(`${baseUrl}/api/v1/system/ready`)).status, 200);
+    console.log(JSON.stringify({ profile: "next_action_ingress", concurrentBodies: 4,
+      bodyMiB: Math.round(body.length / 1048576), baselineRssMiB: Math.round(baselineKiB / 1024),
+      peakRssMiB: Math.round(peakKiB / 1024), finalRssMiB: Math.round(finalKiB / 1024),
+      elapsedMs: Math.round(performance.now() - startedAt), statuses }));
+  }
   if (objectStorage) {
     await s3Fixture.close();
     const unavailable = await fetch(`${baseUrl}/api/v1/system/ready`, { signal: AbortSignal.timeout(10_000) });

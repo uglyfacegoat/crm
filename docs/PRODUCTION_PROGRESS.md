@@ -23,6 +23,15 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-25, UP-05 incoming-body profile:** a repeatable optional browser
+  profile submitted four concurrent 15 MiB multipart bodies through the
+  packaged Next proxy on an isolated database. Two Mac runs raised web RSS
+  221→298 MiB and 224→296 MiB; invalid action IDs returned 404, document
+  counts stayed fixed and readiness remained 200. The profile samples every
+  50 ms and does not represent a chosen production server. Next 16.3.5 clones
+  the request body before Server Actions, so the existing shared processing
+  permit cannot cap this stage. Early ingress admission, disk/temp budgets and
+  browser behavior on rejection remain open in UP-05.
 - **2026-09-25, UP-05 ordinary-download transfer checkpoint:** document,
   version, template and chat attachment responses now stream verified bytes
   under the shared file permit. Chat partial audio ranges preserve exact
