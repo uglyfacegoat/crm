@@ -71,6 +71,12 @@ try {
     VALUES (${target.id}, ${client.id}, 'Контакт выданной компании', '+70000000008', '+70000000008', true)`;
   const [clientObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
     VALUES (${target.id}, ${client.id}, 'Объект выданной компании', 'Склад', 'Тестовый адрес клиента') RETURNING id`;
+  const [companyVisit] = await sql`INSERT INTO service_visits (organization_id, order_id, object_id,
+      scheduled_start_at, scheduled_end_at, status, client_name_snapshot, object_name_snapshot,
+      object_address_snapshot, created_by, updated_by)
+    VALUES (${target.id}, ${companyOrder.id}, ${clientObject.id}, '2030-01-05T07:00:00Z', '2030-01-05T08:00:00Z',
+      'planned', 'Клиент другого контура', 'Выезд выданной компании', 'Тестовый адрес клиента',
+      ${developerShadow.id}, ${developerShadow.id}) RETURNING id`;
   const fileBytes = Buffer.from('center document access test');
   async function seedDocument(organizationId, clientId, orderId, creatorId, title) {
     const id = randomUUID();
@@ -251,6 +257,15 @@ try {
     assert.equal(response.status, 200);
     assert.ok((await response.json()).data.results.some(item => item.id === entityId && item.href === `/clients/${client.id}` && item.subtitle.includes('Second company')));
   }
+  for (const [q, entityId] of [['ЦЕНТР-101', companyOrder.id], ['Выезд выданной компании', companyVisit.id], ['05.01.2030', companyVisit.id]]) {
+    const response = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent(q)}`, { headers: { Cookie: developerCookie } });
+    assert.equal(response.status, 200);
+    const result = (await response.json()).data.results.find(item => item.id === entityId);
+    assert.ok(result, `Center search must include granted record: ${q}`);
+    assert.equal(result.href, `/orders/${companyOrder.id}`);
+    assert.ok(result.subtitle.includes('Second company'));
+    assert.equal((await path(developerCookie, result.href)).status, 200);
+  }
   const hiddenSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Скрытый клиент')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await hiddenSearch.json()).data.results, []);
 
@@ -273,6 +288,19 @@ try {
     assert.ok(await page.getByText('просмотр в центре CRM', { exact: false }).isVisible());
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: `artifacts/business-roles/center-client-${width}.png`, fullPage: true });
+    for (const query of ['ЦЕНТР-101', 'Выезд выданной компании']) {
+      await page.getByRole('button', { name: 'Открыть глобальный поиск', exact: true }).click();
+      const search = page.getByRole('dialog', { name: 'Глобальный поиск', exact: true });
+      await search.getByRole('combobox').fill(query);
+      const result = search.getByRole('option', { name: query === 'ЦЕНТР-101' ? /Заказ №ЦЕНТР-101/ : /Выезд · Клиент другого контура/ });
+      await result.waitFor();
+      assert.ok((await result.textContent()).includes('Second company'));
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await result.click();
+      await page.waitForURL(`${baseUrl}/orders/${companyOrder.id}`);
+      await page.getByRole('heading', { name: 'Заказ ЦЕНТР-101', exact: true }).waitFor();
+    }
+    await page.goto(`${baseUrl}/clients/${client.id}`);
   }
   const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Мои заметки', exact: true }) });
   await panel.getByRole('button', { name: 'Новая заметка', exact: true }).click();
@@ -345,6 +373,10 @@ try {
   assert.equal((await path(developerCookie, `/api/v1/members/${grantedPhoto.memberId}/avatar`)).status, 404);
   assert.equal((await path(developerCookie, `/clients/${client.id}`)).status, 404, 'Revoked grant removes client card access');
   assert.equal((await clientPage(developerCookie)).total, 1);
+  for (const q of ['ЦЕНТР-101', 'Выезд выданной компании', '05.01.2030']) {
+    const response = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent(q)}`, { headers: { Cookie: developerCookie } });
+    assert.deepEqual((await response.json()).data.results, [], 'Revoked grant removes order and visit search access');
+  }
   const revokedSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Клиент другого контура')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await revokedSearch.json()).data.results, []);
   console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");

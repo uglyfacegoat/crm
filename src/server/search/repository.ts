@@ -117,7 +117,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
   if (hasPermission(member, "orders.read")) {
     searches.push(sql`
       SELECT orders.id, 'order' AS entity_type, 'Заказ №' || orders.order_number AS title,
-        orders.client_name_snapshot AS subtitle, orders.object_address_snapshot AS detail,
+        orders.client_name_snapshot || CASE WHEN orders.organization_id <> ${member.organizationId} THEN ' · ' || organizations.name ELSE '' END AS subtitle, orders.object_address_snapshot AS detail,
         '/orders/' || orders.id::text AS href,
         CASE
           WHEN lower(orders.order_number) LIKE ${containsPattern} ESCAPE '\' THEN 'Номер заказа'
@@ -133,8 +133,8 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
           WHEN lower(orders.client_name_snapshot) LIKE ${prefixPattern} ESCAPE '\' THEN 86
           ELSE 68
         END AS score
-      FROM orders
-      WHERE orders.organization_id = ${member.organizationId}
+      FROM orders JOIN organizations ON organizations.id = orders.organization_id
+      WHERE orders.organization_id IN ${sql(organizationIds)}
         AND (
           crm_search_matches(concat_ws(' ', orders.order_number, orders.client_name_snapshot, orders.object_name_snapshot, orders.object_address_snapshot, orders.contact_name_snapshot, orders.contact_phone_snapshot, orders.master_name_snapshot), ${query})
           OR (${phonePattern}::text IS NOT NULL AND regexp_replace(coalesce(orders.contact_phone_snapshot, ''), '\D', '', 'g') LIKE ${phonePattern})
@@ -232,7 +232,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
     searches.push(sql`
       SELECT service_visits.id, 'visit' AS entity_type,
         'Выезд · ' || service_visits.client_name_snapshot AS title,
-        to_char(service_visits.scheduled_start_at AT TIME ZONE organizations.timezone, 'DD.MM.YYYY HH24:MI') AS subtitle,
+        to_char(service_visits.scheduled_start_at AT TIME ZONE organizations.timezone, 'DD.MM.YYYY HH24:MI') || CASE WHEN service_visits.organization_id <> ${member.organizationId} THEN ' · ' || organizations.name ELSE '' END AS subtitle,
         service_visits.object_address_snapshot || CASE WHEN service_visits.master_name_snapshot IS NOT NULL THEN ' · ' || service_visits.master_name_snapshot ELSE '' END AS detail,
         CASE WHEN service_visits.order_id IS NOT NULL THEN '/orders/' || service_visits.order_id::text ELSE '/calendar?date=' || to_char(service_visits.scheduled_start_at AT TIME ZONE organizations.timezone, 'YYYY-MM-DD') END AS href,
         CASE
@@ -251,7 +251,8 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       FROM service_visits
       JOIN organizations ON organizations.id = service_visits.organization_id
       LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
-      WHERE service_visits.organization_id = ${member.organizationId}
+      WHERE service_visits.organization_id IN ${sql(organizationIds)}
+        AND (service_visits.organization_id = ${member.organizationId} OR service_visits.order_id IS NOT NULL)
         AND (
           (${searchDate}::date IS NOT NULL
             AND service_visits.scheduled_start_at >= (${searchDate}::date::timestamp AT TIME ZONE organizations.timezone)

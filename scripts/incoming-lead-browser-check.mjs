@@ -353,6 +353,8 @@ try {
     FROM generate_series(1, 1001) n`;
   const [remoteCatalog] = await sql`INSERT INTO catalog_items (organization_id, kind, name, unit, price_mode, default_price_minor)
     VALUES (${owner.organization_id}, 'service', 'Янтарная услуга Ёж', 'усл.', 'fixed', 250) RETURNING id`;
+  const [alternateMaster] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    VALUES (${owner.organization_id}, 'Другой мастер серии', '+70000000045', '+70000000045', 'Москва', 'Центр') RETURNING id`;
   await page.reload();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "Копия", exact: true }).click();
@@ -362,10 +364,9 @@ try {
   await copyDialog.getByRole("button", { name: "Выбрать даты" }).click();
   await copyDialog.getByRole("button", { name: "Следующий месяц" }).click();
   const calendar = copyDialog.locator('button[aria-label="Следующий месяц"]').locator("xpath=../..");
-  await calendar.locator('button[aria-pressed="false"]').first().click();
-  await calendar.locator('button[aria-pressed="false"]').first().click();
+  for (let date = 0; date < 5; date++) await calendar.locator('button[aria-pressed="false"]').first().click();
   const copyDates = JSON.parse(await copyDialog.locator('input[name="copyDates"]').inputValue());
-  assert.equal(copyDates.length, 2);
+  assert.equal(copyDates.length, 5);
   const dateLabel = (date) => new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
   await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
   await copyDialog.getByRole("button", { name: dateLabel(copyDates[0]) }).click();
@@ -397,24 +398,68 @@ try {
   await copyDialog.getByPlaceholder("Название услуги или товара").last().fill("Янтарная услуга Ёж");
   await copyDialog.getByRole("button", { name: /Янтарная услуга Ёж/ }).click();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false, "Copy dialog overflows at 390px");
-  await copyDialog.getByRole("button", { name: "Создать 2 заказов" }).click();
+  const selectCopyDate = async (index) => {
+    await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
+    await copyDialog.getByRole("button", { name: dateLabel(copyDates[index]) }).click();
+  };
+  await selectCopyDate(2);
+  await copyDialog.locator('summary[aria-label="Мастер на эту дату"]').click();
+  await copyDialog.getByRole("button", { name: /Другой мастер серии/ }).click();
+  await copyDialog.getByLabel("Выплата мастеру, ₽", { exact: true }).fill("1234,50");
+  await copyDialog.getByRole("button", { name: "Точное время" }).click();
+  await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("12:45");
+  await copyDialog.getByPlaceholder("Условия только для этой даты").fill("Условия третьей даты");
+  await copyDialog.getByRole("button", { name: "+ Добавить" }).click();
+  await copyDialog.locator('summary[aria-label="Из перечня товаров и услуг"]').click();
+  await copyDialog.getByPlaceholder("Название услуги или товара").fill("Янтарная услуга Ёж");
+  await copyDialog.getByRole("button", { name: /Янтарная услуга Ёж/ }).click();
+  await copyDialog.getByLabel("Количество", { exact: true }).fill("3");
+  await selectCopyDate(3);
+  await copyDialog.locator('summary[aria-label="Мастер на эту дату"]').click();
+  await copyDialog.getByRole("button", { name: "Без мастера", exact: true }).click();
+  await copyDialog.getByRole("button", { name: "Интервал", exact: true }).click();
+  await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("10:00");
+  await copyDialog.locator('[data-form-name="overrideEndTime"]').fill("11:30");
+  await copyDialog.locator("label").filter({ hasText: "Топливо" }).first().click();
+  await copyDialog.getByPlaceholder("Условия только для этой даты").fill("");
+  await selectCopyDate(4);
+  assert.equal(await copyDialog.getByPlaceholder("Условия только для этой даты").inputValue(), "");
+  assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').count(), 0);
+  assert.equal(await copyDialog.getByLabel("Количество", { exact: true }).count(), 0);
+  await selectCopyDate(2);
+  assert.equal(await copyDialog.getByLabel("Количество", { exact: true }).inputValue(), "3");
+  assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').inputValue(), "12:45");
+  assert.equal(await copyDialog.getByPlaceholder("Условия только для этой даты").inputValue(), "Условия третьей даты");
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Five-date dialog overflow at ${width}px`);
+  }
+  await copyDialog.getByRole("button", { name: "Создать 5 заказов" }).click();
   await page.waitForURL((current) => /^\/orders\/[^/]+$/.test(current.pathname) && current.pathname !== `/orders/${contractOrderId}`);
   await page.setViewportSize({ width: 1440, height: 900 });
-  const copies = await sql`SELECT copied.id, copied.notes, copied.agreed_total_minor, audit.changes->>'copyDate' AS copy_date
+  const copies = await sql`SELECT copied.id, copied.notes, copied.agreed_total_minor, copied.assigned_master_id, copied.master_payment_snapshot_minor, audit.changes->>'copyDate' AS copy_date
     FROM audit_events audit JOIN orders copied ON copied.organization_id = audit.organization_id AND copied.id = audit.entity_id
     WHERE audit.organization_id = ${owner.organization_id} AND audit.action = 'order.copy'
-      AND audit.changes->>'sourceOrderId' = ${contractOrderId} AND audit.changes->>'seriesSize' = '2'
+      AND audit.changes->>'sourceOrderId' = ${contractOrderId} AND audit.changes->>'seriesSize' = '5'
     ORDER BY audit.changes->>'copyDate'`;
   assert.deepEqual(copies.map((copy) => copy.copy_date), copyDates);
   assert.equal(copies[0].notes, null);
   assert.equal(copies[1].notes, "Особая заметка второй даты");
   assert.equal(Number(copies[0].agreed_total_minor), 9413);
   assert.equal(Number(copies[1].agreed_total_minor), 19076);
+  assert.deepEqual(copies.slice(2).map(copy => copy.notes), ["Условия третьей даты", null, null]);
+  assert.deepEqual(copies.slice(2).map(copy => Number(copy.agreed_total_minor)), [10163, 9413, 9413]);
+  assert.equal(copies[2].assigned_master_id, alternateMaster.id);
+  assert.equal(Number(copies[2].master_payment_snapshot_minor), 123450);
+  assert.equal(copies[3].assigned_master_id, null);
+  assert.equal(copies[3].master_payment_snapshot_minor, null);
   const copyExpenses = await sql`SELECT order_id, category, amount_minor, occurred_on::text AS occurred_on FROM order_expenses
-    WHERE organization_id = ${owner.organization_id} AND order_id IN (${copies[0].id}, ${copies[1].id}) ORDER BY order_id`;
+    WHERE organization_id = ${owner.organization_id} AND order_id IN ${sql(copies.map(copy => copy.id))} ORDER BY order_id`;
   assert.deepEqual(copyExpenses.map((expense) => [expense.order_id, expense.category, Number(expense.amount_minor), expense.occurred_on]).sort(), [
     [copies[0].id, 'Топливо', 7000, copyDates[0]],
     [copies[1].id, 'Материалы', 12000, copyDates[1]],
+    [copies[2].id, 'Топливо', 7000, copyDates[2]],
+    [copies[4].id, 'Топливо', 7000, copyDates[4]],
   ].sort());
   const [copyVisit] = await sql`SELECT arrival_mode, (scheduled_start_at AT TIME ZONE 'Europe/Moscow')::time::text AS local_time
     FROM service_visits WHERE organization_id = ${owner.organization_id} AND order_id = ${copies[0].id}`;
@@ -437,6 +482,24 @@ try {
   assert.equal(Number(remoteCopyLine.line_total_minor), 250);
   assert.equal((await sql`SELECT count(*)::integer AS count FROM order_services
     WHERE organization_id = ${owner.organization_id} AND order_id = ${copies[0].id} AND catalog_item_id = ${remoteCatalog.id}`)[0].count, 0);
+  const remainingVisits = await sql`SELECT order_id, assigned_master_id, arrival_mode,
+    (scheduled_start_at AT TIME ZONE 'Europe/Moscow')::time::text AS local_time,
+    extract(epoch from scheduled_end_at - scheduled_start_at)::integer AS seconds
+    FROM service_visits WHERE order_id IN ${sql(copies.slice(2).map(copy => copy.id))}`;
+  assert.equal(remainingVisits.length, 2, "Fifth date inherits no visit; no phantom visit is created");
+  const thirdVisit = remainingVisits.find(visit => visit.order_id === copies[2].id);
+  const fourthVisit = remainingVisits.find(visit => visit.order_id === copies[3].id);
+  assert.equal(thirdVisit.assigned_master_id, alternateMaster.id);
+  assert.equal(thirdVisit.arrival_mode, "fixed");
+  assert.equal(thirdVisit.local_time, "12:45:00");
+  assert.equal(fourthVisit.assigned_master_id, null);
+  assert.equal(fourthVisit.arrival_mode, "window");
+  assert.equal(fourthVisit.seconds, 5400);
+  const extraQuantities = await sql`SELECT order_id, quantity, line_total_minor FROM order_services
+    WHERE order_id IN ${sql(copies.map(copy => copy.id))} AND catalog_item_id = ${remoteCatalog.id}`;
+  assert.deepEqual(extraQuantities.map(line => [line.order_id, Number(line.quantity), Number(line.line_total_minor)]).sort(), [
+    [copies[1].id, 1, 250], [copies[2].id, 3, 750],
+  ].sort());
   await page.goto(`${baseUrl}/orders/${contractOrderId}`);
   await page.getByRole("button", { name: "Копия", exact: true }).click();
   const repeatDialog = page.getByRole("dialog", { name: /Копия заказа/ });
@@ -763,7 +826,7 @@ try {
   assert.equal(Number(historicalLine.unit_price_minor), 250);
   assert.equal(Number(historicalLine.line_total_minor), 500);
   assert.equal(historicalOrder.notes, "Историческая услуга сохранена");
-  console.log("Incoming lead browser passed: 270-item lead search, simultaneous regular orders from two accounts, multi-contact intake, contract rates, per-date expenses, selected-date and weekly series, per-date catalog item beyond 1000, mail search and page beyond 500 with source isolation, mail queue, threaded replies and 37-message pagination, retry after lost response without duplicate delivery, catalog selection/editing beyond 1000 items, and historical order editing after catalog rename/archive.");
+  console.log("Incoming lead browser passed: 270-item lead search, simultaneous regular orders from two accounts, multi-contact intake, contract rates, five independent dates with per-date master/payout, fixed/overnight/window time, catalog quantities, notes and expenses; weekly series, per-date catalog item beyond 1000, mail search and page beyond 500 with source isolation, mail queue, threaded replies and 37-message pagination, retry after lost response without duplicate delivery, catalog selection/editing beyond 1000 items, and historical order editing after catalog rename/archive.");
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }
