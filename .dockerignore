@@ -14,6 +14,7 @@ README.md
 backups
 output
 .codex-local
+.local-recovery
 .crm-storage
 *.pem
 *.key

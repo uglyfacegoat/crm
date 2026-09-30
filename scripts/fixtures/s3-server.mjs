@@ -22,7 +22,7 @@ export async function startS3Fixture({ publishAppPort = false } = {}) {
   };
   try {
     execFileSync("docker", ["run", "--detach", "--name", name, "--add-host", "host.docker.internal:host-gateway", "--publish", "127.0.0.1::9000", ...(publishAppPort ? ["--publish", "127.0.0.1::3000"] : []), "--tmpfs", "/data:rw,size=128m", "--env", "MINIO_ROOT_USER", "--env", "MINIO_ROOT_PASSWORD", image, "server", "/data"], {
-      env: { ...process.env, MINIO_ROOT_USER: accessKeyId, MINIO_ROOT_PASSWORD: secretAccessKey }, stdio: "ignore",
+      env: { ...process.env, MINIO_ROOT_USER: accessKeyId, MINIO_ROOT_PASSWORD: secretAccessKey }, stdio: ["ignore", "ignore", "inherit"],
     });
     created = true;
     const [container] = JSON.parse(execFileSync("docker", ["inspect", name], { encoding: "utf8" }));

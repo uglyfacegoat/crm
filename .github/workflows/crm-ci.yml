@@ -110,12 +110,14 @@ jobs:
           docker run --rm --network host
           --mount "type=bind,source=$PWD/scripts/backup-restore.integration.mjs,target=/app/scripts/backup-restore.integration.mjs,readonly"
           -e BACKUP_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:5432/postgres
+          -e CRM_TEST_FIXTURE_URL=postgresql://postgres@127.0.0.1:5432/postgres
           --entrypoint node crm-app:backup-check --test scripts/backup-restore.integration.mjs
       - name: Audit storage using the runtime image
         run: >-
           docker run --rm --network host
           --mount "type=bind,source=$PWD/scripts/storage-audit.integration.mjs,target=/app/scripts/storage-audit.integration.mjs,readonly"
           -e MIGRATION_TEST_ADMIN_URL=postgresql://postgres@127.0.0.1:5432/postgres
+          -e CRM_TEST_FIXTURE_URL=postgresql://postgres@127.0.0.1:5432/postgres
           --entrypoint node crm-app:backup-check --test scripts/storage-audit.integration.mjs
       - uses: actions/setup-node@v4
         with:

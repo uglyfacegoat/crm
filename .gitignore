@@ -16,6 +16,7 @@
 /backups
 /output
 /.codex-local/
+/.local-recovery/
 
 # next.js
 /.next/

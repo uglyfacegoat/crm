@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, Check, LoaderCircle, Plus, UserRound } from "lucide-react";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createClientContactAction,
@@ -267,8 +267,8 @@ export function ClientDetailActions({ client }: { client: ClientDetail }) {
 export function CompleteClientRecord({ clientId, contact, object }: { clientId: string; contact?: ClientContact; object?: ClientObject }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(contact ? completeClientContactAction : completeClientObjectAction, initialState);
-  const router = useRouter();
-  useEffect(() => { if (state.status === "success") { setOpen(false); router.refresh(); } }, [state.status, router]);
+  const close = useCallback(() => setOpen(false), []);
+  useCloseAfterSuccess(state.status, close);
   return <><button type="button" className="mt-3 text-xs font-medium underline underline-offset-4" onClick={() => setOpen(true)}>Дополнить данные</button>
     <Dialog open={open} onClose={() => setOpen(false)} title={contact ? "Данные контакта" : "Данные объекта"} description="Уточните сведения, которые стали известны после создания заказа.">
       <form action={action} className="flex flex-1 flex-col"><input type="hidden" name="clientId" value={clientId} />
