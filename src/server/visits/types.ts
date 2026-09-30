@@ -17,6 +17,7 @@ export type ServiceVisit = {
   seriesId: string | null;
   occurrenceNumber: number | null;
   orderId: string | null;
+  contractId?: string | null;
   orderNumber: string | null;
   client: string;
   object: string;

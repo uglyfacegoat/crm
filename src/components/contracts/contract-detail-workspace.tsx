@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
+import { contractCalendarHref } from "@/lib/contract-calendar";
 import { useState } from "react";
 import {
   ContractDialogs,
@@ -70,11 +71,7 @@ const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
   month: "long",
   year: "numeric",
 });
-const eventFormatter = new Intl.DateTimeFormat("ru-RU", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "Europe/Moscow",
-});
+
 
 function formatDate(value: string) {
   return dateFormatter.format(new Date(`${value}T12:00:00Z`));
@@ -142,7 +139,9 @@ export function ContractDetailWorkspace({
   canWrite,
   canReplaceDocuments,
   currentDate,
+  companyReadOnly,
 }: {
+  companyReadOnly?: string;
   contract: ContractListItem;
   documents: DocumentListItem[];
   history: ContractHistoryEvent[];
@@ -150,6 +149,7 @@ export function ContractDetailWorkspace({
   canReplaceDocuments: boolean;
   currentDate: string;
 }) {
+  const eventFormatter = new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short", timeZone: contract.organizationTimezone ?? "Europe/Moscow" });
   const [documentIndex, setDocumentIndex] = useState(0);
   const [dialogMode, setDialogMode] = useState<ContractDialogMode>(null);
   const currentDocument = documents[documentIndex] ?? null;
@@ -184,6 +184,7 @@ export function ContractDetailWorkspace({
               </span>
               <span className="text-[10px] text-[var(--muted)]">
                 Версия {contract.version}
+              {companyReadOnly ? <span className="ml-2">{companyReadOnly} · просмотр в центре CRM</span> : null}
               </span>
             </div>
             <h1 className="mt-4 font-display text-[clamp(1.8rem,1.3rem+1.5vw,3rem)] font-semibold tracking-[-0.05em] text-[var(--text)]">
@@ -272,7 +273,7 @@ export function ContractDetailWorkspace({
                 : "Не запланирован"}
             </p>
             <Link
-              href="/calendar"
+              href={contractCalendarHref(contract)}
               className="focus-ring mt-2 inline-block rounded text-[10px] text-[var(--muted)] hover:text-[var(--text)]"
             >
               Открыть календарь
@@ -337,19 +338,17 @@ export function ContractDetailWorkspace({
                   <div>
                     <FileText className="mx-auto size-10 text-[#6b6b6b]" />
                     <p className="mt-4 text-sm font-medium text-black">
-                      Добавьте документ категории «Договоры»
+                      {canReplaceDocuments ? "Добавьте документ категории «Договоры»" : "Файл договора пока не добавлен"}
                     </p>
                     <p className="mt-2 max-w-sm text-xs leading-5 text-[#555]">
-                      При загрузке выберите этот договор. PDF можно листать,
-                      масштабировать, выделять и копировать прямо в просмотрщике
-                      браузера.
+                      {canReplaceDocuments ? "При загрузке выберите этот договор. PDF можно листать, масштабировать, выделять и копировать прямо в просмотрщике браузера." : "Здесь появится файл, когда ответственный сотрудник прикрепит его к договору."}
                     </p>
-                    <Link
+                    {canReplaceDocuments ? <Link
                       href="/documents"
                       className="mt-5 inline-flex h-10 items-center rounded-[10px] bg-black px-4 text-xs text-white"
                     >
                       Открыть документы
-                    </Link>
+                    </Link> : null}
                   </div>
                 </div>
               )}

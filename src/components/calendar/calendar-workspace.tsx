@@ -357,7 +357,7 @@ function CalendarList({
           {orderedVisits.map((visit) => (
             <article
               key={visit.id}
-              className="grid gap-3 px-4 py-4 hover:bg-[var(--surface-raised)] sm:px-6 md:grid-cols-[10rem_7rem_minmax(0,1fr)_10rem_auto_auto] md:items-center"
+              className="grid gap-3 px-4 py-4 hover:bg-[var(--surface-raised)] sm:px-6 xl:grid-cols-[10rem_7rem_minmax(0,1fr)_10rem_auto_auto] xl:items-center"
             >
               <div>
                 <p className="font-display text-xs text-[var(--text)]">
@@ -371,7 +371,7 @@ function CalendarList({
                 {visit.orderNumber ?? "Без заказа"}
               </strong>
               <Link
-                href={visit.orderId ? `/orders/${visit.orderId}` : "/calendar"}
+                href={visit.orderId ? `/orders/${visit.orderId}` : visit.contractId ? `/contracts/${visit.contractId}` : "/calendar"}
                 className="focus-ring min-w-0 rounded"
               >
                 <p className="truncate text-xs font-medium text-[var(--text)]">
@@ -563,7 +563,7 @@ function ScheduleGrid({
                 <div className="flex items-start gap-3">
                   <Link
                     href={
-                      visit.orderId ? `/orders/${visit.orderId}` : "/calendar"
+                      visit.orderId ? `/orders/${visit.orderId}` : visit.contractId ? `/contracts/${visit.contractId}` : "/calendar"
                     }
                     className="focus-ring min-w-0 flex-1 rounded"
                   >
@@ -810,6 +810,7 @@ export function CalendarWorkspace({
   anchorDate,
   initialView,
   focusedOrderId,
+  focusedContract,
   canWrite,
 }: {
   visits: ServiceVisit[];
@@ -817,6 +818,7 @@ export function CalendarWorkspace({
   anchorDate: string;
   initialView: CalendarView;
   focusedOrderId?: string | null;
+  focusedContract?: { id: string; number: string; company?: string };
   canWrite: boolean;
 }) {
   const [calendarVisits, setCalendarVisits] = useState(visits);
@@ -840,11 +842,11 @@ export function CalendarWorkspace({
     tone: "success" | "error";
     text: string;
   } | null>(null);
-  const [ordersPanelOpen, setOrdersPanelOpen] = useState(true);
+  const [ordersPanelOpen, setOrdersPanelOpen] = useState(!focusedContract);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const calendarHref = (date: string, nextView: CalendarView) =>
-    `/calendar?date=${date}&view=${nextView}${focusedOrderId ? `&order=${focusedOrderId}` : ""}`;
+    `/calendar?date=${date}&view=${nextView}${focusedOrderId ? `&order=${focusedOrderId}` : ""}${focusedContract ? `&contract=${focusedContract.id}` : ""}`;
   const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
   const days = useMemo(
     () =>
@@ -1223,6 +1225,7 @@ export function CalendarWorkspace({
 
   return (
     <div className="mt-[clamp(1.2rem,0.9rem+0.7vw,2rem)]">
+      {focusedContract ? <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-xs"><span>Календарь договора {focusedContract.number}{focusedContract.company ? ` · ${focusedContract.company} · просмотр в центре CRM` : ""}</span><Link href={`/contracts/${focusedContract.id}`} className="focus-ring font-semibold underline">К договору</Link></div> : null}
       {focusedOrderId ? <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-xs">
         <span>Календарь заказа {calendarVisits.find((visit) => visit.orderId === focusedOrderId)?.orderNumber ?? availableOrders.find((order) => order.id === focusedOrderId)?.number ?? ""}</span>
         <Link href="/calendar" className="focus-ring font-semibold underline">Весь календарь</Link>
@@ -1273,7 +1276,7 @@ export function CalendarWorkspace({
             </Link>
           </div>
         </div>
-        <button
+        {!focusedContract ? <button
           type="button"
           onClick={() => setOrdersPanelOpen((open) => !open)}
           aria-expanded={ordersPanelOpen}
@@ -1282,7 +1285,7 @@ export function CalendarWorkspace({
         >
           <ListPlus className="size-4" />
           {ordersPanelOpen ? "Скрыть заказы без выезда" : "Выбрать заказ для выезда"}
-        </button>
+        </button> : null}
       </div>
 
       <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(16rem,1fr)_auto_auto] lg:items-start">

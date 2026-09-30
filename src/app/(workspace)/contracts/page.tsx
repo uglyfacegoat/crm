@@ -1,3 +1,4 @@
+import type { ContractListPage } from "@/lib/contract-list";
 import type { Metadata } from "next";
 import { requirePagePermission } from "@/server/auth/page-access";
 import { ContractsWorkspace } from "@/components/contracts/contracts-workspace";
@@ -17,6 +18,6 @@ export default async function ContractsPage() {
   const canWrite = hasPermission(member, "contracts.write");
   return <div>
     <PageHeading eyebrow="Долгосрочное обслуживание" title="Договоры" description="Периоды, продления и все плановые выезды — в одной непрерывной истории клиента." />
-    <ContractsWorkspace key={snapshot.contracts.map((contract) => `${contract.id}:${contract.version}`).join("|")} snapshot={snapshot} canWrite={canWrite} />
+    <ContractsWorkspace key={`${snapshot.summary.total}:` + snapshot.contracts.map((contract) => `${contract.id}:${contract.version}`).join("|")} snapshot={snapshot} initialPage={"initialPage" in snapshot ? snapshot.initialPage as ContractListPage : null} currentOrganizationId={member.organizationId} canWrite={canWrite} />
   </div>;
 }

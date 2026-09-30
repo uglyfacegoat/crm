@@ -118,6 +118,22 @@ try {
       client_name_snapshot, object_name_snapshot, object_address_snapshot)
     VALUES (${ungrantedCompany.id}, ${ungrantedClient.id}, 'СКРЫТ-101', 'new', 'RUB', 'Скрытый клиент', 'Объект не указан', 'Адрес не указан') RETURNING id`;
   const ungrantedDocument = await seedDocument(ungrantedCompany.id, ungrantedClient.id, ungrantedOrder.id, ungrantedMember.id, 'Скрытый документ');
+  await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
+    SELECT ${target.id}, ${client.id}, ${clientObject.id}, 'ДОГ-' || lpad(n::text, 4, '0'), 'draft', '2030-01-01', '2030-12-31', 30
+    FROM generate_series(1, 520) n`;
+  const [companyContract] = await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
+    VALUES (${target.id}, ${client.id}, ${clientObject.id}, 'Янтарный договор центра', 'active', '2030-01-01', '2030-12-31', 30) RETURNING id`;
+  await sql`INSERT INTO contract_schedule_rules (organization_id, contract_id, frequency_unit, frequency_interval, local_time, starts_on, ends_on, default_master_id)
+    VALUES (${target.id}, ${companyContract.id}, 'month', 1, '10:15', '2030-01-01', '2030-12-31', ${grantedPhoto.masterId})`;
+  await sql`UPDATE service_visits SET contract_id = ${companyContract.id}, assigned_master_id = ${grantedPhoto.masterId},
+    master_name_snapshot = 'Avatar fixture master' WHERE id = ${companyVisit.id}`;
+  await sql`INSERT INTO contract_events (organization_id, contract_id, actor_id, event_type, after_state, reason)
+    VALUES (${target.id}, ${companyContract.id}, ${developerShadow.id}, 'created', '{}'::jsonb, 'История выданного договора')`;
+  await sql`UPDATE documents SET contract_id = ${companyContract.id}, object_id = null WHERE id = ${grantedDocument.id}`;
+  const [hiddenObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    VALUES (${ungrantedCompany.id}, ${ungrantedClient.id}, 'Скрытый объект договора', 'Office', 'Тестовый адрес') RETURNING id`;
+  const [hiddenContract] = await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
+    VALUES (${ungrantedCompany.id}, ${ungrantedClient.id}, ${hiddenObject.id}, 'Скрытый договор центра', 'draft', '2030-01-01', '2030-12-31', 30) RETURNING id`;
   const [master] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
     VALUES (${home.organization_id}, 'Field role master', '+70000000004', '+70000000004', 'Moscow', 'Center') RETURNING id`;
   const members = {};
@@ -137,6 +153,7 @@ try {
     VALUES (${home.organization_id}, ${members.deputy.id}, ${target.id}, ${shadow.id})`;
   const buildDirectory = dirname(dirname(runtime));
   await cp(join(buildDirectory, "static"), join(dirname(runtime), basename(buildDirectory), "static"), { recursive: true, force: true });
+  await cp(resolve("public"), join(dirname(runtime), "public"), { recursive: true, force: true });
   server = spawn(process.execPath, [runtime], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   serverExit = once(server, "exit");
   let stderr = ""; server.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-4_000); });
@@ -269,10 +286,41 @@ try {
   const hiddenSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Скрытый клиент')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await hiddenSearch.json()).data.results, []);
 
+  async function contractPage(params = '') {
+    const response = await fetch(`${baseUrl}/api/v1/contracts${params}`, { headers: { Cookie: developerCookie } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    return (await response.json()).data;
+  }
+  const contractIds = [];
+  for (let number = 1; number <= 11; number++) {
+    const result = await contractPage(`?page=${number}`);
+    assert.equal(result.total, 521);
+    assert.equal(result.summary.total, 521);
+    contractIds.push(...result.items.map(item => item.id));
+  }
+  assert.equal(new Set(contractIds).size, 521);
+  const byNumber = await contractPage('?q=' + encodeURIComponent('Янтарный договор центра'));
+  assert.equal(byNumber.total, 1);
+  assert.equal(byNumber.items[0].id, companyContract.id);
+  assert.equal((await contractPage(`?master=${grantedPhoto.masterId}`)).total, 1);
+  assert.equal((await path(developerCookie, `/contracts/${hiddenContract.id}`)).status, 404);
+  assert.equal((await path(developerCookie, `/calendar?contract=${hiddenContract.id}&date=2030-01-05`)).status, 404);
+  const contractResult = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Янтарный договор центра')}`, { headers: { Cookie: developerCookie } });
+  const foundContract = (await contractResult.json()).data.results.find(item => item.id === companyContract.id);
+  assert.equal(foundContract.href, `/contracts/${companyContract.id}`);
+  assert.ok(foundContract.subtitle.includes('Second company'));
   browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await context.addCookies([{ name: 'crm_session', value: developerCookie.slice('crm_session='.length), url: baseUrl }]);
   const page = await context.newPage();
+  async function settledLayout() {
+    await page.waitForFunction(() => {
+      const side = document.querySelector('.workspace-sidebar');
+      const main = document.querySelector('main.workspace-main');
+      return !side || !main || !side.getBoundingClientRect().width || main.getBoundingClientRect().left >= side.getBoundingClientRect().right - 1;
+    });
+  }
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await mkdir('artifacts/business-roles', { recursive: true });
   for (const width of [390, 768, 1440]) {
@@ -302,6 +350,71 @@ try {
     }
     await page.goto(`${baseUrl}/clients/${client.id}`);
   }
+  for (const width of [390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`${baseUrl}/contracts`);
+    await settledLayout();
+    await page.getByRole('navigation', { name: 'Страницы договоров' }).getByText('Страница 1 из 11', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Следующая страница', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Страницы договоров' }).getByText('Страница 2 из 11', { exact: true }).waitFor();
+    await page.getByPlaceholder('Номер, клиент, объект, адрес или мастер').fill('Янтарный договор центра');
+    const link = page.getByRole('link', { name: 'Янтарный договор центра', exact: true });
+    await link.waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Редактировать договор Янтарный договор центра', exact: true }).count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await settledLayout();
+    assert.equal(await page.evaluate(() => {
+      const side = document.querySelector('.workspace-sidebar');
+      const heading = document.querySelector('main h1');
+      return side && getComputedStyle(side).display !== 'none' && heading.getBoundingClientRect().left < side.getBoundingClientRect().right - 1;
+    }), false, `Contract heading must stay outside the sidebar at ${width}px`);
+    await page.screenshot({ animations: 'disabled', path: `artifacts/business-roles/center-contract-list-${width}.png`, fullPage: true });
+    await link.click();
+    await page.waitForURL(`${baseUrl}/contracts/${companyContract.id}`);
+    await page.getByRole('heading', { name: 'Янтарный договор центра', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Данные и статус', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Продлить', exact: true }).count(), 0);
+    await page.getByText('История выданного договора', { exact: true }).waitFor();
+    await page.getByRole('link', { name: 'Скачать документ', exact: true }).first().waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: `artifacts/business-roles/center-contract-${width}.png`, fullPage: true });
+    await page.getByRole('link', { name: 'Открыть календарь', exact: true }).click();
+    await page.getByText('Календарь договора Янтарный договор центра · Second company · просмотр в центре CRM', { exact: true }).waitFor();
+    await page.getByRole('link').filter({ hasText: 'Выезд выданной компании' }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Перенести выезд/ }).count(), 0);
+    await page.getByRole('button', { name: 'Открыть карточку мастеру', exact: true }).click();
+    const dispatch = page.getByRole('dialog', { name: 'Карточка мастеру', exact: true });
+    await dispatch.getByText(/Название объекта: Выезд выданной компании/).waitFor();
+    await dispatch.getByRole('button', { name: 'Закрыть окно', exact: true }).click();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.getByRole('button', { name: 'Открыть глобальный поиск', exact: true }).click();
+    const search = page.getByRole('dialog', { name: 'Глобальный поиск', exact: true });
+    await search.getByRole('combobox').fill('Янтарный договор центра');
+    await search.getByRole('option', { name: /Янтарный договор центра/ }).click();
+    await page.getByRole('heading', { name: 'Янтарный договор центра', exact: true }).waitFor();
+  }
+  await page.goto(`${baseUrl}/contracts`);
+  const contractSearch = page.getByPlaceholder('Номер, клиент, объект, адрес или мастер');
+  await page.route('**/api/v1/contracts?**', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+  await contractSearch.fill('Янтарный договор центра');
+  await page.getByText('Не удалось загрузить договоры.', { exact: true }).waitFor();
+  assert.equal(await contractSearch.inputValue(), 'Янтарный договор центра');
+  await page.unroute('**/api/v1/contracts?**');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await page.getByRole('link', { name: 'Янтарный договор центра', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'История договора Янтарный договор центра', exact: true }).filter({ visible: true }).first().click();
+  const contractHistory = page.getByRole('dialog', { name: 'История договора', exact: true });
+  await contractHistory.getByText('История выданного договора', { exact: true }).waitFor();
+  await contractHistory.getByRole('button', { name: 'Закрыть окно', exact: true }).click();
+  await page.getByRole('button', { name: 'Фильтры', exact: true }).click();
+  const filters = page.getByRole('dialog', { name: 'Фильтры договоров', exact: true });
+  const masterMenu = filters.locator('summary[aria-label="Мастер договора"]').locator('..');
+  await masterMenu.locator('summary').click();
+  await masterMenu.getByPlaceholder('Имя или телефон мастера').fill('Avatar fixture master');
+  await masterMenu.getByRole('button', { name: /Avatar fixture master.*Second company/ }).click();
+  await filters.getByRole('button', { name: 'Показать договоры', exact: true }).click();
+  await page.getByRole('link', { name: 'Янтарный договор центра', exact: true }).waitFor();
+  await page.goto(`${baseUrl}/clients/${client.id}`);
   const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Мои заметки', exact: true }) });
   await panel.getByRole('button', { name: 'Новая заметка', exact: true }).click();
   await panel.getByPlaceholder('Например, детали объекта').fill('Личная заметка центра');
@@ -377,9 +490,23 @@ try {
     const response = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent(q)}`, { headers: { Cookie: developerCookie } });
     assert.deepEqual((await response.json()).data.results, [], 'Revoked grant removes order and visit search access');
   }
+  assert.equal((await contractPage()).total, 0);
+  assert.equal((await path(developerCookie, `/contracts/${companyContract.id}`)).status, 404);
+  assert.equal((await path(developerCookie, `/calendar?contract=${companyContract.id}&date=2030-01-05`)).status, 404);
+  assert.equal((await path(developerCookie, `/api/v1/visits/${companyVisit.id}/dispatch-card`)).status, 404);
+  const revokedContractSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Янтарный договор центра')}`, { headers: { Cookie: developerCookie } });
+  assert.deepEqual((await revokedContractSearch.json()).data.results, []);
   const revokedSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Клиент другого контура')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await revokedSearch.json()).data.results, []);
-  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
+  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, 521 contracts with full search/pagination, contract documents/history/calendar/dispatch at four widths, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
+} catch (error) {
+  const failedPage = browser?.contexts()[0]?.pages()[0];
+  if (failedPage) {
+    await failedPage.screenshot({ path: 'artifacts/business-roles/failure.png', fullPage: true }).catch(() => {});
+    console.error(JSON.stringify(await failedPage.evaluate(() => ({ url: location.pathname + location.search, width: innerWidth,
+      links: [...document.querySelectorAll('a')].filter(a => a.textContent.includes('Выезд выданной компании')).map(a => ({ width: a.getBoundingClientRect().width, height: a.getBoundingClientRect().height, display: getComputedStyle(a).display })) }))));
+  }
+  throw error;
 } finally {
   await browser?.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }

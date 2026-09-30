@@ -200,6 +200,7 @@ jobs:
       - run: npm run test:mail-protocol
       - run: npm run test:personal-notes
       - run: npm run test:client-list-pagination
+      - run: npm run test:contract-list
       - run: npm run test:order-picker
       - run: npm run test:finance-receipts
       - run: npm run db:migrate

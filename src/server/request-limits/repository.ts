@@ -5,6 +5,7 @@ import { getDatabase } from "@/server/database";
 
 export const requestLimitPolicies = {
   global_search: { member: 120, organization: 1200, windowSeconds: 60 },
+  contract_list: { member: 120, organization: 1200, windowSeconds: 60 },
   client_list: { member: 120, organization: 1200, windowSeconds: 60 },
   settings_directory: { member: 120, organization: 1200, windowSeconds: 60 },
   order_picker: { member: 120, organization: 1200, windowSeconds: 60 },

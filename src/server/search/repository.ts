@@ -147,8 +147,8 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
   if (hasPermission(member, "contracts.read")) {
     searches.push(sql`
       SELECT contracts.id, 'contract' AS entity_type, 'Договор ' || contracts.contract_number AS title,
-        clients.legal_name || ' · ' || client_objects.name AS subtitle, client_objects.address AS detail,
-        '/contracts' AS href,
+        clients.legal_name || ' · ' || client_objects.name || CASE WHEN contracts.organization_id <> ${member.organizationId} THEN ' · ' || organizations.name ELSE '' END AS subtitle, client_objects.address AS detail,
+        '/contracts/' || contracts.id::text AS href,
         CASE
           WHEN lower(contracts.contract_number) LIKE ${containsPattern} ESCAPE '\' THEN 'Номер договора'
           WHEN lower(client_objects.address) LIKE ${containsPattern} ESCAPE '\' THEN 'Адрес объекта'
@@ -161,10 +161,10 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
           WHEN lower(clients.legal_name) LIKE ${prefixPattern} ESCAPE '\' THEN 84
           ELSE 66
         END AS score
-      FROM contracts
+      FROM contracts JOIN organizations ON organizations.id = contracts.organization_id
       JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
       JOIN client_objects ON client_objects.organization_id = contracts.organization_id AND client_objects.id = contracts.object_id
-      WHERE contracts.organization_id = ${member.organizationId}
+      WHERE contracts.organization_id IN ${sql(organizationIds)}
         AND crm_search_matches(concat_ws(' ', contracts.contract_number, clients.legal_name, client_objects.name, client_objects.address, contracts.notes), ${query})
       ORDER BY score DESC, contracts.updated_at DESC
       LIMIT 5

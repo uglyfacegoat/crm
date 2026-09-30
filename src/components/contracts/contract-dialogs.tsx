@@ -3,7 +3,7 @@
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { Check, History, LoaderCircle, Plus, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useEffectEvent, useState } from "react";
 import { createContractAction, getContractHistoryAction, linkContractAction, renewContractAction, updateContractAction, type ContractActionState } from "@/app/(workspace)/contracts/actions";
 import { Dialog } from "@/components/ui/dialog";
 import { OrderPicker } from "@/components/orders/order-form-parts";
@@ -29,12 +29,12 @@ function SubmitFooter({ pending, success, disabled = false, label, onClose }: { 
 
 function useCloseAfterSuccess(state: ContractActionState, onClose: () => void) {
   const router = useRouter();
+  const close = useEffectEvent(onClose);
   useEffect(() => {
     if (state.status !== "success") return;
-    router.refresh();
-    const timeout = window.setTimeout(onClose, 700);
+    const timeout = window.setTimeout(() => { close(); router.refresh(); }, 700);
     return () => window.clearTimeout(timeout);
-  }, [onClose, router, state.status]);
+  }, [router, state.status]);
 }
 
 function CreateContractForm({ objectOptions, masterOptions, onClose }: { objectOptions: ContractObjectOption[]; masterOptions: ContractMasterOption[]; onClose: () => void }) {

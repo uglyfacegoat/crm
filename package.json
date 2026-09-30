@@ -55,6 +55,7 @@
     "test:workflow-maps": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/workflow-maps.integration.mjs",
     "test:workflow-browser": "node scripts/isolated-postgres-test.mjs scripts/workflow-browser-check.mjs",
     "test:notifications-pagination": "node scripts/isolated-postgres-test.mjs --experimental-test-module-mocks --test scripts/notifications-pagination.integration.mjs",
+    "test:contract-list": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/contract-picker.integration.mjs",
     "test:client-list-pagination": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/client-list-pagination.integration.mjs",
     "test:order-picker": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/order-picker.integration.mjs",
     "test:incoming-lead-picker": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/incoming-lead-picker.integration.mjs",

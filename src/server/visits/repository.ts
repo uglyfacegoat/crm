@@ -1,4 +1,5 @@
 import "server-only";
+import { readableOrganizationIds } from "@/server/organizations/read-scope";
 import { z } from "zod";
 import { AuthorizationError, hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
@@ -18,6 +19,7 @@ const visitRowSchema = z.object({
   series_id: uuidSchema.nullable(),
   occurrence_number: z.number().int().positive().nullable(),
   order_id: uuidSchema.nullable(),
+  contract_id: uuidSchema.nullable().optional(),
   order_number: z.string().nullable(),
   client_name_snapshot: z.string(),
   object_name_snapshot: z.string(),
@@ -134,6 +136,7 @@ function mapVisit(row: unknown): ServiceVisit {
     seriesId: visit.series_id,
     occurrenceNumber: visit.occurrence_number,
     orderId: visit.order_id,
+    contractId: visit.contract_id ?? null,
     orderNumber: visit.order_number,
     client: visit.client_name_snapshot,
     object: visit.object_name_snapshot,
@@ -216,13 +219,14 @@ export async function listOrderVisitHistory(member: AuthenticatedMember, orderId
   return buildVisitHistoryFeed(rows, orderVisitHistoryLimit);
 }
 
-export async function listVisits(member: AuthenticatedMember, rangeStart: string, rangeEnd: string, focusedOrderId: string | null = null): Promise<ServiceVisit[]> {
+export async function listVisits(member: AuthenticatedMember, rangeStart: string, rangeEnd: string, focusedOrderId: string | null = null, focusedContractId: string | null = null): Promise<ServiceVisit[]> {
   requireVisitRead(member);
   const bounds = z.object({ start: z.coerce.date(), end: z.coerce.date() }).parse({ start: rangeStart, end: rangeEnd });
+  const contractId = focusedContractId ? z.string().uuid().parse(focusedContractId) : null;
   const orderId = focusedOrderId ? z.string().uuid().parse(focusedOrderId) : null;
   if (bounds.end <= bounds.start) throw new RangeError("Visit range end must be after its start.");
   const sql = getDatabase();
-  const rows = await sql`SELECT service_visits.id, service_visits.series_id, service_visits.occurrence_number, service_visits.order_id, orders.order_number,
+  const rows = await sql`SELECT service_visits.contract_id, service_visits.id, service_visits.series_id, service_visits.occurrence_number, service_visits.order_id, orders.order_number,
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
     service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
@@ -243,11 +247,12 @@ export async function listVisits(member: AuthenticatedMember, rangeStart: string
     LEFT JOIN documents AS completion_documents ON completion_documents.organization_id = service_visits.organization_id
       AND completion_documents.id = service_visits.completion_document_id
     WHERE service_visits.organization_id = ${member.organizationId}
+      AND (${contractId}::uuid IS NULL OR service_visits.contract_id = ${contractId}::uuid)
       AND (${orderId}::uuid IS NULL OR service_visits.order_id = ${orderId}::uuid)
       AND service_visits.scheduled_start_at < ${bounds.end}
       AND service_visits.scheduled_end_at > ${bounds.start}
     ORDER BY service_visits.scheduled_start_at
-    LIMIT 500`;
+    LIMIT ${contractId ? null : 500}`;
   return rows.map(mapVisit);
 }
 
@@ -278,6 +283,7 @@ export async function listAssignedMasterVisits(member: AuthenticatedMember): Pro
 export async function getVisitDispatchCard(member: AuthenticatedMember, visitId: string): Promise<VisitDispatchCard> {
   const assignedMasterId = masterVisitScope(member, "visits.read");
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const rows = await sql`SELECT service_visits.id, service_visits.order_id, orders.order_number,
     clients.kind AS client_kind, objects.area_square_meters,
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
@@ -302,7 +308,7 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
       WHERE order_services.organization_id = service_visits.organization_id
         AND order_services.order_id = service_visits.order_id
     ) services ON true
-    WHERE service_visits.organization_id = ${member.organizationId} AND service_visits.id = ${visitId}
+    WHERE service_visits.organization_id IN ${sql(organizationIds)} AND service_visits.id = ${visitId}
       AND (${assignedMasterId === null} OR service_visits.assigned_master_id = ${assignedMasterId})`;
   if (!rows.length) throw new VisitNotFoundError();
   const row = dispatchCardRowSchema.parse(rows[0]);

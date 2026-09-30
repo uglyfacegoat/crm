@@ -273,7 +273,7 @@ function mapDocument(row: unknown): DocumentListItem {
 
 export async function listDocuments(
   member: AuthenticatedMember,
-  selection: DocumentArchiveSelection = {
+  selection: DocumentArchiveSelection & { contractId?: string } = {
     clientId: null,
     objectId: null,
     orderId: null,
@@ -317,6 +317,7 @@ export async function listDocuments(
       WHERE history.organization_id = documents.organization_id AND history.document_id = documents.id
     ) version_history ON true
     WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
+      AND (${selection.contractId ?? null}::uuid IS NULL OR documents.contract_id = ${selection.contractId ?? null}::uuid)
       AND (${selection.clientId}::uuid IS NULL OR documents.client_id = ${selection.clientId}::uuid)
       AND (${selection.objectId}::uuid IS NULL OR coalesce(documents.object_id, documents.order_id) = ${selection.objectId}::uuid)
       AND (${selection.orderId}::uuid IS NULL OR documents.order_id = ${selection.orderId}::uuid)

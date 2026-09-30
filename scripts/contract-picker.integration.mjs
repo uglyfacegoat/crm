@@ -18,7 +18,9 @@ const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
 let sql;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", root), { namedExports: { getDatabase: () => sql } });
-const { listContracts } = await import("../src/server/contracts/repository.ts");
+const { listContracts, listContractPage, getContract, listContractHistory, updateContract, ContractNotFoundError } = await import("../src/server/contracts/repository.ts");
+const { listVisits, getVisitDispatchCard, VisitNotFoundError } = await import("../src/server/visits/repository.ts");
+const { contractListQuerySchema } = await import("../src/lib/contract-list.ts");
 const { contractPickerQuerySchema, searchContractPicker } = await import("../src/server/contracts/option-picker.ts");
 
 test("contract pickers find objects, masters and contracts beyond initial caps within the organization", async (t) => {
@@ -70,7 +72,8 @@ test("contract pickers find objects, masters and contracts beyond initial caps w
   const initial = await listContracts(member);
   assert.equal(initial.objectOptions.length, 1000);
   assert.equal(initial.masterOptions.length, 500);
-  assert.equal(initial.contracts.length, 500);
+  assert.equal(initial.contracts.length, 50);
+  assert.equal(initial.summary.total, 502);
   assert.ok(!initial.objectOptions.some((item) => item.id === lastObject.id));
   assert.ok(!initial.masterOptions.some((item) => item.id === lastMaster.id));
   assert.ok(!initial.contracts.some((item) => item.id === lastContract.id));
@@ -85,10 +88,75 @@ test("contract pickers find objects, masters and contracts beyond initial caps w
   }
   const object = await searchContractPicker(member, contractPickerQuerySchema.parse({ type: "objects", q: "янтарный" }));
   assert.equal(object.items[0].clientId, client.id);
+  const defaults = contractListQuerySchema.parse({});
+  const allIds = [];
+  for (let page = 1; page <= 11; page += 1) {
+    const result = await listContractPage(member, { ...defaults, page });
+    assert.equal(result.total, 502);
+    assert.ok(result.items.length <= 50);
+    allIds.push(...result.items.map(item => item.id));
+  }
+  assert.equal(allIds.length, 502);
+  assert.equal(new Set(allIds).size, 502);
+  assert.ok(allIds.includes(lastContract.id));
+  assert.deepEqual((await listContractPage(member, { ...defaults, q: "янтарный договор" })).items.map(item => item.id), [lastContract.id]);
+  assert.equal((await listContractPage(member, { ...defaults, page: 999 })).page, 11);
+  assert.equal((await listContractPage(member, { ...defaults, dateFrom: "2027-01-01", dateTo: "2027-12-31" })).total, 1);
+  assert.equal((await listContractPage(member, { ...defaults, quick: "active" })).total, 0);
+  assert.equal((await listContractPage(member, { ...defaults, sort: "newest" })).items[0].id, lastContract.id);
   const [source] = await sql`SELECT id FROM contracts WHERE organization_id = ${organization.id} AND contract_number = 'А-0001'`;
   await sql`INSERT INTO contract_relations (organization_id, contract_a_id, contract_b_id, relation_type, created_by)
     VALUES (${organization.id}, ${source.id < lastContract.id ? source.id : lastContract.id},
       ${source.id < lastContract.id ? lastContract.id : source.id}, 'related', ${person.id})`;
   assert.deepEqual((await searchContractPicker(member, contractPickerQuerySchema.parse({ type: "contracts", sourceContractId: source.id, q: "янтарный" }))).items, []);
+  await sql`INSERT INTO contract_schedule_rules (organization_id, contract_id, frequency_unit, frequency_interval,
+    local_time, starts_on, ends_on, default_master_id)
+    VALUES (${organization.id}, ${lastContract.id}, 'month', 1, '10:15', '2027-01-01', '2027-12-31', ${lastMaster.id})`;
+  await sql`INSERT INTO contract_events (organization_id, contract_id, actor_id, event_type, after_state, reason)
+    VALUES (${organization.id}, ${lastContract.id}, ${person.id}, 'created', '{}'::jsonb, 'История из центра')`;
+  const byMaster = await listContractPage(member, { ...defaults, master: lastMaster.id, schedule: "scheduled" });
+  assert.deepEqual(byMaster.items.map(item => item.id), [lastContract.id]);
+  assert.equal(byMaster.summary.scheduledContracts, 1);
+  assert.equal((await listContractPage(member, { ...defaults, schedule: "unscheduled" })).total, 501);
+
+  const [center] = await sql`INSERT INTO organizations (name, timezone, organization_kind) VALUES ('Центр договоров', 'Europe/Moscow', 'center') RETURNING id`;
+  await sql`UPDATE organizations SET organization_kind = 'company', parent_organization_id = ${center.id} WHERE id = ${organization.id}`;
+  const [principal] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${center.id}, 'Center contract reader', 'center@contracts.invalid', 'admin') RETURNING id`;
+  const [session] = await sql`INSERT INTO auth_sessions (organization_id, member_id, token_hash, expires_at)
+    VALUES (${center.id}, ${principal.id}, ${'b'.repeat(64)}, now() + interval '1 day') RETURNING id`;
+  await sql`INSERT INTO organization_access_grants (principal_organization_id, principal_member_id, target_organization_id, target_member_id)
+    VALUES (${center.id}, ${principal.id}, ${organization.id}, ${person.id})`;
+  const centerMember = { ...member, organizationId: center.id, memberId: principal.id, sessionId: session.id };
+  await sql`INSERT INTO service_visits (organization_id, contract_id, object_id, scheduled_start_at, scheduled_end_at,
+      status, client_name_snapshot, object_name_snapshot, object_address_snapshot, created_by, updated_by)
+    SELECT ${organization.id}, ${lastContract.id}, ${lastObject.id}, '2027-01-01T00:00:00Z'::timestamptz + n * interval '1 hour',
+      '2027-01-01T00:00:00Z'::timestamptz + (n + 1) * interval '1 hour', 'planned', 'Наш клиент', 'Янтарный объект Ёж', 'Янтарный адрес 1002',
+      ${person.id}, ${person.id} FROM generate_series(1, 505) n`;
+  const calendar = await listVisits({ ...centerMember, organizationId: organization.id }, '2027-01-01T00:00:00Z', '2027-04-01T00:00:00Z', null, lastContract.id);
+  assert.equal(calendar.length, 505);
+  assert.equal(new Set(calendar.map(item => item.id)).size, 505);
+  assert.ok(calendar.every(item => item.contractId === lastContract.id));
+  assert.equal((await getVisitDispatchCard(centerMember, calendar[0].id)).client, 'Наш клиент');
+  assert.equal((await listContractPage(centerMember, defaults)).total, 502);
+  assert.equal((await getContract(centerMember, lastContract.id)).organizationId, organization.id);
+  assert.equal((await listContractHistory(centerMember, lastContract.id))[0].reason, 'История из центра');
+  assert.equal((await searchContractPicker(centerMember, contractPickerQuerySchema.parse({ type: "filter-masters", q: "еж" }))).items[0].id, lastMaster.id);
+  assert.equal((await searchContractPicker(centerMember, contractPickerQuerySchema.parse({ type: "masters", q: "еж" }))).items.length, 0);
+  const edit = { contractId: lastContract.id, expectedVersion: 1, contractNumber: 'Недопустимая правка', status: 'draft',
+    startsOn: '2027-01-01', endsOn: '2027-12-31', renewalNoticeDays: 30, notes: null, reason: null };
+  await assert.rejects(updateContract(centerMember, edit), ContractNotFoundError);
+  assert.equal((await getContract(member, lastContract.id)).version, 1);
+  const reader = { ...centerMember, role: 'deputy', permissionOverrides: { 'contracts.write': false } };
+  assert.equal((await searchContractPicker(reader, contractPickerQuerySchema.parse({ type: "filter-masters", q: "еж" }))).items.length, 1);
+  await assert.rejects(searchContractPicker(reader, contractPickerQuerySchema.parse({ type: "masters" })));
+  await sql`DELETE FROM organization_access_grants WHERE principal_organization_id = ${center.id}`;
+  assert.equal((await listContractPage(centerMember, defaults)).total, 0);
+  await assert.rejects(getVisitDispatchCard(centerMember, calendar[0].id), VisitNotFoundError);
+  await assert.rejects(getContract(centerMember, lastContract.id), ContractNotFoundError);
+  await assert.rejects(listContractHistory(centerMember, lastContract.id), ContractNotFoundError);
+  assert.equal((await searchContractPicker(centerMember, contractPickerQuerySchema.parse({ type: "filter-masters", q: "еж" }))).items.length, 0);
+  const [unchanged] = await sql`SELECT active_organization_id FROM auth_sessions WHERE id = ${session.id}`;
+  assert.equal(unchanged.active_organization_id, null);
   await assert.rejects(searchContractPicker({ ...member, role: "master" }, contractPickerQuerySchema.parse({ type: "objects" })));
 });

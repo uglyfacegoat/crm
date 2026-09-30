@@ -23,6 +23,9 @@ export type ContractRelation = {
 };
 
 export type ContractListItem = {
+  organizationId?: string;
+  organizationName?: string;
+  organizationTimezone?: string;
   id: string;
   contractNumber: string;
   clientId: string;

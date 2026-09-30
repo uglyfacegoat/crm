@@ -36,13 +36,16 @@ export default async function ContractDetailPage({
     throw error;
   }
   if (!contract) notFound();
+  const viewingAcrossCompanies = !preview && contract.organizationId !== member.organizationId;
+  const readMember = viewingAcrossCompanies ? { ...member, organizationId: contract.organizationId! } : member;
   const [documents, history] = preview
     ? [[], []]
     : await Promise.all([
         hasPermission(member, "documents.read")
-          ? listDocuments(member, {
-              clientId: contract.clientId,
-              objectId: contract.objectId,
+          ? listDocuments(readMember, {
+              contractId: contract.id,
+              clientId: null,
+              objectId: null,
               orderId: null,
               category: "contract",
               folderId: null,
@@ -55,12 +58,13 @@ export default async function ContractDetailPage({
   return (
     <ContractDetailWorkspace
       contract={contract}
+      companyReadOnly={viewingAcrossCompanies ? contract.organizationName : undefined}
       documents={orderedDocuments}
       history={history}
-      canWrite={hasPermission(member, "contracts.write") && !preview}
-      canReplaceDocuments={hasPermission(member, "documents.write") && !preview}
+      canWrite={hasPermission(member, "contracts.write") && !preview && !viewingAcrossCompanies}
+      canReplaceDocuments={hasPermission(member, "documents.write") && !preview && !viewingAcrossCompanies}
       currentDate={new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Europe/Moscow",
+        timeZone: contract.organizationTimezone ?? "Europe/Moscow",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",

@@ -11,7 +11,6 @@ export async function GET(request: Request) {
   try {
     const member = await getCurrentSession();
     if (!member) return Response.json({ error: { code: "unauthenticated", message: "Требуется вход." } }, { status: 401, headers });
-    requirePermission(member, "contracts.write");
     const url = new URL(request.url);
     const parsed = contractPickerQuerySchema.safeParse({
       type: url.searchParams.get("type"),
@@ -19,6 +18,7 @@ export async function GET(request: Request) {
       sourceContractId: url.searchParams.get("sourceContractId") ?? undefined,
     });
     if (!parsed.success) return Response.json({ error: { code: "validation_error", message: "Некорректные параметры выбора." } }, { status: 400, headers });
+    requirePermission(member, parsed.data.type === "filter-masters" ? "contracts.read" : "contracts.write");
     if (getAuthMode() === "preview") return Response.json({ error: { code: "preview_only", message: "В демонстрации доступны только примеры." } }, { status: 404, headers });
     const budget = await consumeRequestLimit(member, "order_picker");
     if (!budget.allowed) return Response.json({ error: { code: "rate_limited", message: `Слишком много запросов. Повторите через ${budget.retryAfterSeconds} сек.` } }, { status: 429, headers: { ...headers, "Retry-After": String(budget.retryAfterSeconds) } });

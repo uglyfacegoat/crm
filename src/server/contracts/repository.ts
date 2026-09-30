@@ -2,6 +2,8 @@ import "server-only";
 import type { TransactionSql } from "postgres";
 import { z } from "zod";
 import { generateVisitRecurrenceDates } from "@/lib/visits/recurrence";
+import { CONTRACT_PAGE_SIZE, contractListQuerySchema, type ContractListPage, type ContractListQuery } from "@/lib/contract-list";
+import { readableOrganizationIds } from "@/server/organizations/read-scope";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
@@ -16,6 +18,7 @@ const contractRelationRowSchema = z.object({
   note: z.string().nullable(),
 });
 const contractRowSchema = z.object({
+  organization_id: uuidSchema, organization_name: z.string(), organization_timezone: z.string(),
   id: uuidSchema,
   contract_number: z.string(),
   client_id: uuidSchema,
@@ -122,6 +125,7 @@ function mapContract(value: unknown): ContractListItem {
   const row = contractRowSchema.parse(value);
   const hasSchedule = row.schedule_rule_id !== null;
   return {
+    organizationId: row.organization_id, organizationName: row.organization_name, organizationTimezone: row.organization_timezone,
     id: row.id,
     contractNumber: row.contract_number,
     clientId: row.client_id,
@@ -224,11 +228,13 @@ async function createContractSchedule(
   return ranges.length;
 }
 
-export async function listContracts(member: AuthenticatedMember): Promise<ContractSnapshot> {
+export async function listContractPage(member: AuthenticatedMember, input: ContractListQuery): Promise<ContractListPage> {
   requirePermission(member, "contracts.read");
+  const query = contractListQuerySchema.parse(input);
   const sql = getDatabase();
-  const [contractRows, objectRows, masterRows] = await Promise.all([
-    sql`SELECT contracts.id, contracts.contract_number, contracts.client_id, clients.legal_name AS client_name,
+  const organizationIds = await readableOrganizationIds(member);
+  const [result] = await sql`WITH base AS (
+SELECT contracts.organization_id, organizations.name AS organization_name, organizations.timezone AS organization_timezone, contracts.id, contracts.contract_number, contracts.client_id, clients.legal_name AS client_name,
         contracts.object_id, client_objects.name AS object_name, client_objects.address AS object_address,
         contracts.status, contracts.starts_on::text, contracts.ends_on::text, contracts.renewal_notice_days,
         contracts.notes, contracts.version, contracts.renewed_from_contract_id, successor.id AS renewed_by_contract_id,
@@ -262,10 +268,46 @@ export async function listContracts(member: AuthenticatedMember): Promise<Contra
         WHERE relation.organization_id = contracts.organization_id
           AND contracts.id IN (relation.contract_a_id, relation.contract_b_id)
       ) contract_links ON true
-      WHERE contracts.organization_id = ${member.organizationId}
-      ORDER BY CASE contracts.status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 WHEN 'suspended' THEN 2 ELSE 3 END,
-        contracts.ends_on, contracts.created_at DESC
-      LIMIT 500`,
+      WHERE contracts.organization_id IN ${sql(organizationIds)}
+    ), filtered AS (
+      SELECT * FROM base WHERE
+        (${query.q} = '' OR crm_search_matches(concat_ws(' ', contract_number, client_name, object_name, object_address,
+          default_master_name, organization_name, (SELECT string_agg(value->>'contract_number', ' ') FROM jsonb_array_elements(related_contracts) value)), ${query.q}))
+        AND (${query.quick} = 'all' OR (${query.quick} = 'active' AND status = 'active')
+          OR (${query.quick} = 'expiring' AND days_until_end BETWEEN 0 AND renewal_notice_days)
+          OR (${query.quick} = 'scheduled' AND schedule_rule_id IS NOT NULL))
+        AND (${query.status} = 'all' OR status = ${query.status})
+        AND (${query.schedule} = 'all' OR (${query.schedule} = 'scheduled' AND schedule_rule_id IS NOT NULL)
+          OR (${query.schedule} = 'unscheduled' AND schedule_rule_id IS NULL))
+        AND (${query.expiry} = 'all' OR (${query.expiry} = 'attention' AND days_until_end BETWEEN 0 AND renewal_notice_days)
+          OR (${query.expiry} = 'expired' AND days_until_end < 0))
+        AND (${query.dateFrom ?? null}::date IS NULL OR ends_on::date >= ${query.dateFrom ?? null}::date)
+        AND (${query.dateTo ?? null}::date IS NULL OR ends_on::date <= ${query.dateTo ?? null}::date)
+        AND (${query.master ?? null}::uuid IS NULL OR default_master_id = ${query.master ?? null}::uuid)
+    ), totals AS (SELECT count(*)::int total FROM filtered), paging AS (
+      SELECT total, least(${query.page}, greatest(1, ceil(total::numeric / ${CONTRACT_PAGE_SIZE})::int)) AS page FROM totals
+    ), selected AS (
+      SELECT * FROM filtered ORDER BY
+        CASE WHEN ${query.sort} = 'expiry-asc' THEN ends_on END ASC,
+        CASE WHEN ${query.sort} = 'expiry-desc' THEN ends_on END DESC,
+        CASE WHEN ${query.sort} = 'newest' THEN starts_on END DESC,
+        CASE WHEN ${query.sort} = 'oldest' THEN starts_on END ASC, id
+      LIMIT ${CONTRACT_PAGE_SIZE} OFFSET (SELECT (page - 1) * ${CONTRACT_PAGE_SIZE} FROM paging)
+    ) SELECT paging.total, paging.page, coalesce((SELECT jsonb_agg(to_jsonb(selected)) FROM selected), '[]'::jsonb) AS items,
+      (SELECT jsonb_build_object('total', count(*)::int, 'active', count(*) FILTER (WHERE status = 'active')::int,
+        'expiring', count(*) FILTER (WHERE status = 'active' AND days_until_end BETWEEN 0 AND renewal_notice_days)::int,
+        'scheduledContracts', count(*) FILTER (WHERE schedule_rule_id IS NOT NULL)::int,
+        'scheduledVisits', coalesce(sum(visit_count), 0)::int) FROM base) AS summary FROM paging`;
+  const parsed = z.object({ total: z.number().int(), page: z.number().int(), items: z.array(z.unknown()),
+    summary: z.object({ total: z.number().int(), active: z.number().int(), expiring: z.number().int(), scheduledContracts: z.number().int(), scheduledVisits: z.number().int() }) }).parse(result);
+  return { ...parsed, items: parsed.items.map(mapContract), pageSize: CONTRACT_PAGE_SIZE };
+}
+
+export async function listContracts(member: AuthenticatedMember): Promise<ContractSnapshot & { initialPage: ContractListPage }> {
+  requirePermission(member, "contracts.read");
+  const sql = getDatabase();
+  const [initialPage, objectRows, masterRows] = await Promise.all([
+    listContractPage(member, contractListQuerySchema.parse({})),
     sql`SELECT client_objects.id, client_objects.client_id, clients.legal_name AS client_name,
         client_objects.name, client_objects.address
       FROM client_objects JOIN clients ON clients.organization_id = client_objects.organization_id AND clients.id = client_objects.client_id
@@ -274,23 +316,19 @@ export async function listContracts(member: AuthenticatedMember): Promise<Contra
     sql`SELECT id, full_name, service_region AS region FROM masters
       WHERE organization_id = ${member.organizationId} AND active AND operational_status = 'working' ORDER BY full_name LIMIT 500`,
   ]);
-  const contracts = contractRows.map(mapContract);
   return {
-    contracts,
+    contracts: initialPage.items,
     objectOptions: objectRows.map((row) => z.object({ id: uuidSchema, client_id: uuidSchema, client_name: z.string(), name: z.string(), address: z.string() }).parse(row)).map((row) => ({ id: row.id, clientId: row.client_id, clientName: row.client_name, name: row.name, address: row.address })),
     masterOptions: masterRows.map((row) => z.object({ id: uuidSchema, full_name: z.string(), region: z.string() }).parse(row)).map((row) => ({ id: row.id, name: row.full_name, region: row.region })),
-    summary: {
-      total: contracts.length,
-      active: contracts.filter((contract) => contract.status === "active").length,
-      expiring: contracts.filter((contract) => contract.status === "active" && contract.daysUntilEnd >= 0 && contract.daysUntilEnd <= contract.renewalNoticeDays).length,
-      scheduledVisits: contracts.reduce((total, contract) => total + (contract.schedule?.visitCount ?? 0), 0),
-    },
+    summary: initialPage.summary, initialPage,
   };
 }
 
 export async function getContract(member: AuthenticatedMember, contractId: string): Promise<ContractListItem> {
   requirePermission(member, "contracts.read");
-  const [row] = await getDatabase()`SELECT contracts.id, contracts.contract_number, contracts.client_id, clients.legal_name AS client_name,
+  const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
+  const [row] = await sql`SELECT contracts.organization_id, organizations.name AS organization_name, organizations.timezone AS organization_timezone, contracts.id, contracts.contract_number, contracts.client_id, clients.legal_name AS client_name,
       contracts.object_id, client_objects.name AS object_name, client_objects.address AS object_address,
       contracts.status, contracts.starts_on::text, contracts.ends_on::text, contracts.renewal_notice_days,
       contracts.notes, contracts.version, contracts.renewed_from_contract_id, successor.id AS renewed_by_contract_id,
@@ -324,7 +362,7 @@ export async function getContract(member: AuthenticatedMember, contractId: strin
       WHERE relation.organization_id = contracts.organization_id
         AND contracts.id IN (relation.contract_a_id, relation.contract_b_id)
     ) contract_links ON true
-    WHERE contracts.organization_id = ${member.organizationId} AND contracts.id = ${contractId}`;
+    WHERE contracts.organization_id IN ${sql(organizationIds)} AND contracts.id = ${contractId}`;
   if (!row) throw new ContractNotFoundError();
   return mapContract(row);
 }
@@ -524,14 +562,15 @@ export async function linkContracts(member: AuthenticatedMember, input: LinkCont
 export async function listContractHistory(member: AuthenticatedMember, contractId: string): Promise<ContractHistoryEvent[]> {
   requirePermission(member, "contracts.read");
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const [exists, rows] = await Promise.all([
-    sql`SELECT id FROM contracts WHERE organization_id = ${member.organizationId} AND id = ${contractId}`,
+    sql`SELECT id FROM contracts WHERE organization_id IN ${sql(organizationIds)} AND id = ${contractId}`,
     sql`SELECT contract_events.id, contract_events.event_type, contract_events.before_state,
         contract_events.after_state, contract_events.reason, contract_events.created_at,
         organization_members.display_name AS actor_name
       FROM contract_events LEFT JOIN organization_members
         ON organization_members.organization_id = contract_events.organization_id AND organization_members.id = contract_events.actor_id
-      WHERE contract_events.organization_id = ${member.organizationId} AND contract_events.contract_id = ${contractId}
+      WHERE contract_events.organization_id IN ${sql(organizationIds)} AND contract_events.contract_id = ${contractId}
       ORDER BY contract_events.created_at DESC, contract_events.id DESC LIMIT 200`,
   ]);
   if (!exists.length) throw new ContractNotFoundError();

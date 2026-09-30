@@ -14,13 +14,16 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import Link from "next/link";
+import { contractCalendarHref } from "@/lib/contract-calendar";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ContractDialogs,
   NewContractButton,
   type ContractDialogMode,
 } from "@/components/contracts/contract-dialogs";
+import { OrderPicker } from "@/components/orders/order-form-parts";
+import type { ContractListPage } from "@/lib/contract-list";
 import { Dialog } from "@/components/ui/dialog";
 import { formatDateInput, parseDateInput } from "@/lib/date-input";
 import { matchesSearchText } from "@/lib/search-normalization";
@@ -111,13 +114,13 @@ function formatDate(date: string) {
     year: "numeric",
   }).format(new Date(`${date}T12:00:00Z`));
 }
-function formatDateTime(date: string) {
+function formatDateTime(date: string, timeZone = "Europe/Moscow") {
   return new Intl.DateTimeFormat("ru-RU", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Moscow",
+    timeZone,
   }).format(new Date(date));
 }
 function frequencyLabel(contract: ContractListItem) {
@@ -170,11 +173,22 @@ function FilterChoice<T extends string>({
 export function ContractsWorkspace({
   snapshot,
   canWrite,
+  initialPage = null,
+  currentOrganizationId,
 }: {
+  initialPage?: ContractListPage | null;
+  currentOrganizationId?: string;
   snapshot: ContractSnapshot;
   canWrite: boolean;
 }) {
   const router = useRouter();
+  const [page, setPage] = useState(1);
+  const [remotePage, setRemotePage] = useState(initialPage);
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [retry, setRetry] = useState(0);
+  const firstFetch = useRef(true);
   const [query, setQuery] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -184,7 +198,31 @@ export function ContractsWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<ContractDialogMode>(null);
   const selected =
-    snapshot.contracts.find((contract) => contract.id === selectedId) ?? null;
+    (remotePage?.items ?? snapshot.contracts).find((contract) => contract.id === selectedId) ?? null;
+  const params = new URLSearchParams({ q: query, quick: quickFilter, status: advanced.status, schedule: advanced.schedule,
+    expiry: advanced.expiry, sort: advanced.sort, page: String(page) });
+  const from = parseDateInput(advanced.dateFrom); const to = parseDateInput(advanced.dateTo);
+  if (from) params.set("dateFrom", from); if (to) params.set("dateTo", to); if (advanced.master) params.set("master", advanced.master);
+  const requestKey = params.toString();
+  const initialKey = "q=&quick=all&status=all&schedule=all&expiry=all&sort=expiry-asc&page=1";
+  const validRemote = remotePage && (loadedKey === requestKey || (!loadedKey && requestKey === initialKey));
+  useEffect(() => {
+    if (!initialPage) return;
+    if (firstFetch.current) { firstFetch.current = false; return; }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoadingKey(requestKey); setErrorKey(null);
+      try {
+        const response = await fetch(`/api/v1/contracts?${requestKey}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Contract list request failed");
+        const payload = await response.json() as { data: ContractListPage };
+        if (!controller.signal.aborted) { setRemotePage(payload.data); setLoadedKey(requestKey); }
+      } catch { if (!controller.signal.aborted) setErrorKey(requestKey); }
+      finally { if (!controller.signal.aborted) setLoadingKey(null); }
+    }, query ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [initialPage, requestKey, retry, query]);
+  const summary = remotePage?.summary ?? snapshot.summary;
   const masters = useMemo(
     () =>
       Array.from(
@@ -199,13 +237,13 @@ export function ContractsWorkspace({
     [snapshot.contracts],
   );
   const counts: Record<QuickFilter, number> = {
-    all: snapshot.summary.total,
-    active: snapshot.summary.active,
-    expiring: snapshot.summary.expiring,
-    scheduled: snapshot.contracts.filter((contract) => contract.schedule)
-      .length,
+    all: summary.total,
+    active: summary.active,
+    expiring: summary.expiring,
+    scheduled: remotePage?.summary.scheduledContracts ?? snapshot.contracts.filter((contract) => contract.schedule).length,
   };
   const visible = useMemo(() => {
+    if (initialPage) return validRemote ? remotePage!.items : [];
     const dateFrom = parseDateInput(advanced.dateFrom);
     const dateTo = parseDateInput(advanced.dateTo);
     const filtered = snapshot.contracts.filter((contract) => {
@@ -260,7 +298,7 @@ export function ContractsWorkspace({
         return left.startsOn.localeCompare(right.startsOn);
       return left.endsOn.localeCompare(right.endsOn);
     });
-  }, [advanced, query, quickFilter, snapshot.contracts]);
+  }, [advanced, query, quickFilter, snapshot.contracts, initialPage, remotePage, validRemote]);
 
   function open(
     contract: ContractListItem,
@@ -290,10 +328,12 @@ export function ContractsWorkspace({
       return;
     }
     setAdvanced(draft);
+    setPage(1);
     setAdvancedOpen(false);
   }
   function resetFilters() {
     setQuery("");
+    setPage(1);
     setQuickFilter("all");
     setAdvanced(defaultAdvancedFilters);
     setDraft(defaultAdvancedFilters);
@@ -315,7 +355,7 @@ export function ContractsWorkspace({
             <button
               key={entry.value}
               type="button"
-              onClick={() => setQuickFilter(entry.value)}
+              onClick={() => { setQuickFilter(entry.value); setPage(1); }}
               aria-pressed={quickFilter === entry.value}
               className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors ${quickFilter === entry.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
             >
@@ -336,7 +376,8 @@ export function ContractsWorkspace({
             <Search className="size-4 shrink-0 text-[var(--muted)]" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              maxLength={100}
+              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
               placeholder="Номер, клиент, объект, адрес или мастер"
               className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
             />
@@ -366,7 +407,7 @@ export function ContractsWorkspace({
               </button>
             ) : null}
             <span className="ml-auto shrink-0 text-[10px] text-[var(--muted)]">
-              {visible.length} из {snapshot.contracts.length}
+              {initialPage ? (validRemote ? remotePage!.total : "…") : visible.length} из {summary.total}
               {totalFilterCount
                 ? ` · ${totalFilterCount} активных условий`
                 : ""}
@@ -377,7 +418,7 @@ export function ContractsWorkspace({
           ) : null}
         </header>
 
-        <div className="hidden min-w-[70rem] grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_10rem] items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-[9px] uppercase tracking-[0.1em] text-[var(--muted)] lg:grid">
+        <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_6rem_8rem_8rem_10rem] items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-[9px] uppercase tracking-[0.1em] text-[var(--muted)] xl:grid">
           <span>Договор</span>
           <span>Клиент / объект</span>
           <span>Период</span>
@@ -387,6 +428,7 @@ export function ContractsWorkspace({
         </div>
         <div>
           {visible.map((contract) => {
+            const rowCanWrite = canWrite && (!contract.organizationId || contract.organizationId === currentOrganizationId);
             const presentation = statusPresentation[contract.status];
             return (
               <article
@@ -400,9 +442,9 @@ export function ContractsWorkspace({
                     router.push(`/contracts/${contract.id}`);
                   }
                 }}
-                className="cursor-pointer border-b border-[var(--line)] p-4 transition-colors last:border-0 hover:bg-[var(--surface-soft)] lg:grid lg:min-w-[70rem] lg:grid-cols-[minmax(12rem,1.2fr)_minmax(15rem,1.8fr)_9rem_10rem_11rem_10rem] lg:items-center lg:gap-4 lg:px-5 lg:py-4"
+                className="cursor-pointer border-b border-[var(--line)] p-4 transition-colors last:border-0 hover:bg-[var(--surface-soft)] xl:grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_6rem_8rem_8rem_10rem] xl:items-center xl:gap-4 xl:px-5 xl:py-4"
               >
-                <div className="flex items-start justify-between gap-3 lg:block">
+                <div className="flex items-start justify-between gap-3 xl:block">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
@@ -427,17 +469,18 @@ export function ContractsWorkspace({
                     type="button"
                     onClick={() => open(contract, "history")}
                     aria-label={`История договора ${contract.contractNumber}`}
-                    className="focus-ring grid size-9 shrink-0 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] lg:hidden"
+                    className="focus-ring grid size-9 shrink-0 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] xl:hidden"
                   >
                     <History className="size-4" />
                   </button>
                 </div>
-                <div className="mt-4 min-w-0 lg:mt-0">
+                <div className="mt-4 min-w-0 xl:mt-0">
                   <p className="truncate text-xs font-medium text-[var(--text)]">
                     {contract.clientName}
                   </p>
                   <p className="mt-1 truncate text-[10px] text-[var(--text-secondary)]">
                     {contract.objectName} · {contract.objectAddress}
+                    {contract.organizationId !== currentOrganizationId && contract.organizationName ? <span className="mt-1 block text-[10px] text-[var(--muted)]">{contract.organizationName}</span> : null}
                   </p>
                   {contract.renewedFromContractId ? (
                     <p className="mt-1 text-[9px] text-[var(--support)]">
@@ -451,9 +494,9 @@ export function ContractsWorkspace({
                     </p>
                   ) : null}
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 lg:mt-0 lg:block">
+                <div className="mt-4 grid grid-cols-2 gap-3 xl:mt-0 xl:block">
                   <div>
-                    <p className="text-[9px] text-[var(--muted)] lg:hidden">
+                    <p className="text-[9px] text-[var(--muted)] xl:hidden">
                       Начало
                     </p>
                     <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
@@ -461,7 +504,7 @@ export function ContractsWorkspace({
                     </p>
                   </div>
                   <div>
-                    <p className="text-[9px] text-[var(--muted)] lg:hidden">
+                    <p className="text-[9px] text-[var(--muted)] xl:hidden">
                       Окончание
                     </p>
                     <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
@@ -469,7 +512,7 @@ export function ContractsWorkspace({
                     </p>
                   </div>
                 </div>
-                <div className="mt-4 lg:mt-0">
+                <div className="mt-4 xl:mt-0">
                   <p className="text-[10px] text-[var(--text-secondary)]">
                     {frequencyLabel(contract)}
                   </p>
@@ -479,14 +522,14 @@ export function ContractsWorkspace({
                       : "Можно добавить при продлении"}
                   </p>
                 </div>
-                <div className="mt-4 lg:mt-0">
+                <div className="mt-4 xl:mt-0">
                   {contract.nextVisitAt ? (
                     <Link
-                      href="/calendar"
+                      href={contractCalendarHref(contract)}
                       className="focus-ring inline-flex items-center gap-2 rounded text-[10px] text-[var(--success)] hover:text-[var(--support-strong)]"
                     >
                       <CalendarClock className="size-3.5" />
-                      {formatDateTime(contract.nextVisitAt)}
+                      {formatDateTime(contract.nextVisitAt, contract.organizationTimezone)}
                     </Link>
                   ) : (
                     <span className="text-[10px] text-[var(--muted)]">
@@ -494,17 +537,17 @@ export function ContractsWorkspace({
                     </span>
                   )}
                 </div>
-                <div className="mt-4 flex justify-end gap-1.5 lg:mt-0">
+                <div className="mt-4 flex justify-end gap-1.5 xl:mt-0">
                   <button
                     type="button"
                     onClick={() => open(contract, "history")}
                     aria-label={`История договора ${contract.contractNumber}`}
                     title="История"
-                    className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
+                    className="focus-ring hidden size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)] xl:grid"
                   >
                     <History className="size-3.5" />
                   </button>
-                  {canWrite ? (
+                  {rowCanWrite ? (
                     <>
                       <button
                         type="button"
@@ -550,7 +593,15 @@ export function ContractsWorkspace({
             );
           })}
         </div>
-        {!visible.length ? (
+        {initialPage && !validRemote ? <div className="p-6 text-center text-sm" role="status">
+          {errorKey === requestKey ? <><p>Не удалось загрузить договоры.</p><button type="button" className="focus-ring mt-3 underline" onClick={() => setRetry(value => value + 1)}>Повторить</button></> : "Загрузка договоров…"}
+        </div> : null}
+        {initialPage && remotePage && remotePage.total > remotePage.pageSize ? <nav aria-label="Страницы договоров" className="flex items-center justify-between gap-3 border-t border-[var(--line)] p-4 text-xs">
+          <button type="button" disabled={!validRemote || remotePage!.page <= 1 || loadingKey === requestKey} onClick={() => setPage(remotePage!.page - 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Предыдущая страница</button>
+          <span>Страница {remotePage!.page} из {Math.ceil(remotePage!.total / remotePage!.pageSize)}</span>
+          <button type="button" disabled={!validRemote || remotePage!.page * remotePage!.pageSize >= remotePage!.total || loadingKey === requestKey} onClick={() => setPage(remotePage!.page + 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Следующая страница</button>
+        </nav> : null}
+        {!visible.length && (!initialPage || validRemote) ? (
           <div className="grid min-h-56 place-items-center p-8 text-center">
             <div>
               <FileSignature className="mx-auto size-8 text-[var(--muted-subtle)]" />
@@ -705,7 +756,9 @@ export function ContractsWorkspace({
             <legend className="mb-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">
               Ответственный мастер
             </legend>
-            <div
+            {initialPage ? <OrderPicker label="Мастер договора" value={draft.master} onChange={master => setDraft(current => ({ ...current, master }))}
+              options={[{ value: "", label: "Любой мастер" }]} pinnedValues={[""]} placeholder="Любой мастер" searchPlaceholder="Имя или телефон мастера"
+              remoteUrl="/api/v1/contracts/options?type=filter-masters" /> : <div
               className="max-h-48 space-y-1 overflow-y-auto rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] p-1.5"
               role="radiogroup"
             >
@@ -731,7 +784,7 @@ export function ContractsWorkspace({
                   }
                 />
               ))}
-            </div>
+            </div>}
           </fieldset>
           <fieldset>
             <legend className="mb-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">
