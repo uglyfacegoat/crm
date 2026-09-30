@@ -54,6 +54,8 @@ try {
       VALUES (${principal.organization_id}, ${client.id}, ${object.id}, ${`ARRIVAL-${n}`}, 'new', 'RUB', 'Arrival customer', 'Arrival object', 'Test address') RETURNING id`;
     orders.push(order.id);
   }
+  await sql`UPDATE orders SET agreed_total_minor = 123456789, paid_total_minor = 98765432
+    WHERE id = ${orders[0]}`;
   const buildDirectory = dirname(dirname(resolve(runtime)));
   await cp(join(buildDirectory, 'static'), join(dirname(resolve(runtime)), basename(buildDirectory), 'static'), { recursive: true, force: true });
   await cp(resolve('public'), join(dirname(resolve(runtime)), 'public'), { recursive: true, force: true });
@@ -95,6 +97,28 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, JSON.stringify(await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth, elements: [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width && (r.right > innerWidth + 1 || r.left < -1); }).slice(0, 12).map(el => ({ tag: el.tagName, class: String(el.className).slice(0,100), rect: el.getBoundingClientRect().toJSON() })) }))));
   }
   await login(page, accounts.owner);
+  // Open edge and central chart tooltips with real, nonzero persisted money.
+  // The former last-bar tooltip added 142px to the mobile document width.
+  for (const width of [390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${base}/analytics`); await safeArea();
+    await page.getByRole('heading', { name: 'Деньги по дням', exact: true }).waitFor();
+    const bars = page.locator('.analytics-bar-group:visible');
+    const count = await bars.count(); assert(count >= 5, 'Persisted amounts must produce a money chart');
+    for (const index of [0, Math.floor(count / 2), count - 1]) {
+      const bar = bars.nth(index); await bar.scrollIntoViewIfNeeded(); await bar.hover();
+      await page.waitForFunction(() => [...document.querySelectorAll('.analytics-bar-group:hover')]
+        .some((element) => getComputedStyle(element, '::after').opacity === '1'));
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false,
+        `Money tooltip ${index + 1}/${count} overflows at ${width}px`);
+      await page.mouse.move(0, 0); await page.keyboard.press('Tab'); await bar.focus();
+      await page.waitForFunction(() => [...document.querySelectorAll('.analytics-bar-group:focus-visible')]
+        .some((element) => getComputedStyle(element, '::after').opacity === '1'));
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false,
+        `Keyboard tooltip ${index + 1}/${count} overflows at ${width}px`);
+    }
+    await page.screenshot({ path: `artifacts/mobile-shell/analytics-tooltip-${width}.png` });
+  }
   for (const width of [390,768,1024]) {
     await page.setViewportSize({width,height:900}); await page.goto(`${base}/quick-order`); await safeArea();
     assert.ok((await page.getByRole('button', {name:'Открыть глобальный поиск',exact:true}).boundingBox()).y >= 59);
@@ -140,7 +164,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('chat-screen-open')),false);
   assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).overflowY),'hidden','Returning to CRM restores scrolling');
   assert.deepEqual(errors,[]);
-  console.log('Mobile shell browser passed: simulated safe areas/keyboard, 390/768/1024px, landscape sides, order modal actions, chat lock/draft, mail composer, CRM return. Real iPhone/WebKit remains a separate check.');
+  console.log('Mobile shell browser passed: money chart edge/middle tooltips by pointer and keyboard at 390/768/1024/1440px; simulated safe areas/keyboard, 390/768/1024px, landscape sides, order modal actions, chat lock/draft, mail composer, CRM return. Real iPhone/WebKit remains a separate check.');
 } catch (error) {
   if (page) { await mkdir('artifacts/mobile-shell', { recursive: true }); await page.screenshot({ path: 'artifacts/mobile-shell/failure.png', timeout: 5000 }).catch(() => {}); console.error((await page.locator('body').innerText()).slice(-1800)); }
   throw error;
