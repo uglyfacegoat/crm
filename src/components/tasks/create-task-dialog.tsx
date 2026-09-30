@@ -160,7 +160,7 @@ function CreateTaskForm({
           <OrderPicker label="Приоритет" value={priority} onChange={setPriority}
             options={[{ value: "low", label: "Низкий" }, { value: "normal", label: "Обычный" },
               { value: "high", label: "Высокий" }, { value: "critical", label: "Критичный" }]}
-            placeholder="Выберите приоритет" searchable={false} errors={state.fieldErrors.priority} />
+            placeholder="Выберите приоритет" errors={state.fieldErrors.priority} />
         </div>
         <p className="task-create-note">
           Автоматические напоминания создаются из выездов.

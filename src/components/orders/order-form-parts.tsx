@@ -49,6 +49,7 @@ export function OrderPicker({
   errors,
   placement,
   searchable = true,
+  hideLabel = false,
   searchPlaceholder = label === "Мастер" ? "ФИО или телефон" : "Найти вариант",
   remote,
   remoteUrl,
@@ -65,6 +66,7 @@ export function OrderPicker({
   errors?: string[];
   placement?: "top" | "bottom";
   searchable?: boolean;
+  hideLabel?: boolean;
   searchPlaceholder?: string;
   remote?: { type: OrderPickerQuery["type"]; clientId?: string };
   remoteUrl?: string;
@@ -136,7 +138,7 @@ export function OrderPicker({
       : "top-[3.25rem]";
   return (
     <div className="grid gap-2 text-[10px] text-[var(--muted)]">
-      <span>
+      <span className={hideLabel ? "sr-only" : undefined}>
         {label}
         {required ? " *" : ""}
       </span>

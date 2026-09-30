@@ -140,6 +140,16 @@ try {
   await sql`INSERT INTO object_service_profiles (organization_id, object_id, area_square_meters) VALUES (${principal.organization_id}, ${object.id}, 100)`;
   await sql`INSERT INTO object_service_rates (organization_id, object_id, name, billing_basis, quantity, unit_price_minor, position)
     VALUES (${principal.organization_id}, ${object.id}, 'Picker service', 'area', 1, 50, 1)`;
+  let releaseProfiles;
+  const profileGate = new Promise((resolveGate) => { releaseProfiles = resolveGate; });
+  let delayedProfile = false;
+  await page.route('**/api/v1/services/profiles?q=*&page=0', async (route) => {
+    if (delayedProfile) return route.continue();
+    delayedProfile = true;
+    const response = await route.fetch();
+    await profileGate;
+    await route.fulfill({ response });
+  });
   await page.goto(`${base}/services`);
   await page.getByRole('tab', { name: /Условия по объектам/ }).click();
   const section = page.getByRole('region', { name: 'Условия объекта' });
@@ -151,7 +161,12 @@ try {
   ]) {
     await choose(section, 'Расчёт', search, label);
     await section.getByLabel(priceLabel, { exact: false }).fill('0,50');
-    if (quantity) await section.getByLabel('Количество', { exact: true }).fill(quantity);
+    if (quantity) {
+      await section.getByLabel('Количество', { exact: true }).fill(quantity);
+      releaseProfiles();
+      await page.waitForLoadState('networkidle');
+      assert.equal(await section.getByLabel('Количество', { exact: true }).inputValue(), quantity, 'A delayed response for the same object version must preserve edits');
+    }
     const expectedTotal = { 150: '1,50 ₽', 50: '0,50 ₽', 5000: '50 ₽' }[expectedMinor];
     await section.getByText(`Итого: ${expectedTotal}`, { exact: true }).waitFor();
     await section.getByRole('button', { name: 'Сохранить условия', exact: true }).click();
@@ -181,6 +196,53 @@ try {
   assert.equal(await readonlyPicker.getAttribute('aria-disabled'), 'true');
   await readonlyPicker.click();
   assert.equal(await readonlyPicker.locator('..').getAttribute('open'), null);
+  await page.goto(`${base}/settings/users/${reader.id}`);
+  const roleChoice = page.getByRole('button', { name: 'Роль сотрудника', exact: true });
+  const roleBefore = await page.locator('input[name="role"]').inputValue();
+  await roleChoice.click();
+  await mkdir('artifacts/picker-forms', { recursive: true });
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Settings overflow at ${width}`);
+    await roleChoice.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `artifacts/picker-forms/settings-${width}.png` });
+  }
+  const roleSearch = page.getByRole('textbox', { name: 'Поиск: Роль сотрудника', exact: true });
+  await roleSearch.fill('Координатор');
+  assert.equal(await page.getByRole('listbox', { name: 'Роль сотрудника' }).getByRole('option').count(), 1);
+  await page.getByRole('option', { name: /Координатор CRM/ }).click();
+  assert.equal(await page.locator('input[name="role"]').inputValue(), roleBefore);
+  await roleChoice.click();
+  await roleSearch.fill('Такой роли не существует');
+  await page.getByText('Поиск не дал результатов', { exact: true }).waitFor();
+  await roleSearch.press('Escape');
+  assert.equal(await roleChoice.getAttribute('aria-expanded'), 'false');
+  await roleChoice.click();
+  assert.equal(await roleSearch.inputValue(), '');
+  await roleSearch.press('Escape');
+  const permission = page.locator('summary[aria-label="Заказы: Создавать, копировать и изменять"]');
+  assert.match(await permission.innerText(), /Запретить/);
+  await choose(page, 'Заказы: Создавать, копировать и изменять', 'Разреш', 'Разрешить');
+  await page.getByRole('button', { name: 'Сохранить доступ', exact: true }).click();
+  await page.getByText('Доступ сотрудника обновлён. Его активные сессии завершены.', { exact: true }).waitFor();
+  assert.equal((await sql`SELECT allowed FROM member_permission_overrides WHERE member_id = ${reader.id} AND permission = 'orders.write'`)[0].allowed, true);
+  assert.equal((await readerPage.request.get(`${base}/api/v1/auth/session`)).status(), 401);
+  await login(readerPage, accounts.coordinator);
+  await readerPage.goto(`${base}/services`);
+  await readerPage.getByRole('tab', { name: /Условия по объектам/ }).click();
+  assert.equal(await readonlyPicker.getAttribute('aria-disabled'), 'false');
+  await readonlyPicker.click();
+  assert.notEqual(await readonlyPicker.locator('..').getAttribute('open'), null);
+  await readonlyPicker.locator('..').getByRole('textbox').press('Escape');
+  console.log('Permission selector: search, explicit allow persisted, old session revoked, new session can edit services.');
+  await page.goto(`${base}/tasks`);
+  await page.getByRole('button', { name: 'Новая задача', exact: true }).click();
+  const taskDialog = page.getByRole('dialog', { name: 'Новая задача', exact: true });
+  await taskDialog.locator('input[name="title"]').fill('Picker priority task');
+  await choose(taskDialog, 'Приоритет', 'Крит', 'Критичный');
+  await taskDialog.getByRole('button', { name: 'Создать задачу', exact: true }).click();
+  await taskDialog.waitFor({ state: 'hidden' });
+  assert.equal((await sql`SELECT priority FROM tasks WHERE title = 'Picker priority task'`)[0].priority, 'critical');
   assert.deepEqual(errors, []);
   console.log('Object service selectors: quantity, fixed and area calculations saved/reloaded; search, Escape and 390/768/1440px passed.');
 } catch (error) {

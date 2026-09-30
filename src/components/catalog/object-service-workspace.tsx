@@ -39,6 +39,7 @@ export function ObjectServiceWorkspace({ initialProfiles, catalog, destinations,
   const [contractTotal, setContractTotal] = useState("");
   const [notes, setNotes] = useState("");
   const [rates, setRates] = useState<DraftRate[]>([]);
+  const hydratedProfileKey = useRef<string | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
@@ -93,9 +94,12 @@ export function ObjectServiceWorkspace({ initialProfiles, catalog, destinations,
 
   useEffect(() => {
     if (!selected) return;
+    const profileKey = `${selected.organizationId}:${selected.objectId}:${selected.version}`;
+    if (hydratedProfileKey.current === profileKey) return;
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
+      hydratedProfileKey.current = profileKey;
       setArea(selected.areaSquareMeters ?? selected.objectAreaSquareMeters ?? "");
       setVisits(selected.visitsPerMonth?.toString() ?? "");
       setSchedule(selected.serviceSchedule);

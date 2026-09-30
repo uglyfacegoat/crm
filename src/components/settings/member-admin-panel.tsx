@@ -27,6 +27,7 @@ import {
 } from "@/app/(workspace)/settings/actions";
 import {
   OrderField,
+  OrderPicker,
   OrderFormFooter,
   orderInputClass,
 } from "@/components/orders/order-form-parts";
@@ -113,10 +114,8 @@ function PermissionChoice({
   const options = permissionChoiceOptions.map((option) => option.value === "inherit"
     ? { ...option, label: `По роли — ${inheritedAllowed ? "разрешено" : "запрещено"}` }
     : option);
-  return <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as typeof value)}
-    className="focus-ring h-9 min-w-40 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-raised)] px-3 text-[10px] text-[var(--text-secondary)]">
-    {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-  </select>;
+  return <div className="w-44 min-w-0 shrink-0"><OrderPicker label={label} hideLabel value={value}
+    onChange={(next) => onChange(next as typeof value)} options={options} placeholder="По роли" /></div>;
 }
 
 function PermissionMatrix({

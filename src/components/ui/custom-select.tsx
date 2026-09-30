@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { matchesSearchText } from "@/lib/search-normalization";
 import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 
 export type CustomSelectOption = {
@@ -28,6 +29,7 @@ export function CustomSelect({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [openUpwards, setOpenUpwards] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
@@ -35,7 +37,8 @@ export function CustomSelect({
   const selected =
     options.find((option) => option.value === value) ?? options[0];
 
-  useDismissableLayer(rootRef, open, () => setOpen(false));
+  useDismissableLayer(rootRef, open, () => { setOpen(false); setQuery(""); });
+  const visibleOptions = options.filter((option) => matchesSearchText(query, [option.label]));
 
   useLayoutEffect(() => {
     if (!open || !rootRef.current || !listboxRef.current) return;
@@ -69,10 +72,11 @@ export function CustomSelect({
         aria-haspopup="listbox"
         aria-controls={open ? listboxId : undefined}
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => { setQuery(""); setOpen((current) => !current); }}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
+            setQuery("");
             moveSelection(event.key === "ArrowDown" ? 1 : -1);
             setOpen(true);
           }
@@ -89,12 +93,19 @@ export function CustomSelect({
       {open ? (
         <div
           ref={listboxRef}
-          id={listboxId}
-          role="listbox"
-          aria-label={ariaLabel}
           className={`absolute inset-x-0 z-[100] max-h-64 overflow-y-auto rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.24)] ${openUpwards ? "bottom-[calc(100%+0.4rem)]" : "top-[calc(100%+0.4rem)]"}`}
         >
-          {options.map((option) => (
+          <label className="sticky top-0 z-10 mb-1.5 flex h-11 items-center gap-2 rounded-[10px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 shadow-sm">
+            <Search className="size-3.5 shrink-0 text-[var(--accent)]" />
+            <span className="sr-only">Поиск: {ariaLabel}</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={100}
+              placeholder="Найти вариант" className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); setQuery(""); rootRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus(); }
+              }} />
+          </label>
+          <div id={listboxId} role="listbox" aria-label={ariaLabel}>
+          {visibleOptions.map((option) => (
             <button
               key={option.value || "empty"}
               type="button"
@@ -104,6 +115,7 @@ export function CustomSelect({
               onClick={() => {
                 onChange(option.value);
                 setOpen(false);
+                setQuery("");
               }}
               className={`focus-ring flex min-h-10 w-full items-center justify-between gap-3 rounded-[10px] px-3 text-left text-xs transition-colors disabled:opacity-40 ${option.value === value ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
             >
@@ -113,6 +125,8 @@ export function CustomSelect({
               ) : null}
             </button>
           ))}
+          {!visibleOptions.length ? <p className="px-3 py-5 text-center text-xs text-[var(--muted)]">Поиск не дал результатов</p> : null}
+          </div>
         </div>
       ) : null}
     </div>
