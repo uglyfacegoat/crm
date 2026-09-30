@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
 import sharp from "sharp";
@@ -62,7 +62,9 @@ try {
     identity.memberId = row.id;
   }
   const runtime = resolve(process.env.ROLE_CHECK_RUNTIME);
-  await cp(resolve(".next/static"), join(dirname(runtime), ".next/static"), { recursive: true, force: true });
+  const buildDirectory = dirname(dirname(runtime));
+  await cp(join(buildDirectory, "static"), join(dirname(runtime), basename(buildDirectory), "static"), { recursive: true, force: true });
+  await cp(resolve("public"), join(dirname(runtime), "public"), { recursive: true, force: true });
   server = spawn(process.execPath, [runtime], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   serverExit = once(server, "exit");
   server.stderr.on("data", (chunk) => process.stderr.write(chunk));
@@ -172,9 +174,12 @@ try {
   await createDialog.getByText("Этот адрес зарезервирован для системной учётной записи разработчика.").waitFor();
   assert.equal(Number((await sql`SELECT count(*) FROM organization_members WHERE email = ${credentials.developer.email}`)[0].count), 1);
   await developerPage.goto(`${baseUrl}/settings/users/${credentials.accountant.memberId}`, { waitUntil: "domcontentloaded" });
-  const financeReadChoice = developerPage.getByRole("combobox", { name: "Финансы: Просматривать" });
-  assert.match(await financeReadChoice.locator("option:checked").textContent(), /По роли — разрешено/);
-  await financeReadChoice.selectOption("deny");
+  const financeReadChoice = developerPage.locator('summary[aria-label="Финансы: Просматривать"]');
+  assert.match(await financeReadChoice.innerText(), /По роли — разрешено/);
+  await financeReadChoice.click();
+  const permissionMenu = financeReadChoice.locator("..");
+  await permissionMenu.getByRole("textbox").fill("Запретить");
+  await permissionMenu.getByRole("button", { name: "Запретить", exact: true }).click();
   await developerPage.waitForFunction(() => document.querySelector('input[name="permissionOverrides"]')?.value.includes('"finance.read":false'));
   await developerPage.getByRole("button", { name: "Сохранить доступ" }).click();
   await developerPage.getByText("Доступ сотрудника обновлён. Его активные сессии завершены.").waitFor();
