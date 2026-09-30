@@ -253,6 +253,8 @@ jobs:
         run: PICKER_FORMS_CHECK_RUNTIME=.next/standalone/server.js npm run test:picker-forms-browser
       - name: Shared profile photos and role access across CRM screens
         run: ROLE_CHECK_RUNTIME=.next/standalone/server.js npm run test:role-access
+      - name: Paginated timezone-aware employee activity
+        run: npm run test:member-activity
       - name: Company center grants and shared master photos
         run: npm run test:business-roles
       - name: Check personal notes search, transfers and templates in browser

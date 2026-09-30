@@ -72,7 +72,7 @@ export function SettingsWorkspace({ memberPage, activityMembers, activity, maste
 
       <section id="settings-panel" role="tabpanel" aria-labelledby={`settings-${activeTab}-tab`}>
         {canManageSettings && activeTab === "members" ? <MemberAdminPanel initialPage={memberPage} masterOptions={masterOptions} currentMemberId={currentMemberId} preview={preview} /> : null}
-        {canManageSettings && activeTab === "activity" ? <MemberActivityPanel members={activityMembers} activity={activity} /> : null}
+        {canManageSettings && activeTab === "activity" ? <MemberActivityPanel members={activityMembers} activity={activity} preview={preview} /> : null}
         {canManageSettings && activeTab === "organizations" ? <OrganizationPanel organizations={organizations} preview={preview} /> : null}
         {canManageSettings && activeTab === "appearance" ? <AppearancePanel theme={theme} fontScale={fontScale} digitStyle={digitStyle} /> : null}
         {canManageSettings && activeTab === "templates" ? <DocumentTemplatePanel templates={templates} preview={preview} /> : null}

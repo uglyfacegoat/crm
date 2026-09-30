@@ -11,8 +11,8 @@ import { getBackupSystemSnapshot, getPreviewBackupSystemSnapshot } from "@/serve
 import type { BackupSystemSnapshot } from "@/server/backups/types";
 import { listDocumentTemplates } from "@/server/document-templates/repository";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
-import { listMemberMasterOptions, searchOrganizationMembers, listMemberActivityAccounts } from "@/server/members/repository";
-import { listMemberActivity, type MemberActivity } from "@/server/members/activity";
+import { listMemberMasterOptions, searchOrganizationMembers } from "@/server/members/repository";
+import type { MemberActivity } from "@/server/members/activity";
 import type { MemberDirectoryPage, MemberActivityAccount, MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
 import { listOrganizationSummaries } from "@/server/organizations/repository";
 import type { OrganizationSummary } from "@/server/organizations/types";
@@ -68,8 +68,9 @@ export default async function SettingsPage() {
     organizations = [{ id: member.organizationId, name: "Центр CRM", kind: "center", current: true, clientCount: 0, orderCount: 0, activeOrderCount: 0, upcomingVisitCount: 0, openTaskCount: 0, receivedMinor: 0 }];
     activity = [];
   } else {
-    [memberPage, masterOptions, templates, backupSnapshot, organizations, activity, activityMembers] = await Promise.all([searchOrganizationMembers(member, { q: "", status: "active", page: 1 }), listMemberMasterOptions(member), hasPermission(member, "document_templates.read") ? listDocumentTemplates(member) : Promise.resolve([]), getBackupSystemSnapshot(member), listOrganizationSummaries(member), listMemberActivity(member), listMemberActivityAccounts(member)]);
+    [memberPage, masterOptions, templates, backupSnapshot, organizations] = await Promise.all([searchOrganizationMembers(member, { q: "", status: "active", page: 1 }), listMemberMasterOptions(member), hasPermission(member, "document_templates.read") ? listDocumentTemplates(member) : Promise.resolve([]), getBackupSystemSnapshot(member), listOrganizationSummaries(member)]);
     members = memberPage.items;
+    activity = [];
   }
 
   if (preview) { memberPage = { ...memberPage, items: members, total: members.length }; activityMembers = members; }

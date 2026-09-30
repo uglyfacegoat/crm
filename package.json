@@ -61,6 +61,7 @@
     "test:incoming-lead-browser": "node scripts/isolated-postgres-test.mjs scripts/incoming-lead-browser-check.mjs",
     "test:task-assignment": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/task-assignment.integration.mjs",
     "test:task-assignment-browser": "node scripts/isolated-postgres-test.mjs scripts/task-assignment-browser-check.mjs",
+    "test:member-activity": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/member-activity.integration.mjs",
     "test:personal-notes": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/personal-notes.integration.mjs",
     "test:personal-notes-browser": "node scripts/isolated-postgres-test.mjs scripts/personal-notes-browser-check.mjs",
     "test:chat-download": "node --experimental-test-module-mocks --test scripts/chat-download.check.mjs",

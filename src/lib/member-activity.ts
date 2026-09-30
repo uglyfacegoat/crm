@@ -1,5 +1,8 @@
 export const screenLabels = {
   home: "Главная",
+  services: "Услуги",
+  mail: "Почта",
+  companies: "Компании",
   orders: "Заказы",
   inbox: "Входящие",
   quick_order: "Оформление",
@@ -25,6 +28,7 @@ export const screenLabels = {
 export type ScreenKey = keyof typeof screenLabels;
 
 const pathScreens: Record<string, ScreenKey> = {
+  services: "services", catalog: "services", mail: "mail", companies: "companies",
   orders: "orders", inbox: "inbox", "quick-order": "quick_order",
   clients: "clients", calendar: "calendar", masters: "masters",
   "my-visits": "my_visits", documents: "documents", contracts: "contracts",

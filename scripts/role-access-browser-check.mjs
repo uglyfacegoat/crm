@@ -192,6 +192,7 @@ try {
   await developerPage.goto(`${baseUrl}/settings`);
   await developerPage.getByRole("tab", { name: "Активность" }).click();
   await developerPage.getByRole("heading", { name: "Отчёт по пользователям" }).waitFor();
+  await developerPage.getByRole("button", { name: /Checked developer/ }).waitFor();
   assert.equal(await developerPage.getByRole("button", { name: /Checked developer/ }).count(), 1);
   await adminPage.goto(`${baseUrl}/settings`);
   assert.equal(await adminPage.getByRole("tab", { name: "Пользователи" }).count(), 0);

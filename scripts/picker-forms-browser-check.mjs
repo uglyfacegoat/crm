@@ -419,10 +419,73 @@ try {
   await memberPages.getByText('Найдено: 1 · Страница 1 из 1', { exact: true }).waitFor();
   releaseSlow(); await page.unroute('**/api/v1/settings/members?**');
   await page.getByRole('link', { name: 'Открыть настройки: Яна Глубокая', exact: true }).waitFor();
+  // The closed activity tab must not preload every employee's buckets.
+  let browserActivityReads = 0;
+  await page.route('**/api/v1/settings/activity?**', async route => { browserActivityReads += 1; await route.continue(); });
+  await page.goto(`${base}/settings?tab=members`);
+  await page.waitForLoadState('networkidle');
+  assert.equal(browserActivityReads, 0);
+  await page.route('**/api/v1/profile/activity', route => route.fulfill({ status: 204 }));
+  await sql`DELETE FROM member_screen_activity WHERE organization_id = ${principal.organization_id}`;
+  await sql`INSERT INTO member_screen_activity (organization_id, member_id, bucket_start, screen_key)
+    SELECT organization_id, id, now() - interval '2 hours', 'orders' FROM organization_members
+    WHERE organization_id = ${principal.organization_id} AND deleted_at IS NULL`;
+  await sql`INSERT INTO member_screen_activity (organization_id, member_id, bucket_start, screen_key, source)
+    VALUES (${principal.organization_id}, ${deepMember.id}, now() - interval '12 days', 'mail', 'demo')`;
+  const reportResponse = await page.request.get(`${base}/api/v1/settings/activity`);
+  assert.equal(reportResponse.status(), 200);
+  const fullReport = (await reportResponse.json()).data;
+  assert.equal(fullReport.summary.memberCount, 536);
+  assert.equal(fullReport.summary.totalSeconds, 536 * 30 + 30);
+  assert.equal(fullReport.members.items.length, 30);
+  assert.equal((await (await page.request.get(`${base}/api/v1/settings/activity?page=18`)).json()).data.members.items.length, 26);
+  assert.equal((await readerPage.request.get(`${base}/api/v1/settings/activity`)).status(), 403);
+  assert.equal((await page.request.get(`${base}/api/v1/settings/activity?memberId=${foreignMember.id}`)).status(), 404);
+  const selectedReport = (await (await page.request.get(`${base}/api/v1/settings/activity?memberId=${deepMember.id}`)).json()).data;
+  assert.equal(selectedReport.selected.seconds, 60);
+  assert.equal(selectedReport.selected.demoSeconds, 30);
   await page.getByRole('tab', { name: 'Активность', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).fill('Яна Глубокая');
+  const activityEmployee = page.getByRole('button', { name: /Яна Глубокая/ });
+  await activityEmployee.focus();
+  await activityEmployee.press('Enter');
+  await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).waitFor();
+  assert.equal(await activityEmployee.evaluate(element => element === document.activeElement), true, 'Selecting details preserves keyboard focus');
+  assert(browserActivityReads > 0);
+  await page.unroute('**/api/v1/settings/activity?**');
+  const reportPages = page.locator('[aria-label="Страницы активности"]');
+  await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).fill('');
+  await reportPages.getByText('Найдено: 536 · Страница 1 из 18', { exact: true }).waitFor();
+  assert.equal(await page.locator('[aria-label="Сотрудники отчёта"]').getByRole('button').count(), 30);
+  await reportPages.getByRole('button', { name: 'Далее', exact: true }).click();
+  await reportPages.getByText('Найдено: 536 · Страница 2 из 18', { exact: true }).waitFor();
   await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).fill('Яна Глубокая');
   await page.getByRole('button', { name: /Яна Глубокая/ }).click();
   await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).waitFor();
+  await page.getByRole('button', { name: '7 дней', exact: true }).click();
+  await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).waitFor();
+  const sevenReport = (await (await page.request.get(`${base}/api/v1/settings/activity?period=7&memberId=${deepMember.id}`)).json()).data;
+  assert.equal(sevenReport.selected.seconds, 30);
+  assert.equal(sevenReport.summary.totalSeconds, 536 * 30);
+  assert.equal(await page.getByText('Из них демо: <1 мин', { exact: true }).count(), 0);
+  await page.route('**/api/v1/settings/activity?**', route => route.fulfill({ status: 503, json: { error: { message: 'Отчёт временно недоступен' } } }));
+  await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).fill('Directory 000');
+  await page.getByRole('alert').filter({ hasText: 'Отчёт временно недоступен' }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).inputValue(), 'Directory 000');
+  await page.unroute('**/api/v1/settings/activity?**');
+  await page.getByRole('button', { name: 'Повторить загрузку отчёта', exact: true }).click();
+  await page.getByRole('button', { name: /Directory 000/ }).waitFor();
+  await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).fill('Нет такого сотрудника');
+  await page.getByText('Сотрудники не найдены.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).count(), 0);
+  await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).fill('Яна Глубокая');
+  await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).waitFor();
+  for (const width of [390, 768, 1440]) {
+    await viewport(page, width);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Activity report fits ${width}`);
+    await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).evaluate(element => element.scrollIntoView({ block: 'center' }));
+    await page.screenshot({ path: `artifacts/picker-forms/activity-${width}.png` });
+  }
   await page.goto(`${base}/settings?tab=members`);
   await page.getByRole('button', { name: 'Новый сотрудник', exact: true }).click();
   const memberDialog = page.getByRole('dialog', { name: 'Новый сотрудник', exact: true });
