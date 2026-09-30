@@ -40,6 +40,7 @@ class DocumentNotFoundError extends Error {}
 class DocumentTemplateNotFoundError extends Error {}
 class ChatChannelNotFoundError extends Error {}
 mock.module(new URL("server/auth/session.ts", root), { namedExports: { getCurrentSession } });
+mock.module(new URL("server/organizations/center-dashboard.ts", root), { namedExports: { resolveCenterDocumentScope: async () => null } });
 mock.module(new URL("server/request-limits/repository.ts", root), { namedExports: { consumeRequestLimit } });
 mock.module(new URL("server/documents/repository.ts", root), { namedExports: { getDocumentDownload, getDocumentVersionDownload, getDocumentBatchExport, recordDocumentBatchExport, DocumentNotFoundError } });
 mock.module(new URL("server/document-templates/repository.ts", root), { namedExports: { getDocumentTemplateDownload, DocumentTemplateNotFoundError } });

@@ -60,7 +60,7 @@
     "test:task-assignment-browser": "node scripts/isolated-postgres-test.mjs scripts/task-assignment-browser-check.mjs",
     "test:personal-notes-browser": "node scripts/isolated-postgres-test.mjs scripts/personal-notes-browser-check.mjs",
     "test:chat-download": "node --experimental-test-module-mocks --test scripts/chat-download.check.mjs",
-    "test:document-download": "node --experimental-test-module-mocks --test scripts/document-download.check.mjs",
+    "test:document-download": "node --experimental-transform-types --experimental-test-module-mocks --test scripts/document-download.check.mjs",
     "test:s3-storage": "node --test scripts/s3-storage.integration.mjs",
     "test:s3-backup": "node scripts/s3-backup-check.mjs",
     "test:backup-full-stage": "node scripts/backup-full-stage-check.mjs",

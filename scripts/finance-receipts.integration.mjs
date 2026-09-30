@@ -21,6 +21,7 @@ const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
     if (context.parentURL?.startsWith(sourceRoot.href)) {
       if (specifier === "next/cache") return nextResolve("next/cache.js", context);
+      if (specifier === "next/server") return nextResolve("next/server.js", context);
       if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, sourceRoot).href, context);
       if (specifier.startsWith(".") && !/\.(ts|mjs)$/.test(specifier)) return nextResolve(`${specifier}.ts`, context);
     }
@@ -32,6 +33,7 @@ let sessionMember;
 const revalidatePath = mock.fn();
 mock.module("server-only", { namedExports: {} });
 mock.module("next/cache.js", { namedExports: { revalidatePath } });
+mock.module("next/server.js", { namedExports: { after: mock.fn() } });
 mock.module(new URL("server/database.ts", sourceRoot), { namedExports: { getDatabase: () => sql } });
 mock.module(new URL("server/auth/config.ts", sourceRoot), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", sourceRoot), { namedExports: { requireSession: async () => sessionMember } });
@@ -86,8 +88,8 @@ test("uploads retain committed bytes and finance retries preserve file ownership
     const [organization] = await sql`INSERT INTO organizations (name, timezone)
       VALUES ('Receipt test company', 'Europe/Moscow') RETURNING id`;
     const [author] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
-      VALUES (${organization.id}, 'Receipt tester', 'receipts@example.invalid', 'admin') RETURNING id`;
-    const member = { organizationId: organization.id, memberId: author.id, role: "admin", permissionOverrides: {}, sessionId: null };
+      VALUES (${organization.id}, 'Receipt tester', 'receipts@example.invalid', 'deputy') RETURNING id`;
+    const member = { organizationId: organization.id, memberId: author.id, role: "deputy", permissionOverrides: { "finance.write": true, "visits.write": true }, sessionId: null };
     const [client] = await sql`INSERT INTO clients (organization_id, legal_name) VALUES (${organization.id}, 'Test customer') RETURNING id`;
     const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
       VALUES (${organization.id}, ${client.id}, 'Test object', 'Office', 'Test address') RETURNING id`;
