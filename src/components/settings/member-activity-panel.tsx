@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Activity, CalendarDays, Clock3, Monitor, Search, UsersRound } from "lucide-react";
 import { screenLabels, type ScreenKey } from "@/lib/member-activity";
 import type { MemberActivity } from "@/server/members/activity";
-import type { OrganizationMemberListItem } from "@/server/members/types";
+import type { MemberActivityAccount } from "@/server/members/types";
 
 const roleLabels = {
   owner: "Владелец", developer: "Разработчик", deputy: "Заместитель", finance_controller: "Финконтроль", sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж", regional_director: "Региональный директор", crm_coordinator: "Координатор CRM", tender_specialist: "Тендерный отдел", foreman: "Бригадир", admin: "Администратор", dispatcher: "Диспетчер",
@@ -28,7 +28,7 @@ function dayLabel(key: string) {
 }
 
 type Row = {
-  member: OrganizationMemberListItem;
+  member: MemberActivityAccount;
   seconds: number;
   demoSeconds: number;
   activeDays: number;
@@ -37,7 +37,7 @@ type Row = {
   lastActivityAt: string | null;
 };
 
-export function MemberActivityPanel({ members, activity }: { members: OrganizationMemberListItem[]; activity: MemberActivity[] }) {
+export function MemberActivityPanel({ members, activity }: { members: MemberActivityAccount[]; activity: MemberActivity[] }) {
   const [period, setPeriod] = useState<7 | 30>(30);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");

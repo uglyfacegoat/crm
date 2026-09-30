@@ -39,8 +39,18 @@ async function login(target, account) {
   await target.getByRole('button', { name: 'Войти в CRM', exact: true }).click();
   await target.waitForURL(url => url.pathname === '/');
 }
-async function fit(target, dialog, width) {
+async function viewport(target, width) {
   await target.setViewportSize({ width, height: 900 });
+  // Wait for the existing sidebar/padding transition before measuring a tablet.
+  await target.waitForFunction(() => {
+    const sidebar = document.querySelector('.workspace-sidebar');
+    const main = document.querySelector('main.workspace-main');
+    if (!sidebar || !main || !sidebar.getBoundingClientRect().width) return true;
+    return main.getBoundingClientRect().left >= sidebar.getBoundingClientRect().right - 1;
+  });
+}
+async function fit(target, dialog, width) {
+  await viewport(target, width);
   assert.equal(await target.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Page overflow at ${width}`);
   assert.equal(await dialog.evaluate(el => el.scrollWidth > el.clientWidth + 1), false, `Dialog overflow at ${width}`);
 }
@@ -57,6 +67,30 @@ try {
   }
   const [client] = await sql`INSERT INTO clients (organization_id, legal_name) VALUES (${principal.organization_id}, 'Picker customer') RETURNING id`;
   const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address) VALUES (${principal.organization_id}, ${client.id}, 'Picker object', 'Office', 'Test address') RETURNING id`;
+  // Put the interesting records beyond the old 500-row limit. Fixtures remain
+  // isolated; no real account, contact or master data is touched.
+  const bulkMembers = Array.from({ length: 530 }, (_, i) => ({ organization_id: principal.organization_id,
+    display_name: `Directory ${String(i).padStart(3, '0')}`, email: `directory-${i}@arrival.invalid`, role: 'sales_specialist' }));
+  await sql`INSERT INTO organization_members ${sql(bulkMembers, 'organization_id', 'display_name', 'email', 'role')}`;
+  const bulkMasters = Array.from({ length: 530 }, (_, i) => ({ organization_id: principal.organization_id,
+    full_name: `Directory master ${String(i).padStart(3, '0')}`, phone: `+7900000${String(i).padStart(4, '0')}`, normalized_phone: `+7900000${String(i).padStart(4, '0')}`, service_region: 'Test', service_zone: 'Test' }));
+  await sql`INSERT INTO masters ${sql(bulkMasters, 'organization_id', 'full_name', 'phone', 'normalized_phone', 'service_region', 'service_zone')}`;
+  const [deepMember] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${principal.organization_id}, 'Яна Глубокая', 'deep-member@arrival.invalid', 'sales_specialist') RETURNING id`;
+  const [deepMaster] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    VALUES (${principal.organization_id}, 'Яков Глубокий', '+79995550011', '+79995550011', 'Test', 'Test') RETURNING id`;
+  const [linkedMaster] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    VALUES (${principal.organization_id}, 'Яков Занятый', '+79995550012', '+79995550012', 'Test', 'Test') RETURNING id`;
+  const [linkedMember] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role, master_id)
+    VALUES (${principal.organization_id}, 'Яна Занятая', 'linked-member@arrival.invalid', 'master', ${linkedMaster.id}) RETURNING id`;
+  const [inactiveMember] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role, active)
+    VALUES (${principal.organization_id}, 'Яна Отключённая', 'inactive-member@arrival.invalid', 'sales_specialist', false) RETURNING id`;
+  await sql`INSERT INTO member_login_identities (organization_id, member_id, kind, normalized_value)
+    VALUES (${principal.organization_id}, ${deepMember.id}, 'phone', '+79995550123')`;
+  const [foreignOrg] = await sql`INSERT INTO organizations (name, timezone) VALUES ('Foreign picker organization', 'Europe/Moscow') RETURNING id`;
+  const [foreignMember] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${foreignOrg.id}, 'Чужой Глубокий', 'foreign@arrival.invalid', 'sales_specialist') RETURNING id`;
+  await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone) VALUES (${foreignOrg.id}, 'Чужой Глубокий', '+79995559999', '+79995559999', 'Test', 'Test')`;
   const buildDirectory = dirname(dirname(resolve(runtime)));
   await cp(join(buildDirectory, 'static'), join(dirname(resolve(runtime)), basename(buildDirectory), 'static'), { recursive: true, force: true });
   await cp(resolve('public'), join(dirname(resolve(runtime)), 'public'), { recursive: true, force: true });
@@ -180,7 +214,7 @@ try {
     assert.match(await section.locator('summary[aria-label="Расчёт"]').innerText(), new RegExp(label));
   }
   for (const width of [390, 768, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
+    await viewport(page, width);
     await section.locator('summary[aria-label="Расчёт"]').click();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Service menu overflow at ${width}`);
     await section.locator('summary[aria-label="Расчёт"]').locator('..').getByRole('textbox').press('Escape');
@@ -202,7 +236,7 @@ try {
   await roleChoice.click();
   await mkdir('artifacts/picker-forms', { recursive: true });
   for (const width of [390, 768, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
+    await viewport(page, width);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Settings overflow at ${width}`);
     await roleChoice.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `artifacts/picker-forms/settings-${width}.png` });
@@ -235,6 +269,125 @@ try {
   assert.notEqual(await readonlyPicker.locator('..').getAttribute('open'), null);
   await readonlyPicker.locator('..').getByRole('textbox').press('Escape');
   console.log('Permission selector: search, explicit allow persisted, old session revoked, new session can edit services.');
+  async function directory(query) {
+    const response = await page.request.get(`${base}/api/v1/settings/members?${new URLSearchParams(query)}`);
+    assert.equal(response.status(), 200);
+    assert.equal(response.headers()['cache-control'], 'private, no-store');
+    return (await response.json()).data;
+  }
+  const firstMembers = await directory({});
+  assert.equal(firstMembers.total, 535); // 3 login accounts + 530 fillers + 2 active targets.
+  assert.equal(firstMembers.items.length, 30);
+  const lastMembers = await directory({ page: '18' });
+  assert.ok(lastMembers.items.some(m => m.id === deepMember.id));
+  assert.equal((await directory({ q: '79995550123' })).items[0].id, deepMember.id);
+  assert.equal((await directory({ q: 'Менеджер продаж' })).total, 531);
+  assert.equal((await directory({ status: 'inactive' })).items[0].id, inactiveMember.id);
+  assert.equal((await directory({ status: 'all' })).total, 536);
+  assert.equal((await directory({ q: 'Чужой Глубокий' })).total, 0);
+  for (const params of ['page=0', 'page=hello', 'status=bogus', `q=${'a'.repeat(101)}`]) {
+    assert.equal((await page.request.get(`${base}/api/v1/settings/members?${params}`)).status(), 400);
+  }
+  assert.equal((await readerPage.request.get(`${base}/api/v1/settings/members`)).status(), 403);
+  assert.equal((await readerPage.request.get(`${base}/api/v1/settings/masters`)).status(), 403);
+  assert.equal((await page.request.get(`${base}/api/v1/settings/masters?memberId=${foreignMember.id}`)).status(), 404);
+  assert.equal((await page.request.get(`${base}/api/v1/settings/masters?memberId=bogus`)).status(), 400);
+  const masterResults = await (await page.request.get(`${base}/api/v1/settings/masters?q=Глубокий`)).json();
+  assert.deepEqual(masterResults.data.items.map(m => m.id), [deepMaster.id]);
+  assert.equal((await (await page.request.get(`${base}/api/v1/settings/masters?q=Занятый`)).json()).data.items.length, 0);
+  assert.equal((await (await page.request.get(`${base}/api/v1/settings/masters?q=Занятый&memberId=${linkedMember.id}`)).json()).data.items[0].id, linkedMaster.id);
+  assert.equal((await page.goto(`${base}/settings/users/${foreignMember.id}`)).status(), 404);
+  assert.equal((await page.goto(`${base}/settings/users/not-a-uuid`)).status(), 404);
+  assert.equal((await page.goto(`${base}/settings/users/${deepMember.id}`)).status(), 200);
+  await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Роль сотрудника', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Поиск: Роль сотрудника', exact: true }).fill('Мастер');
+  await page.getByRole('option', { name: 'Уровень 3 · Мастер', exact: true }).click();
+  await choose(page, 'Карточка мастера', '79995550011', 'Яков Глубокий +79995550011');
+  await page.getByRole('button', { name: 'Сохранить доступ', exact: true }).click();
+  await saved(async () => (await sql`SELECT master_id FROM organization_members WHERE id = ${deepMember.id}`)[0].master_id === deepMaster.id);
+  await page.reload();
+  assert.match(await page.locator('summary[aria-label="Карточка мастера"]').innerText(), /Яков Глубокий/);
+  assert.equal(await page.locator('input[name="masterId"]').inputValue(), deepMaster.id);
+  const deepMasterSummary = page.locator('summary[aria-label="Карточка мастера"]');
+  for (const width of [390, 768, 1440]) {
+    await viewport(page, width);
+    await deepMasterSummary.scrollIntoViewIfNeeded(); await deepMasterSummary.click();
+    const masterSearch = deepMasterSummary.locator('..').getByRole('textbox');
+    await masterSearch.fill('Глубокий');
+    await deepMasterSummary.locator('..').getByRole('button', { name: 'Яков Глубокий +79995550011', exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Master picker overflow at ${width}`);
+    await page.screenshot({ path: `artifacts/picker-forms/member-master-${width}.png` });
+    await masterSearch.press('Escape');
+    assert.equal(await deepMasterSummary.locator('..').getAttribute('open'), null);
+    assert.equal(await page.locator('input[name="masterId"]').inputValue(), deepMaster.id);
+  }
+  await page.goto(`${base}/settings?tab=members`);
+  const memberSearch = page.getByRole('textbox', { name: 'Поиск сотрудников', exact: true });
+  const memberPages = page.getByRole('navigation', { name: 'Страницы сотрудников', exact: true });
+  await memberPages.getByText('Найдено: 535 · Страница 1 из 18', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('article').count(), 30);
+  await memberPages.getByRole('button', { name: 'Далее', exact: true }).click();
+  await memberPages.getByText('Найдено: 535 · Страница 2 из 18', { exact: true }).waitFor();
+  // Another administrator removes the last pages while this tab is open.
+  await sql`UPDATE organization_members SET active = false WHERE organization_id = ${principal.organization_id}
+    AND email LIKE 'directory-%' AND display_name >= 'Directory 025'`;
+  await memberPages.getByRole('button', { name: 'Далее', exact: true }).click();
+  await memberPages.getByText('Найдено: 30 · Страница 1 из 1', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('article').count(), 30);
+  await sql`UPDATE organization_members SET active = true WHERE organization_id = ${principal.organization_id} AND email LIKE 'directory-%'`;
+  await memberSearch.fill('Глубокая');
+  await memberPages.getByText('Найдено: 1 · Страница 1 из 1', { exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Открыть настройки: Яна Глубокая', exact: true }).waitFor();
+  for (const width of [390, 768, 1440]) {
+    await viewport(page, width);
+    assert.ok((await memberSearch.boundingBox()).width >= 150, `Usable search width at ${width}`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Members overflow at ${width}`);
+    await page.screenshot({ path: `artifacts/picker-forms/members-${width}.png` });
+  }
+  // Failure retains the search and offers retry; an old delayed search cannot
+  // replace newer results after the user changes the query.
+  await page.route('**/api/v1/settings/members?**', route => route.fulfill({ status: 503, json: { error: 'temporary' } }));
+  await memberSearch.fill('Нет такого сотрудника');
+  await page.getByRole('status').filter({ hasText: 'Не удалось загрузить сотрудников. Повторите запрос.' }).waitFor();
+  assert.equal(await memberSearch.inputValue(), 'Нет такого сотрудника');
+  await page.unroute('**/api/v1/settings/members?**');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await memberPages.getByText('Найдено: 0 · Страница 1 из 1', { exact: true }).waitFor();
+  await memberSearch.fill('Глубокая');
+  await memberPages.getByText('Найдено: 1 · Страница 1 из 1', { exact: true }).waitFor();
+  let releaseSlow; const slowResponse = new Promise(resolve => { releaseSlow = resolve; });
+  let markStarted; const slowStarted = new Promise(resolve => { markStarted = resolve; });
+  await page.route('**/api/v1/settings/members?**', async route => {
+    if (new URL(route.request().url()).searchParams.get('q') !== 'Directory 000') return route.continue();
+    const response = await route.fetch(); markStarted(); await slowResponse;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await memberSearch.fill('Directory 000'); await slowStarted;
+  await memberSearch.fill('Глубокая');
+  await memberPages.getByText('Найдено: 1 · Страница 1 из 1', { exact: true }).waitFor();
+  releaseSlow(); await page.unroute('**/api/v1/settings/members?**');
+  await page.getByRole('link', { name: 'Открыть настройки: Яна Глубокая', exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Активность', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Найти сотрудника', exact: true }).fill('Яна Глубокая');
+  await page.getByRole('button', { name: /Яна Глубокая/ }).click();
+  await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).waitFor();
+  await page.goto(`${base}/settings?tab=members`);
+  await page.getByRole('button', { name: 'Новый сотрудник', exact: true }).click();
+  const memberDialog = page.getByRole('dialog', { name: 'Новый сотрудник', exact: true });
+  await memberDialog.locator('input[name="displayName"]').fill('Новый мастер поиска');
+  await memberDialog.locator('input[name="email"]').fill('new-master@arrival.invalid');
+  await memberDialog.locator('input[name="password"]').fill(randomBytes(24).toString('hex'));
+  await memberDialog.getByRole('button', { name: 'Роль сотрудника', exact: true }).click();
+  await memberDialog.getByRole('textbox', { name: 'Поиск: Роль сотрудника', exact: true }).fill('Мастер');
+  await memberDialog.getByRole('option', { name: 'Уровень 3 · Мастер', exact: true }).click();
+  await choose(memberDialog, 'Карточка мастера', '79000000529', 'Directory master 529 +79000000529');
+  await memberDialog.getByRole('button', { name: 'Создать сотрудника', exact: true }).click();
+  await memberDialog.waitFor({ state: 'hidden' });
+  const [createdMasterAccount] = await sql`SELECT m.master_id, p.full_name FROM organization_members m
+    JOIN masters p ON p.id = m.master_id AND p.organization_id = m.organization_id WHERE m.email = 'new-master@arrival.invalid'`;
+  assert.equal(createdMasterAccount.full_name, 'Directory master 529');
+  console.log('Directory: 537 accounts, 532 masters, last page/direct ID, persisted deep master, activity, error/retry, stale response and permission/scope checks passed.');
   await page.goto(`${base}/tasks`);
   await page.getByRole('button', { name: 'Новая задача', exact: true }).click();
   const taskDialog = page.getByRole('dialog', { name: 'Новая задача', exact: true });

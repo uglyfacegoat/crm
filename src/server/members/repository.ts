@@ -7,7 +7,10 @@ import { hashPassword } from "@/server/auth/password";
 import { assignableOrganizationRoles, organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import type { CreateMemberInput, ResetMemberPasswordInput, UpdateMemberAccessInput } from "./schemas";
-import type { MemberMasterOption, OrganizationMemberListItem } from "./types";
+import { MEMBER_PAGE_SIZE, memberRoleLabels, type MemberDirectoryQuery, type MemberMasterQuery } from "@/lib/member-directory";
+import { matchesSearchText } from "@/lib/search-normalization";
+import { ORDER_PICKER_PAGE_SIZE, type OrderPickerResult } from "@/lib/order-picker";
+import type { MemberDirectoryPage, MemberActivityAccount, MemberMasterOption, OrganizationMemberListItem } from "./types";
 
 const memberRowSchema = z.object({
   id: z.string().uuid(),
@@ -81,10 +84,10 @@ function mapMember(row: unknown): OrganizationMemberListItem {
   };
 }
 
-export async function listOrganizationMembers(member: AuthenticatedMember): Promise<OrganizationMemberListItem[]> {
-  requirePermission(member, "settings.write");
-  const sql = getDatabase();
-  const rows = await sql`SELECT members.id, members.display_name, members.email, phone_identity.normalized_value AS phone,
+// The same scoped projection serves a page and a direct card; an ID lookup must
+// never depend on which rows happen to fit on the first directory page.
+function memberProjection(sql: ReturnType<typeof getDatabase>) {
+  return sql`SELECT members.id, members.display_name, members.email, phone_identity.normalized_value AS phone,
       CASE WHEN developer_accounts.email IS NOT NULL THEN developer_accounts.account_role ELSE members.role END AS role,
       members.active, members.master_id, masters.full_name AS master_name,
       last_session.last_login_at, members.version,
@@ -104,28 +107,88 @@ export async function listOrganizationMembers(member: AuthenticatedMember): Prom
       FROM member_permission_overrides
       WHERE organization_id = members.organization_id AND member_id = members.id
     ) permission_overrides ON true
-    WHERE members.organization_id = ${member.organizationId}
-      AND members.deleted_at IS NULL
-    ORDER BY members.active DESC, members.display_name
-    LIMIT 500`;
-  return rows.map(mapMember);
+`;
 }
 
-export async function listMemberMasterOptions(member: AuthenticatedMember): Promise<MemberMasterOption[]> {
+export async function getOrganizationMember(member: AuthenticatedMember, id: string): Promise<OrganizationMemberListItem | null> {
+  requirePermission(member, "settings.write");
+  if (!z.string().uuid().safeParse(id).success) return null;
+  const sql = getDatabase();
+  const [row] = await sql`${memberProjection(sql)}
+    WHERE members.organization_id = ${member.organizationId} AND members.id = ${id} AND members.deleted_at IS NULL`;
+  return row ? mapMember(row) : null;
+}
+
+export async function searchOrganizationMembers(member: AuthenticatedMember, query: MemberDirectoryQuery): Promise<MemberDirectoryPage> {
   requirePermission(member, "settings.write");
   const sql = getDatabase();
-  const rows = await sql`SELECT masters.id, masters.full_name, masters.phone, masters.active,
-      linked_member.id AS linked_member_id
-    FROM masters
-    LEFT JOIN organization_members linked_member
+  const matchingRoles = Object.entries(memberRoleLabels).filter(([, label]) => matchesSearchText(query.q, [label])).map(([role]) => role);
+  const filter = sql`members.organization_id = ${member.organizationId} AND members.deleted_at IS NULL
+    AND (${query.status} = 'all' OR members.active = ${query.status === "active"})
+    AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', members.display_name, members.email,
+      phone_identity.normalized_value, masters.full_name), ${query.q})
+      OR (CASE WHEN developer_accounts.email IS NOT NULL THEN developer_accounts.account_role ELSE members.role END) = ANY(${matchingRoles}::text[]))`;
+  // A single statement keeps the count and the page in the same database snapshot.
+  const [result] = await sql`WITH matching AS (
+      SELECT members.id, members.active, members.display_name FROM organization_members members
+      LEFT JOIN member_login_identities phone_identity ON phone_identity.organization_id = members.organization_id
+        AND phone_identity.member_id = members.id AND phone_identity.kind = 'phone'
+      LEFT JOIN masters ON masters.organization_id = members.organization_id AND masters.id = members.master_id
+      LEFT JOIN developer_accounts ON developer_accounts.email = members.email
+      WHERE ${filter}),
+    page_ids AS (SELECT id FROM matching ORDER BY active DESC, display_name, id
+      LIMIT ${MEMBER_PAGE_SIZE} OFFSET ${(query.page - 1) * MEMBER_PAGE_SIZE}),
+    page_rows AS (${memberProjection(sql)} WHERE members.organization_id = ${member.organizationId}
+      AND members.id IN (SELECT id FROM page_ids) AND members.deleted_at IS NULL)
+    SELECT (SELECT count(*)::integer FROM matching) AS total,
+      COALESCE((SELECT jsonb_agg(page_rows ORDER BY active DESC, display_name, id) FROM page_rows), '[]'::jsonb) AS items`;
+  return { items: (result.items as unknown[]).map(mapMember), total: z.number().int().nonnegative().parse(result.total), page: query.page, pageSize: MEMBER_PAGE_SIZE };
+}
+
+export async function listMemberActivityAccounts(member: AuthenticatedMember): Promise<MemberActivityAccount[]> {
+  requirePermission(member, "settings.write");
+  const sql = getDatabase();
+  const rows = await sql`SELECT members.id, members.display_name, members.email,
+    CASE WHEN developer_accounts.email IS NOT NULL THEN developer_accounts.account_role ELSE members.role END AS role
+    FROM organization_members members LEFT JOIN developer_accounts ON developer_accounts.email = members.email
+    WHERE members.organization_id = ${member.organizationId} AND members.deleted_at IS NULL
+    ORDER BY members.active DESC, members.display_name, members.id`;
+  return rows.map(row => {
+    const item = memberRowSchema.pick({ id: true, display_name: true, email: true, role: true }).parse(row);
+    return { id: item.id, displayName: item.display_name, email: item.email, role: item.role };
+  });
+}
+
+export async function listMemberMasterOptions(member: AuthenticatedMember, currentMemberId?: string): Promise<MemberMasterOption[]> {
+  requirePermission(member, "settings.write");
+  const sql = getDatabase();
+  // Include the currently linked profile even when it is outside the first page
+  // or inactive, so opening a card does not silently clear its existing link.
+  const rows = await sql`SELECT masters.id, masters.full_name, masters.phone, masters.active, linked_member.id AS linked_member_id
+    FROM masters LEFT JOIN organization_members linked_member
       ON linked_member.organization_id = masters.organization_id AND linked_member.master_id = masters.id
     WHERE masters.organization_id = ${member.organizationId}
-    ORDER BY masters.active DESC, masters.full_name
-    LIMIT 500`;
+      AND ((masters.active AND linked_member.id IS NULL) OR linked_member.id = ${currentMemberId ?? null})
+    ORDER BY (linked_member.id = ${currentMemberId ?? null}) DESC NULLS LAST, masters.full_name, masters.id
+    LIMIT ${ORDER_PICKER_PAGE_SIZE}`;
   return rows.map((row) => {
     const master = masterOptionRowSchema.parse(row);
     return { id: master.id, fullName: master.full_name, phone: master.phone, active: master.active, linkedMemberId: master.linked_member_id };
   });
+}
+
+export async function searchMemberMasterOptions(member: AuthenticatedMember, query: MemberMasterQuery): Promise<OrderPickerResult> {
+  requirePermission(member, "settings.write");
+  const sql = getDatabase();
+  if (query.memberId && !await getOrganizationMember(member, query.memberId)) throw new MemberNotFoundError();
+  const rows = await sql`SELECT masters.id, masters.full_name, masters.phone
+    FROM masters LEFT JOIN organization_members linked_member
+      ON linked_member.organization_id = masters.organization_id AND linked_member.master_id = masters.id
+    WHERE masters.organization_id = ${member.organizationId} AND masters.active
+      AND (linked_member.id IS NULL OR linked_member.id = ${query.memberId ?? null})
+      AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', masters.full_name, masters.phone), ${query.q}))
+    ORDER BY masters.full_name, masters.id LIMIT ${ORDER_PICKER_PAGE_SIZE + 1}`;
+  return { items: rows.slice(0, ORDER_PICKER_PAGE_SIZE).map(row => ({ id: row.id as string, name: row.full_name as string, detail: row.phone as string })), hasMore: rows.length > ORDER_PICKER_PAGE_SIZE };
 }
 
 async function requireAvailableMaster(transaction: postgres.TransactionSql, organizationId: string, masterId: string) {

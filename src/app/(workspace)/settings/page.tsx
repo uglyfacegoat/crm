@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MEMBER_PAGE_SIZE } from "@/lib/member-directory";
 import { SettingsWorkspace } from "@/components/settings/settings-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
 import { emailOtpEnabled, getAuthMode } from "@/server/auth/config";
@@ -10,9 +11,9 @@ import { getBackupSystemSnapshot, getPreviewBackupSystemSnapshot } from "@/serve
 import type { BackupSystemSnapshot } from "@/server/backups/types";
 import { listDocumentTemplates } from "@/server/document-templates/repository";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
-import { listMemberMasterOptions, listOrganizationMembers } from "@/server/members/repository";
+import { listMemberMasterOptions, searchOrganizationMembers, listMemberActivityAccounts } from "@/server/members/repository";
 import { listMemberActivity, type MemberActivity } from "@/server/members/activity";
-import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
+import type { MemberDirectoryPage, MemberActivityAccount, MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
 import { listOrganizationSummaries } from "@/server/organizations/repository";
 import type { OrganizationSummary } from "@/server/organizations/types";
 import { cookies } from "next/headers";
@@ -33,6 +34,8 @@ export default async function SettingsPage() {
     preview || !emailOtpEnabled() ? Promise.resolve(false) : emailOtpDeliveryReady(),
   ]);
   let members: OrganizationMemberListItem[];
+  let memberPage: MemberDirectoryPage = { items: [], total: 0, page: 1, pageSize: MEMBER_PAGE_SIZE };
+  let activityMembers: MemberActivityAccount[] = [];
   let masterOptions: MemberMasterOption[];
   let templates: DocumentTemplateListItem[];
   let backupSnapshot: BackupSystemSnapshot;
@@ -65,8 +68,11 @@ export default async function SettingsPage() {
     organizations = [{ id: member.organizationId, name: "Центр CRM", kind: "center", current: true, clientCount: 0, orderCount: 0, activeOrderCount: 0, upcomingVisitCount: 0, openTaskCount: 0, receivedMinor: 0 }];
     activity = [];
   } else {
-    [members, masterOptions, templates, backupSnapshot, organizations, activity] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), hasPermission(member, "document_templates.read") ? listDocumentTemplates(member) : Promise.resolve([]), getBackupSystemSnapshot(member), listOrganizationSummaries(member), listMemberActivity(member)]);
+    [memberPage, masterOptions, templates, backupSnapshot, organizations, activity, activityMembers] = await Promise.all([searchOrganizationMembers(member, { q: "", status: "active", page: 1 }), listMemberMasterOptions(member), hasPermission(member, "document_templates.read") ? listDocumentTemplates(member) : Promise.resolve([]), getBackupSystemSnapshot(member), listOrganizationSummaries(member), listMemberActivity(member), listMemberActivityAccounts(member)]);
+    members = memberPage.items;
   }
 
-  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Личные уведомления, безопасность и параметры CRM." /><SettingsWorkspace members={members} activity={activity} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} canManageSettings={canManageSettings} securityEmail={member.email} securityEnabled={security.enabled} securityPending={security.pending} securityMailReady={securityMailReady} canChatPush={hasPermission(member, "chat.read")} canEventPush={hasPermission(member, "notifications.read")} /></div>;
+  if (preview) { memberPage = { ...memberPage, items: members, total: members.length }; activityMembers = members; }
+
+  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Личные уведомления, безопасность и параметры CRM." /><SettingsWorkspace memberPage={memberPage} activityMembers={activityMembers} activity={activity} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} canManageSettings={canManageSettings} securityEmail={member.email} securityEnabled={security.enabled} securityPending={security.pending} securityMailReady={securityMailReady} canChatPush={hasPermission(member, "chat.read")} canEventPush={hasPermission(member, "notifications.read")} /></div>;
 }

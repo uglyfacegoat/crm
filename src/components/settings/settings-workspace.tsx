@@ -12,7 +12,7 @@ import { SecurityWorkspace } from "@/components/settings/security-workspace";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import type { BackupSystemSnapshot } from "@/server/backups/types";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
-import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
+import type { MemberDirectoryPage, MemberActivityAccount, MemberMasterOption } from "@/server/members/types";
 import type { MemberActivity } from "@/server/members/activity";
 import type { OrganizationSummary } from "@/server/organizations/types";
 import type { AppearanceTheme, DigitStyle, FontScale } from "@/lib/appearance";
@@ -30,7 +30,8 @@ type SettingTab = (typeof systemTabs)[number]["id"] | "security" | "notification
 const systemTabOptions: { value: SettingTab; label: string }[] = systemTabs.map(({ id, label }) => ({ value: id, label }));
 
 type SettingsWorkspaceProps = {
-  members: OrganizationMemberListItem[];
+  memberPage: MemberDirectoryPage;
+  activityMembers: MemberActivityAccount[];
   activity: MemberActivity[];
   masterOptions: MemberMasterOption[];
   templates: DocumentTemplateListItem[];
@@ -50,7 +51,7 @@ type SettingsWorkspaceProps = {
   canEventPush: boolean;
 };
 
-export function SettingsWorkspace({ members, activity, masterOptions, templates, backupSnapshot, currentMemberId, preview, organizations, theme, fontScale, digitStyle, canManageSettings, securityEmail, securityEnabled, securityPending, securityMailReady, canChatPush, canEventPush }: SettingsWorkspaceProps) {
+export function SettingsWorkspace({ memberPage, activityMembers, activity, masterOptions, templates, backupSnapshot, currentMemberId, preview, organizations, theme, fontScale, digitStyle, canManageSettings, securityEmail, securityEnabled, securityPending, securityMailReady, canChatPush, canEventPush }: SettingsWorkspaceProps) {
   const searchParams = useSearchParams();
   const tabs = canManageSettings ? [{ value: "notifications" as const, label: "Уведомления" }, { value: "security" as const, label: "Безопасность" }, ...systemTabOptions] : [{ value: "notifications" as const, label: "Уведомления" }, { value: "security" as const, label: "Безопасность" }];
   const activeTab = tabs.find(({ value }) => value === searchParams.get("tab"))?.value ?? "notifications";
@@ -70,8 +71,8 @@ export function SettingsWorkspace({ members, activity, masterOptions, templates,
       />
 
       <section id="settings-panel" role="tabpanel" aria-labelledby={`settings-${activeTab}-tab`}>
-        {canManageSettings && activeTab === "members" ? <MemberAdminPanel members={members} masterOptions={masterOptions} currentMemberId={currentMemberId} preview={preview} /> : null}
-        {canManageSettings && activeTab === "activity" ? <MemberActivityPanel members={members} activity={activity} /> : null}
+        {canManageSettings && activeTab === "members" ? <MemberAdminPanel initialPage={memberPage} masterOptions={masterOptions} currentMemberId={currentMemberId} preview={preview} /> : null}
+        {canManageSettings && activeTab === "activity" ? <MemberActivityPanel members={activityMembers} activity={activity} /> : null}
         {canManageSettings && activeTab === "organizations" ? <OrganizationPanel organizations={organizations} preview={preview} /> : null}
         {canManageSettings && activeTab === "appearance" ? <AppearancePanel theme={theme} fontScale={fontScale} digitStyle={digitStyle} /> : null}
         {canManageSettings && activeTab === "templates" ? <DocumentTemplatePanel templates={templates} preview={preview} /> : null}

@@ -5,7 +5,7 @@ import { MemberAccountWorkspace } from "@/components/settings/member-account-wor
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
-import { listMemberMasterOptions, listOrganizationMembers } from "@/server/members/repository";
+import { listMemberMasterOptions, getOrganizationMember } from "@/server/members/repository";
 import type { OrganizationMemberListItem } from "@/server/members/types";
 
 export const metadata: Metadata = { title: "Настройка пользователя" };
@@ -32,8 +32,8 @@ export default async function MemberSettingsPage({ params }: { params: Promise<{
     };
     return <MemberAccountWorkspace member={member} masterOptions={[]} currentMemberId={currentMember.memberId} />;
   }
-  const [members, masterOptions] = await Promise.all([listOrganizationMembers(currentMember), listMemberMasterOptions(currentMember)]);
-  const member = members.find((candidate) => candidate.id === id);
+  const member = await getOrganizationMember(currentMember, id);
   if (!member) notFound();
+  const masterOptions = await listMemberMasterOptions(currentMember, member.id);
   return <MemberAccountWorkspace member={member} masterOptions={masterOptions} currentMemberId={currentMember.memberId} />;
 }

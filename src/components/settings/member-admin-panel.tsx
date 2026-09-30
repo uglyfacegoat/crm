@@ -14,7 +14,6 @@ import { useRouter } from "next/navigation";
 import {
   useActionState,
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useState,
@@ -35,6 +34,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { matchesSearchText } from "@/lib/search-normalization";
+import { memberRoleLabels as roleLabels, type MemberDirectoryQuery } from "@/lib/member-directory";
 import {
   hasPermission,
   canRoleHavePermission,
@@ -49,6 +49,7 @@ import {
   type OrganizationRole,
 } from "@/server/auth/types";
 import type {
+  MemberDirectoryPage,
   MemberMasterOption,
   OrganizationMemberListItem,
 } from "@/server/members/types";
@@ -57,22 +58,6 @@ const initialState: MemberMutationState = {
   status: "idle",
   message: null,
   fieldErrors: {},
-};
-const roleLabels: Record<OrganizationRole, string> = {
-  owner: "Владелец",
-  developer: "Разработчик",
-  deputy: "Заместитель",
-  finance_controller: "Финконтроль",
-  sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж",
-  regional_director: "Региональный директор",
-  crm_coordinator: "Координатор CRM",
-  tender_specialist: "Тендерный отдел",
-  foreman: "Бригадир",
-  admin: "Администратор",
-  dispatcher: "Диспетчер",
-  manager: "Менеджер",
-  accountant: "Бухгалтер",
-  master: "Мастер",
 };
 const assignableRoleOptions = assignableOrganizationRoles.map((value) => ({
   value,
@@ -229,7 +214,7 @@ function RoleAndMasterFields({
 }) {
   const availableMasters = masterOptions.filter(
     (master) =>
-      master.active &&
+      (master.active || master.id === defaultMasterId) &&
       (!master.linkedMemberId || master.linkedMemberId === currentMemberId),
   );
   const [masterId, setMasterId] = useState(defaultMasterId ?? "");
@@ -248,27 +233,16 @@ function RoleAndMasterFields({
         />
       </OrderField>
       {role === "master" || role === "foreman" ? (
-        <OrderField label="Карточка мастера" required errors={errors.masterId}>
-          <CustomSelect
-            name="masterId"
-            value={masterId}
-            onChange={setMasterId}
-            ariaLabel="Карточка мастера"
-            options={[
-              { value: "", label: "Выберите мастера" },
-              ...availableMasters.map((master) => ({
-                value: master.id,
-                label: `${master.fullName} · ${master.phone}`,
-              })),
-            ]}
-            className={orderInputClass}
-          />
-          {!availableMasters.length ? (
-            <span className="text-[10px] leading-4 text-[var(--warning)]">
-              Сначала создайте активную карточку в разделе «Мастера».
-            </span>
-          ) : null}
-        </OrderField>
+        <div>
+          <input type="hidden" name="masterId" value={masterId} />
+          <OrderPicker label="Карточка мастера" required errors={errors.masterId}
+            value={masterId} onChange={setMasterId} placeholder="Выберите мастера"
+            searchPlaceholder="ФИО или телефон"
+            remoteUrl={`/api/v1/settings/masters${currentMemberId ? `?memberId=${currentMemberId}` : ""}`}
+            options={[{ value: "", label: "Выберите мастера" }, ...availableMasters.map(master => ({
+              value: master.id, label: master.fullName, detail: master.phone,
+            }))]} />
+        </div>
       ) : (
         <input type="hidden" name="masterId" value="" />
       )}
@@ -647,36 +621,56 @@ function formatLastLogin(value: string | null) {
 }
 
 export function MemberAdminPanel({
-  members,
+  initialPage,
   masterOptions,
   currentMemberId,
   preview,
 }: {
-  members: OrganizationMemberListItem[];
+  initialPage: MemberDirectoryPage;
   masterOptions: MemberMasterOption[];
   currentMemberId: string;
   preview: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<"all" | "active" | "inactive">("active");
-  const deferredQuery = useDeferredValue(query);
-  const filteredMembers = useMemo(
-    () =>
-      members.filter((member) => {
-        const matchesQuery = matchesSearchText(deferredQuery, [
-          member.displayName,
-          member.email,
-          member.phone,
-          member.masterName,
-          roleLabels[member.role],
-        ]);
-        const matchesStatus =
-          status === "all" ||
-          (status === "active" ? member.active : !member.active);
-        return matchesQuery && matchesStatus;
-      }),
-    [deferredQuery, members, status],
-  );
+  const [status, setStatus] = useState<MemberDirectoryQuery["status"]>("active");
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState(initialPage);
+  const [resultKey, setResultKey] = useState(JSON.stringify(["", "active", 1]));
+  const requestKey = JSON.stringify([query, status, page]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (preview) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setLoadError(false);
+      try {
+        const params = new URLSearchParams({ q: query, status, page: String(page) });
+        const response = await fetch(`/api/v1/settings/members?${params}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Member directory failed");
+        const payload = await response.json() as { data: MemberDirectoryPage };
+        if (!controller.signal.aborted) {
+          setResult(payload.data); setResultKey(requestKey);
+          const lastPage = Math.max(1, Math.ceil(payload.data.total / payload.data.pageSize));
+          if (page > lastPage) setPage(lastPage);
+        }
+      } catch {
+        if (!controller.signal.aborted) setLoadError(true);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, query ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [initialPage, page, preview, query, retry, status, requestKey]);
+  const previewItems = useMemo(() => initialPage.items.filter(member =>
+    matchesSearchText(query, [member.displayName, member.email, member.phone, member.masterName, roleLabels[member.role]]) &&
+    (status === "all" || member.active === (status === "active"))), [initialPage, query, status]);
+  const pending = !preview && (loading || (resultKey !== requestKey && !loadError));
+  const filteredMembers = preview ? previewItems : resultKey === requestKey ? result.items : [];
+  const total = preview ? previewItems.length : result.total;
+  const pageCount = Math.max(1, Math.ceil(total / result.pageSize));
   return (
     <div className="mt-5 space-y-4">
       {preview ? (
@@ -691,20 +685,21 @@ export function MemberAdminPanel({
         <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-raised)] p-3"><strong className="block text-[var(--text)]">Уровень 3 · Сотрудники</strong><span className="text-[var(--muted)]">Операционная работа без финансов и администрирования.</span></p>
       </div>
       <section className="surface-panel panel-stack overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-[var(--line)] p-4 sm:flex-row sm:items-center sm:p-5">
-          <label className="focus-within:border-[var(--line-strong)] flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 sm:max-w-md">
+        <div className="grid gap-3 border-b border-[var(--line)] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:p-5 lg:flex lg:items-center">
+          <label className="focus-within:border-[var(--line-strong)] flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 sm:col-span-2 lg:max-w-md">
             <Search className="size-4 shrink-0 text-[var(--muted)]" />
             <span className="sr-only">Поиск сотрудников</span>
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+              maxLength={100}
               placeholder="Имя, e-mail, телефон или роль"
               className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
             />
           </label>
           <CustomSelect
             value={status}
-            onChange={(value) => setStatus(value as typeof status)}
+            onChange={(value) => { setStatus(value as typeof status); setPage(1); }}
             ariaLabel="Статус учётной записи"
             options={[
               { value: "all", label: "Все статусы" },
@@ -716,7 +711,11 @@ export function MemberAdminPanel({
           <CreateMemberButton masterOptions={masterOptions} preview={preview} />
         </div>
 
-        <div className="divide-y divide-[var(--line)]">
+        {pending || loadError ? <div role="status" className="flex items-center gap-3 border-b border-[var(--line)] px-5 py-3 text-xs text-[var(--muted)]">
+          {loadError ? "Не удалось загрузить сотрудников. Повторите запрос." : "Загрузка…"}
+          {loadError ? <button type="button" onClick={() => setRetry(value => value + 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2">Повторить</button> : null}
+        </div> : null}
+        <div aria-busy={pending} className="divide-y divide-[var(--line)]">
           {filteredMembers.map((member) => (
             <article
               key={member.id}
@@ -797,7 +796,7 @@ export function MemberAdminPanel({
               </div>
             </article>
           ))}
-          {!filteredMembers.length ? (
+          {!filteredMembers.length && !pending && !loadError ? (
             <div className="grid min-h-52 place-items-center p-8 text-center">
               <div>
                 <UsersRound className="mx-auto size-7 text-[var(--muted)]" />
@@ -811,6 +810,13 @@ export function MemberAdminPanel({
             </div>
           ) : null}
         </div>
+        <nav aria-label="Страницы сотрудников" className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] p-4 text-xs text-[var(--muted)]">
+          <p aria-live="polite" className={pending || loadError ? "invisible" : undefined}>Найдено: {total} · Страница {result.page} из {pageCount}</p>
+          <div className="flex gap-2">
+            <button type="button" disabled={pending || loadError || page <= 1} onClick={() => setPage(value => value - 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Назад</button>
+            <button type="button" disabled={pending || loadError || page >= pageCount} onClick={() => setPage(value => value + 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Далее</button>
+          </div>
+        </nav>
       </section>
     </div>
   );

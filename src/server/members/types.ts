@@ -22,3 +22,11 @@ export type MemberMasterOption = {
   active: boolean;
   linkedMemberId: string | null;
 };
+
+export type MemberDirectoryPage = {
+  items: OrganizationMemberListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+export type MemberActivityAccount = Pick<OrganizationMemberListItem, "id" | "displayName" | "email" | "role">;
