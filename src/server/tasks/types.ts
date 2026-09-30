@@ -1,3 +1,5 @@
+import type { OrganizationRole } from "@/server/auth/types";
+
 export const taskColumns = ["overdue", "today", "upcoming", "unscheduled"] as const;
 export type TaskColumn = (typeof taskColumns)[number];
 
@@ -6,6 +8,8 @@ export type TaskPriority = (typeof taskPriorities)[number];
 
 export type TaskCard = {
   id: string;
+  organizationId?: string;
+  organizationName?: string;
   title: string;
   description: string | null;
   meta: string;
@@ -14,6 +18,7 @@ export type TaskCard = {
   assignee: string;
   assignedMemberId: string | null;
   assigneeName: string | null;
+  needsAssignment: boolean;
   column: TaskColumn;
   priority: TaskPriority;
   source: "manual" | "visit_reminder" | "workflow";
@@ -28,7 +33,7 @@ export type CompletedTaskCard = TaskCard & {
 export type TaskAssigneeOption = {
   id: string;
   displayName: string;
-  role: "admin" | "dispatcher" | "manager" | "accountant" | "master";
+  role: OrganizationRole;
 };
 
 export type TaskOrderOption = {
@@ -54,10 +59,20 @@ export type TaskHistoryFeed = {
 
 export type TaskSnapshot = {
   tasks: TaskCard[];
+  tasksTotal: number;
+  myTasks: TaskCard[];
+  myTasksTotal: number;
+  strandedTasks: TaskCard[];
+  strandedTotal: number;
   completedTasks: CompletedTaskCard[];
   assigneeOptions: TaskAssigneeOption[];
   orderOptions: TaskOrderOption[];
   timeZone: string;
   currentMemberId: string;
   completedLast30Days: number;
+};
+
+export type TaskDashboardSummary = {
+  overdueCount: number;
+  dailyCounts: number[];
 };

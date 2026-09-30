@@ -24,6 +24,7 @@ const visitRowSchema = z.object({
   object_address_snapshot: z.string(),
   scheduled_start_at: z.coerce.date(),
   scheduled_end_at: z.coerce.date(),
+  arrival_mode: z.enum(["fixed", "window"]),
   timezone: z.string(),
   status: z.enum(["planned", "confirmed", "in_progress", "completed", "cancelled"]),
   is_copyable: z.boolean().default(false),
@@ -44,6 +45,8 @@ const dispatchCardRowSchema = z.object({
   id: uuidSchema,
   order_id: uuidSchema.nullable(),
   order_number: z.string().nullable(),
+  client_kind: z.enum(["legal_entity", "individual"]).nullable(),
+  area_square_meters: z.coerce.number().positive().nullable(),
   client_name_snapshot: z.string(),
   object_name_snapshot: z.string(),
   object_address_snapshot: z.string(),
@@ -87,7 +90,7 @@ export class VisitStateTransitionError extends Error {
 }
 
 export class VisitReferenceError extends Error {
-  constructor(readonly field: "order" | "master") { super(`The selected ${field} is unavailable.`); this.name = "VisitReferenceError"; }
+  constructor(readonly field: "order" | "object" | "master") { super(`The selected ${field} is unavailable.`); this.name = "VisitReferenceError"; }
 }
 
 export class VisitScheduleConflictError extends Error {
@@ -108,18 +111,18 @@ export class VisitScheduleUnchangedError extends Error {
 
 function requireVisitRead(member: AuthenticatedMember) {
   requirePermission(member, "visits.read");
-  if (member.role === "master") throw new AuthorizationError();
+  if (member.role === "master" || member.role === "foreman") throw new AuthorizationError();
 }
 
 function requireAssignedMaster(member: AuthenticatedMember, permission: "visits.read" | "visits.write") {
   requirePermission(member, permission);
-  if (member.role !== "master" || !member.masterId) throw new AuthorizationError();
+  if ((member.role !== "master" && member.role !== "foreman") || !member.masterId) throw new AuthorizationError();
   return member.masterId;
 }
 
 function masterVisitScope(member: AuthenticatedMember, permission: "visits.read" | "visits.write") {
   requirePermission(member, permission);
-  if (member.role !== "master") return null;
+  if (member.role !== "master" && member.role !== "foreman") return null;
   if (!member.masterId) throw new AuthorizationError();
   return member.masterId;
 }
@@ -137,6 +140,7 @@ function mapVisit(row: unknown): ServiceVisit {
     address: visit.object_address_snapshot,
     scheduledStartAt: visit.scheduled_start_at.toISOString(),
     scheduledEndAt: visit.scheduled_end_at.toISOString(),
+    arrivalMode: visit.arrival_mode,
     timezone: visit.timezone,
     statusCode: visit.status,
     status: visitStatusLabels[visit.status],
@@ -166,7 +170,7 @@ export async function listOrderVisits(member: AuthenticatedMember, orderId: stri
   const sql = getDatabase();
   const rows = await sql`SELECT service_visits.id, service_visits.series_id, service_visits.occurrence_number, service_visits.order_id, orders.order_number,
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
-    service_visits.scheduled_start_at, service_visits.scheduled_end_at, organizations.timezone,
+    service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     (service_visits.status IN ('planned', 'confirmed') AND service_visits.scheduled_start_at >= now()) AS is_copyable,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
     service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
@@ -212,14 +216,15 @@ export async function listOrderVisitHistory(member: AuthenticatedMember, orderId
   return buildVisitHistoryFeed(rows, orderVisitHistoryLimit);
 }
 
-export async function listVisits(member: AuthenticatedMember, rangeStart: string, rangeEnd: string): Promise<ServiceVisit[]> {
+export async function listVisits(member: AuthenticatedMember, rangeStart: string, rangeEnd: string, focusedOrderId: string | null = null): Promise<ServiceVisit[]> {
   requireVisitRead(member);
   const bounds = z.object({ start: z.coerce.date(), end: z.coerce.date() }).parse({ start: rangeStart, end: rangeEnd });
+  const orderId = focusedOrderId ? z.string().uuid().parse(focusedOrderId) : null;
   if (bounds.end <= bounds.start) throw new RangeError("Visit range end must be after its start.");
   const sql = getDatabase();
   const rows = await sql`SELECT service_visits.id, service_visits.series_id, service_visits.occurrence_number, service_visits.order_id, orders.order_number,
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
-    service_visits.scheduled_start_at, service_visits.scheduled_end_at, organizations.timezone,
+    service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
     service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
     service_visits.completion_notes, service_visits.completion_document_id,
@@ -238,6 +243,7 @@ export async function listVisits(member: AuthenticatedMember, rangeStart: string
     LEFT JOIN documents AS completion_documents ON completion_documents.organization_id = service_visits.organization_id
       AND completion_documents.id = service_visits.completion_document_id
     WHERE service_visits.organization_id = ${member.organizationId}
+      AND (${orderId}::uuid IS NULL OR service_visits.order_id = ${orderId}::uuid)
       AND service_visits.scheduled_start_at < ${bounds.end}
       AND service_visits.scheduled_end_at > ${bounds.start}
     ORDER BY service_visits.scheduled_start_at
@@ -250,7 +256,7 @@ export async function listAssignedMasterVisits(member: AuthenticatedMember): Pro
   const sql = getDatabase();
   const rows = await sql`SELECT service_visits.id, service_visits.series_id, service_visits.occurrence_number, service_visits.order_id, orders.order_number,
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
-    service_visits.scheduled_start_at, service_visits.scheduled_end_at, organizations.timezone,
+    service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
     service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
     service_visits.completion_notes, service_visits.completion_document_id,
@@ -273,6 +279,7 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
   const assignedMasterId = masterVisitScope(member, "visits.read");
   const sql = getDatabase();
   const rows = await sql`SELECT service_visits.id, service_visits.order_id, orders.order_number,
+    clients.kind AS client_kind, objects.area_square_meters,
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
     orders.contact_name_snapshot, orders.contact_phone_snapshot,
     service_visits.scheduled_start_at, service_visits.scheduled_end_at, organizations.timezone,
@@ -282,6 +289,8 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
     coalesce(services.items, '[]'::json) AS services
     FROM service_visits
     JOIN organizations ON organizations.id = service_visits.organization_id
+    JOIN client_objects objects ON objects.organization_id = service_visits.organization_id AND objects.id = service_visits.object_id
+    JOIN clients ON clients.organization_id = objects.organization_id AND clients.id = objects.client_id
     LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
     LEFT JOIN LATERAL (
       SELECT json_agg(json_build_object(
@@ -297,15 +306,17 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
       AND (${assignedMasterId === null} OR service_visits.assigned_master_id = ${assignedMasterId})`;
   if (!rows.length) throw new VisitNotFoundError();
   const row = dispatchCardRowSchema.parse(rows[0]);
-  const canViewMasterPayment = hasPermission(member, "finance.read") || member.role === "master";
+  const canViewMasterPayment = hasPermission(member, "finance.read") || member.role === "master" || member.role === "foreman";
   const masterPaymentMatchesVisit = row.assigned_master_id !== null && row.assigned_master_id === row.order_master_id;
   return {
     visitId: row.id,
     orderId: row.order_id,
     orderNumber: row.order_number,
     client: row.client_name_snapshot,
+    clientKind: row.client_kind,
     object: row.object_name_snapshot,
     address: row.object_address_snapshot,
+    areaSquareMeters: row.area_square_meters,
     contactName: row.contact_name_snapshot,
     contactPhone: row.contact_phone_snapshot,
     scheduledStartAt: row.scheduled_start_at.toISOString(),
@@ -326,6 +337,8 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
 
 export async function createVisit(member: AuthenticatedMember, input: CreateVisitInput) {
   requirePermission(member, "visits.write");
+  const arrivalMode = input.arrivalMode ?? "window";
+  const endTime = arrivalMode === "window" ? input.endTime ?? null : null;
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
@@ -340,6 +353,7 @@ export async function createVisit(member: AuthenticatedMember, input: CreateVisi
       const [order] = await transaction`SELECT id, object_id, order_number, client_name_snapshot, object_name_snapshot, object_address_snapshot
         FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}`;
       if (!order) throw new VisitReferenceError("order");
+      if (!order.object_id) throw new VisitReferenceError("object");
       const orderNumber = z.string().parse(order.order_number);
       const masterRows = input.assignedMasterId
         ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
@@ -348,7 +362,9 @@ export async function createVisit(member: AuthenticatedMember, input: CreateVisi
       const master = masterRows[0] ?? null;
       const [rangeRow] = await transaction`SELECT
         ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) AS start_at,
-        ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) + make_interval(mins => ${input.durationMinutes}) AS end_at
+        CASE WHEN ${endTime}::text IS NOT NULL THEN
+          (((${input.localDate}::date + CASE WHEN ${endTime}::time < ${input.localTime}::time THEN 1 ELSE 0 END)::text || ' ' || ${endTime})::timestamp AT TIME ZONE timezone)
+        ELSE ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) + make_interval(mins => ${input.durationMinutes}) END AS end_at
         FROM organizations WHERE id = ${member.organizationId}`;
       const range = timestampRangeSchema.parse(rangeRow);
       if (input.assignedMasterId) {
@@ -359,16 +375,16 @@ export async function createVisit(member: AuthenticatedMember, input: CreateVisi
         if (conflicts.length) throw new VisitScheduleConflictError();
       }
       const [visit] = await transaction`INSERT INTO service_visits (
-        organization_id, order_id, object_id, assigned_master_id, scheduled_start_at, scheduled_end_at, status,
+        organization_id, order_id, object_id, assigned_master_id, scheduled_start_at, scheduled_end_at, arrival_mode, status,
         client_name_snapshot, object_name_snapshot, object_address_snapshot, master_name_snapshot, master_phone_snapshot,
         notes, created_by, updated_by
       ) VALUES (
-        ${member.organizationId}, ${input.orderId}, ${order.object_id}, ${input.assignedMasterId}, ${range.start_at}, ${range.end_at}, 'planned',
+        ${member.organizationId}, ${input.orderId}, ${order.object_id}, ${input.assignedMasterId}, ${range.start_at}, ${range.end_at}, ${arrivalMode}, 'planned',
         ${order.client_name_snapshot}, ${order.object_name_snapshot}, ${order.object_address_snapshot}, ${master?.full_name ?? null},
         ${master?.phone ?? null}, ${input.notes}, ${member.memberId}, ${member.memberId}
       ) RETURNING id`;
       const visitId = uuidSchema.parse(visit.id);
-      const afterState = { scheduledStartAt: range.start_at.toISOString(), scheduledEndAt: range.end_at.toISOString(), status: "planned", assignedMasterId: input.assignedMasterId, notes: input.notes };
+      const afterState = { scheduledStartAt: range.start_at.toISOString(), scheduledEndAt: range.end_at.toISOString(), arrivalMode, status: "planned", assignedMasterId: input.assignedMasterId, notes: input.notes };
       await transaction`INSERT INTO service_visit_events (organization_id, visit_id, actor_id, event_type, after_state)
         VALUES (${member.organizationId}, ${visitId}, ${member.memberId}, 'created', ${transaction.json(afterState)})`;
       await transaction`INSERT INTO tasks (
@@ -393,7 +409,10 @@ export async function createVisit(member: AuthenticatedMember, input: CreateVisi
 
 export async function createVisitSeries(member: AuthenticatedMember, input: CreateVisitSeriesInput) {
   requirePermission(member, "visits.write");
-  const localDates = generateVisitRecurrenceDates(input.startsOn, input.endsOn, input.frequencyUnit, input.frequencyInterval);
+  const arrivalMode = input.arrivalMode ?? "window";
+  const endTime = arrivalMode === "window" ? input.endTime ?? null : null;
+  const localDates = input.scheduleMode === "dates" ? [...input.selectedDates].sort()
+    : generateVisitRecurrenceDates(input.startsOn, input.endsOn, input.frequencyUnit, input.frequencyInterval);
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
@@ -414,6 +433,7 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
       const [order] = await transaction`SELECT id, object_id, order_number, client_name_snapshot, object_name_snapshot, object_address_snapshot
         FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}`;
       if (!order) throw new VisitReferenceError("order");
+      if (!order.object_id) throw new VisitReferenceError("object");
       const orderNumber = z.string().parse(order.order_number);
       const masterRows = input.assignedMasterId
         ? await transaction`SELECT id, full_name, phone FROM masters
@@ -424,7 +444,9 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
       const datePayload = localDates.map((localDate) => ({ local_date: localDate }));
       const rangeRows = await transaction`SELECT occurrence.local_date,
         ((occurrence.local_date || ' ' || ${input.localTime})::timestamp AT TIME ZONE organizations.timezone) AS start_at,
-        ((occurrence.local_date || ' ' || ${input.localTime})::timestamp AT TIME ZONE organizations.timezone) + make_interval(mins => ${input.durationMinutes}) AS end_at
+        CASE WHEN ${endTime}::text IS NOT NULL THEN
+          (((occurrence.local_date::date + CASE WHEN ${endTime}::time < ${input.localTime}::time THEN 1 ELSE 0 END)::text || ' ' || ${endTime})::timestamp AT TIME ZONE organizations.timezone)
+        ELSE ((occurrence.local_date || ' ' || ${input.localTime})::timestamp AT TIME ZONE organizations.timezone) + make_interval(mins => ${input.durationMinutes}) END AS end_at
         FROM organizations
         CROSS JOIN jsonb_to_recordset(${transaction.json(datePayload)}::jsonb) AS occurrence(local_date text)
         WHERE organizations.id = ${member.organizationId}
@@ -432,11 +454,11 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
       const ranges = rangeRows.map((row) => datedTimestampRangeSchema.parse(row));
       const [series] = await transaction`INSERT INTO service_visit_series (
         organization_id, order_id, object_id, assigned_master_id, frequency_unit, frequency_interval,
-        starts_on, ends_on, local_time, duration_minutes, notes, created_by, updated_by
+        starts_on, ends_on, local_time, duration_minutes, notes, selected_dates, created_by, updated_by
       ) VALUES (
-        ${member.organizationId}, ${input.orderId}, ${order.object_id}, ${input.assignedMasterId}, ${input.frequencyUnit},
+        ${member.organizationId}, ${input.orderId}, ${order.object_id}, ${input.assignedMasterId}, ${input.scheduleMode === "dates" ? "custom" : input.frequencyUnit},
         ${input.frequencyInterval}, ${input.startsOn}, ${input.endsOn}, ${input.localTime}, ${input.durationMinutes},
-        ${input.notes}, ${member.memberId}, ${member.memberId}
+        ${input.notes}, ${input.scheduleMode === "dates" ? transaction`ARRAY(SELECT value::date FROM jsonb_array_elements_text(${transaction.json(localDates)}::jsonb) AS value)` : null}, ${member.memberId}, ${member.memberId}
       ) RETURNING id`;
       const seriesId = uuidSchema.parse(series.id);
       const visitPayload = ranges.map((range, index) => ({
@@ -446,11 +468,11 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
       }));
       await transaction`INSERT INTO service_visits (
         organization_id, order_id, object_id, assigned_master_id, series_id, occurrence_number,
-        scheduled_start_at, scheduled_end_at, status, client_name_snapshot, object_name_snapshot,
+        scheduled_start_at, scheduled_end_at, arrival_mode, status, client_name_snapshot, object_name_snapshot,
         object_address_snapshot, master_name_snapshot, master_phone_snapshot, notes, created_by, updated_by
       ) SELECT
         ${member.organizationId}, ${input.orderId}, ${order.object_id}, ${input.assignedMasterId}, ${seriesId},
-        occurrence.occurrence_number, occurrence.scheduled_start_at, occurrence.scheduled_end_at, 'planned',
+        occurrence.occurrence_number, occurrence.scheduled_start_at, occurrence.scheduled_end_at, ${arrivalMode}, 'planned',
         ${order.client_name_snapshot}, ${order.object_name_snapshot}, ${order.object_address_snapshot},
         ${master?.full_name ?? null}, ${master?.phone ?? null}, ${input.notes}, ${member.memberId}, ${member.memberId}
         FROM jsonb_to_recordset(${transaction.json(visitPayload)}::jsonb)
@@ -458,7 +480,7 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
       await transaction`INSERT INTO service_visit_events (organization_id, visit_id, actor_id, event_type, after_state)
         SELECT organization_id, id, ${member.memberId}, 'created', jsonb_build_object(
           'seriesId', series_id, 'occurrenceNumber', occurrence_number, 'scheduledStartAt', scheduled_start_at,
-          'scheduledEndAt', scheduled_end_at, 'status', status, 'assignedMasterId', assigned_master_id, 'notes', notes
+          'scheduledEndAt', scheduled_end_at, 'arrivalMode', arrival_mode, 'status', status, 'assignedMasterId', assigned_master_id, 'notes', notes
         ) FROM service_visits WHERE organization_id = ${member.organizationId} AND series_id = ${seriesId}`;
       await transaction`INSERT INTO tasks (
         organization_id, title, description, priority, due_at, assigned_member_id, related_order_id, related_visit_id,
@@ -473,7 +495,7 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
         WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
       await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'service_visit_series.create', 'service_visit_series',
-          ${seriesId}, ${transaction.json({ orderId: input.orderId, frequencyUnit: input.frequencyUnit, frequencyInterval: input.frequencyInterval, startsOn: input.startsOn, endsOn: input.endsOn, localTime: input.localTime, durationMinutes: input.durationMinutes, assignedMasterId: input.assignedMasterId, visitCount: ranges.length })})`;
+          ${seriesId}, ${transaction.json({ orderId: input.orderId, scheduleMode: input.scheduleMode, selectedDates: input.scheduleMode === "dates" ? localDates : undefined, frequencyUnit: input.frequencyUnit, frequencyInterval: input.frequencyInterval, startsOn: input.startsOn, endsOn: input.endsOn, localTime: input.localTime, arrivalMode, endTime, durationMinutes: input.durationMinutes, assignedMasterId: input.assignedMasterId, visitCount: ranges.length })})`;
       return { seriesId, visitCount: ranges.length };
     });
   } catch (error) {
@@ -489,11 +511,14 @@ export async function updateVisit(member: AuthenticatedMember, input: UpdateVisi
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
-      const [existing] = await transaction`SELECT scheduled_start_at, scheduled_end_at, status, assigned_master_id, cancellation_reason, notes, version
+      const [existing] = await transaction`SELECT scheduled_start_at, scheduled_end_at, arrival_mode, status, assigned_master_id, cancellation_reason, notes, version
         FROM service_visits WHERE organization_id = ${member.organizationId} AND id = ${input.visitId} FOR UPDATE`;
       if (!existing) throw new VisitNotFoundError();
       if (z.number().int().parse(existing.version) !== input.expectedVersion) throw new VisitVersionConflictError();
       if (existing.status === "completed") throw new VisitImmutableError();
+      const previousArrivalMode = z.enum(["fixed", "window"]).parse(existing.arrival_mode);
+      const arrivalMode = input.arrivalMode ?? previousArrivalMode;
+      const endTime = arrivalMode === "window" ? input.endTime ?? null : null;
       const masterRows = input.assignedMasterId
         ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
         : [];
@@ -501,12 +526,14 @@ export async function updateVisit(member: AuthenticatedMember, input: UpdateVisi
       const master = masterRows[0] ?? null;
       const [rangeRow] = await transaction`SELECT
         ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) AS start_at,
-        ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) + make_interval(mins => ${input.durationMinutes}) AS end_at
+        CASE WHEN ${endTime}::text IS NOT NULL THEN
+          (((${input.localDate}::date + CASE WHEN ${endTime}::time < ${input.localTime}::time THEN 1 ELSE 0 END)::text || ' ' || ${endTime})::timestamp AT TIME ZONE timezone)
+        ELSE ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) + make_interval(mins => ${input.durationMinutes}) END AS end_at
         FROM organizations WHERE id = ${member.organizationId}`;
       const range = timestampRangeSchema.parse(rangeRow);
       const previousStart = z.coerce.date().parse(existing.scheduled_start_at);
       const previousEnd = z.coerce.date().parse(existing.scheduled_end_at);
-      const scheduleChanged = previousStart.getTime() !== range.start_at.getTime() || previousEnd.getTime() !== range.end_at.getTime();
+      const scheduleChanged = previousStart.getTime() !== range.start_at.getTime() || previousEnd.getTime() !== range.end_at.getTime() || previousArrivalMode !== arrivalMode;
       if (scheduleChanged && !input.rescheduleReason) throw new VisitRescheduleReasonRequiredError();
       if (input.assignedMasterId) {
         const conflicts = await transaction`SELECT id FROM service_visits
@@ -519,13 +546,14 @@ export async function updateVisit(member: AuthenticatedMember, input: UpdateVisi
       const beforeState = {
         scheduledStartAt: previousStart.toISOString(),
         scheduledEndAt: previousEnd.toISOString(),
+        arrivalMode: previousArrivalMode,
         status: z.string().parse(existing.status),
         assignedMasterId: z.string().uuid().nullable().parse(existing.assigned_master_id),
         cancellationReason: z.string().nullable().parse(existing.cancellation_reason),
         notes: z.string().nullable().parse(existing.notes),
         version: input.expectedVersion,
       };
-      const [updated] = await transaction`UPDATE service_visits SET scheduled_start_at = ${range.start_at}, scheduled_end_at = ${range.end_at},
+      const [updated] = await transaction`UPDATE service_visits SET scheduled_start_at = ${range.start_at}, scheduled_end_at = ${range.end_at}, arrival_mode = ${arrivalMode},
         status = ${input.status}, assigned_master_id = ${input.assignedMasterId}, master_name_snapshot = ${master?.full_name ?? null},
         master_phone_snapshot = ${master?.phone ?? null}, cancellation_reason = ${input.status === "cancelled" ? input.cancellationReason : null},
         notes = ${input.notes}, version = version + 1, updated_by = ${member.memberId}, updated_at = now()
@@ -568,7 +596,7 @@ export async function updateVisit(member: AuthenticatedMember, input: UpdateVisi
         updated_at = now()
         WHERE organization_id = ${member.organizationId} AND related_visit_id = ${input.visitId}
           AND source = 'visit_reminder' AND reminder_kind = 'prepare_visit'`;
-      const afterState = { scheduledStartAt: range.start_at.toISOString(), scheduledEndAt: range.end_at.toISOString(), status: input.status, assignedMasterId: input.assignedMasterId, cancellationReason: input.status === "cancelled" ? input.cancellationReason : null, notes: input.notes, version: updated.version };
+      const afterState = { scheduledStartAt: range.start_at.toISOString(), scheduledEndAt: range.end_at.toISOString(), arrivalMode, status: input.status, assignedMasterId: input.assignedMasterId, cancellationReason: input.status === "cancelled" ? input.cancellationReason : null, notes: input.notes, version: updated.version };
       const eventTypes = new Set<string>();
       if (scheduleChanged) eventTypes.add("schedule_changed");
       if (beforeState.status !== afterState.status) eventTypes.add("status_changed");
@@ -711,7 +739,7 @@ export async function completeVisitWithClosingDocument(
   input: CompleteVisitInput & ValidatedClosingDocument,
 ) {
   const assignedMasterId = masterVisitScope(member, "visits.write");
-  if (member.role !== "master") requirePermission(member, "documents.write");
+  if (member.role !== "master" && member.role !== "foreman") requirePermission(member, "documents.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
     const [visit] = await transaction`SELECT service_visits.id, service_visits.order_id, service_visits.status,
@@ -859,7 +887,7 @@ export async function rescheduleVisit(member: AuthenticatedMember, input: Resche
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
-      const [existing] = await transaction`SELECT order_id, scheduled_start_at, scheduled_end_at, status,
+      const [existing] = await transaction`SELECT order_id, scheduled_start_at, scheduled_end_at, arrival_mode, status,
         assigned_master_id, version
         FROM service_visits
         WHERE organization_id = ${member.organizationId} AND id = ${input.visitId}
@@ -870,13 +898,18 @@ export async function rescheduleVisit(member: AuthenticatedMember, input: Resche
       if (status === "completed" || status === "cancelled") throw new VisitImmutableError();
       const previousStart = z.coerce.date().parse(existing.scheduled_start_at);
       const previousEnd = z.coerce.date().parse(existing.scheduled_end_at);
+      const previousArrivalMode = z.enum(["fixed", "window"]).parse(existing.arrival_mode);
+      const arrivalMode = input.arrivalMode ?? previousArrivalMode;
+      const endTime = arrivalMode === "window" ? input.endTime ?? null : null;
       const durationMinutes = Math.round((previousEnd.getTime() - previousStart.getTime()) / 60_000);
       const [rangeRow] = await transaction`SELECT
         ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) AS start_at,
-        ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) + make_interval(mins => ${durationMinutes}) AS end_at
+        CASE WHEN ${endTime}::text IS NOT NULL THEN
+          (((${input.localDate}::date + CASE WHEN ${endTime}::time < ${input.localTime}::time THEN 1 ELSE 0 END)::text || ' ' || ${endTime})::timestamp AT TIME ZONE timezone)
+        ELSE ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) + make_interval(mins => ${durationMinutes}) END AS end_at
         FROM organizations WHERE id = ${member.organizationId}`;
       const range = timestampRangeSchema.parse(rangeRow);
-      if (previousStart.getTime() === range.start_at.getTime() && previousEnd.getTime() === range.end_at.getTime()) {
+      if (previousStart.getTime() === range.start_at.getTime() && previousEnd.getTime() === range.end_at.getTime() && previousArrivalMode === arrivalMode) {
         throw new VisitScheduleUnchangedError();
       }
       const assignedMasterId = z.string().uuid().nullable().parse(existing.assigned_master_id);
@@ -889,7 +922,7 @@ export async function rescheduleVisit(member: AuthenticatedMember, input: Resche
         if (conflicts.length) throw new VisitScheduleConflictError();
       }
       const [updated] = await transaction`UPDATE service_visits SET
-        scheduled_start_at = ${range.start_at}, scheduled_end_at = ${range.end_at}, version = version + 1,
+        scheduled_start_at = ${range.start_at}, scheduled_end_at = ${range.end_at}, arrival_mode = ${arrivalMode}, version = version + 1,
         updated_by = ${member.memberId}, updated_at = now()
         WHERE organization_id = ${member.organizationId} AND id = ${input.visitId}
         RETURNING version`;
@@ -897,8 +930,8 @@ export async function rescheduleVisit(member: AuthenticatedMember, input: Resche
         updated_by = ${member.memberId}, updated_at = now()
         WHERE organization_id = ${member.organizationId} AND related_visit_id = ${input.visitId}
           AND source = 'visit_reminder' AND reminder_kind = 'prepare_visit' AND status = 'open'`;
-      const beforeState = { scheduledStartAt: previousStart.toISOString(), scheduledEndAt: previousEnd.toISOString() };
-      const afterState = { scheduledStartAt: range.start_at.toISOString(), scheduledEndAt: range.end_at.toISOString() };
+      const beforeState = { scheduledStartAt: previousStart.toISOString(), scheduledEndAt: previousEnd.toISOString(), arrivalMode: previousArrivalMode };
+      const afterState = { scheduledStartAt: range.start_at.toISOString(), scheduledEndAt: range.end_at.toISOString(), arrivalMode };
       await transaction`INSERT INTO service_visit_events (organization_id, visit_id, actor_id, event_type, before_state, after_state, reason)
         VALUES (${member.organizationId}, ${input.visitId}, ${member.memberId}, 'schedule_changed',
           ${transaction.json(beforeState)}, ${transaction.json(afterState)}, ${input.rescheduleReason})`;
@@ -909,6 +942,7 @@ export async function rescheduleVisit(member: AuthenticatedMember, input: Resche
         version: z.number().int().positive().parse(updated.version),
         scheduledStartAt: range.start_at.toISOString(),
         scheduledEndAt: range.end_at.toISOString(),
+        arrivalMode,
         orderId: z.string().uuid().nullable().parse(existing.order_id),
       };
     });

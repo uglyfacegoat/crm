@@ -7,6 +7,7 @@ import { requireSession } from "@/server/auth/session";
 import {
   createOrganizationMember,
   MemberIdentityConflictError,
+  MemberLegacyRoleChangeError,
   MemberMasterConflictError,
   MemberMasterNotFoundError,
   MemberNotFoundError,
@@ -81,6 +82,9 @@ export async function createMemberAction(
     if (error instanceof MemberIdentityConflictError) {
       return { status: "error", message: "Этот e-mail или телефон уже используется.", fieldErrors: { email: ["Проверьте уникальность логина"] } };
     }
+    if (error instanceof MemberProtectedAccountError) {
+      return { status: "error", message: "Этот адрес зарезервирован для системной учётной записи разработчика.", fieldErrors: { email: ["Используйте другой адрес"] } };
+    }
     if (error instanceof MemberMasterConflictError) {
       return { status: "error", message: "Карточка мастера уже привязана к другой учётной записи.", fieldErrors: { masterId: ["Выберите другого мастера"] } };
     }
@@ -119,6 +123,9 @@ export async function updateMemberAccessAction(
     }
     if (error instanceof MemberProtectedAccountError) {
       return { status: "error", message: "Системной учётной записью разработчика нельзя управлять из настроек организации.", fieldErrors: {} };
+    }
+    if (error instanceof MemberLegacyRoleChangeError) {
+      return { status: "error", message: "Устаревшую роль можно сохранить только у сотрудника, которому она уже назначена. Выберите новый уровень.", fieldErrors: { role: ["Выберите новый уровень"] } };
     }
     if (error instanceof MemberVersionConflictError) {
       return { status: "error", message: "Данные уже изменил другой администратор. Обновите страницу и повторите.", fieldErrors: {} };

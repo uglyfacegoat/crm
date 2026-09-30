@@ -7,7 +7,7 @@ import { getAuthMode } from "@/server/auth/config";
 import { safeLoginRedirect } from "@/server/auth/login-redirect";
 import { getClientAddress } from "@/server/auth/request";
 import { authenticateMember } from "@/server/auth/service";
-import { setSessionCookie } from "@/server/auth/session";
+import { setEmailChallengeCookie, setSessionCookie } from "@/server/auth/session";
 
 export type LoginState = { error: string | null };
 
@@ -30,7 +30,13 @@ export async function loginAction(_previousState: LoginState, formData: FormData
   }
 
   if (!result.ok) {
-    return { error: result.reason === "rate_limited" ? "Слишком много попыток. Повторите вход через 15 минут." : "Неверный логин или пароль." };
+    return { error: result.reason === "rate_limited" ? "Слишком много попыток. Повторите вход через 15 минут."
+      : result.reason === "mail_unavailable" ? "Подтверждение по почте временно недоступно. Попробуйте позже."
+        : "Неверный логин или пароль." };
+  }
+  if ("challengeToken" in result) {
+    await setEmailChallengeCookie(result.challengeToken);
+    redirect(`/login/verify?next=${encodeURIComponent(nextPath)}`);
   }
   await setSessionCookie(result.session);
   redirect(nextPath);

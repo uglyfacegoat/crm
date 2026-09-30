@@ -11,34 +11,54 @@ import { TodayVisits } from "@/components/dashboard/today-visits";
 import { formatMoneyMinor } from "@/lib/format";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
+import { redirect } from "next/navigation";
 import { requireOfficeSession } from "@/server/auth/session";
 import { getPreviewOrders } from "@/server/orders/preview";
 import { listOrders } from "@/server/orders/repository";
 import { getPreviewTasks } from "@/server/tasks/preview";
-import { listTasks } from "@/server/tasks/repository";
+import { getTaskDashboardSummary, listTasks } from "@/server/tasks/repository";
 import { getPreviewVisits } from "@/server/visits/preview";
 import { listVisits } from "@/server/visits/repository";
 import type { ServiceVisit, VisitStatus } from "@/server/visits/types";
+import { listAccessibleOrganizations } from "@/server/organizations/repository";
+import { getCenterDashboardData, getCenterTaskDashboardSummary } from "@/server/organizations/center-dashboard";
+import { PersonalNotesPanel } from "@/components/personal-notes/personal-notes-panel";
+import { dashboardNoteTarget, listPersonalNotes, listPersonalNoteTemplates } from "@/server/personal-notes/repository";
 
 export default async function DashboardPage() {
   const member = await requireOfficeSession();
   const preview = getAuthMode() === "preview";
+  if (!hasPermission(member, "orders.read") || !hasPermission(member, "visits.read") || !hasPermission(member, "tasks.read")) redirect("/profile");
+  const isCenter = !preview && hasPermission(member, "companies.read") &&
+    (await listAccessibleOrganizations(member)).some((organization) => organization.current && organization.kind === "center");
+  const canReadFinance = hasPermission(member, "finance.read");
+  const [personalNotes, noteTemplates] = preview
+    ? [[], []]
+    : await Promise.all([listPersonalNotes(member, dashboardNoteTarget), listPersonalNoteTemplates(member)]);
   const now = new Date();
+  const rangeStart = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+  const rangeEnd = new Date(now.getTime() + 21 * 86_400_000).toISOString();
+  const centerData = isCenter ? await getCenterDashboardData(member, rangeStart, rangeEnd) : null;
   const [dashboardOrders, dashboardVisits, dashboardTasks] = preview
     ? [getPreviewOrders(), getPreviewVisits(), getPreviewTasks()]
+    : centerData
+      ? [centerData.orders, centerData.visits, { tasks: centerData.tasks, timeZone: centerData.timeZone }]
     : await Promise.all([
         listOrders(member),
-        listVisits(
-          member,
-          new Date(now.getTime() - 30 * 86_400_000).toISOString(),
-          new Date(now.getTime() + 21 * 86_400_000).toISOString(),
-        ),
+        listVisits(member, rangeStart, rangeEnd),
         listTasks(member),
       ]);
   const calendarVisits = dashboardVisits.map(toDashboardVisit);
   const dashboardTimeZone =
     dashboardVisits[0]?.timezone ?? dashboardTasks.timeZone;
   const initialCalendarDate = localDateKey(now, dashboardTimeZone);
+  const taskSummary = preview
+    ? { overdueCount: dashboardTasks.tasks.filter((task) => task.column === "overdue").length,
+        dailyCounts: countsByDate(dashboardTasks.tasks.flatMap((task) =>
+          task.dueAt ? [localDateKey(new Date(task.dueAt), dashboardTimeZone)] : []), initialCalendarDate) }
+    : isCenter
+      ? await getCenterTaskDashboardSummary(member, dashboardTimeZone, initialCalendarDate)
+      : await getTaskDashboardSummary(member, dashboardTimeZone, initialCalendarDate);
   const todayVisits = calendarVisits
     .filter((visit) => visit.date === initialCalendarDate)
     .toSorted((left, right) => left.time.localeCompare(right.time));
@@ -67,9 +87,7 @@ export default async function DashboardPage() {
   const currentMonthAgreed = currentMonthOrders
     .filter((order) => order.status !== "Отменён")
     .reduce((sum, order) => sum + order.agreedTotalMinor, 0);
-  const overdueTaskCount = dashboardTasks.tasks.filter(
-    (task) => task.column === "overdue",
-  ).length;
+  const overdueTaskCount = taskSummary.overdueCount;
   const overdueOrderCount = dashboardOrders.filter(
     (order) => order.status === "Просрочен",
   ).length;
@@ -95,12 +113,7 @@ export default async function DashboardPage() {
     ),
     initialCalendarDate,
   );
-  const dailyTaskBars = countsByDate(
-    dashboardTasks.tasks.flatMap((task) =>
-      task.dueAt ? [localDateKey(new Date(task.dueAt), dashboardTimeZone)] : [],
-    ),
-    initialCalendarDate,
-  );
+  const dailyTaskBars = taskSummary.dailyCounts;
   const metrics = [
     {
       label: "Маршрут сегодня",
@@ -129,13 +142,13 @@ export default async function DashboardPage() {
       tone: "accent" as const,
       bars: dailyOrderBars,
     },
-    {
+    ...(canReadFinance ? [{
       label: "Согласовано за месяц",
       value: formatMoneyMinor(currentMonthAgreed),
       change: `${currentMonthOrders.length} новых заказов`,
       tone: "support" as const,
       bars: dailyOrderBars,
-    },
+    }] : []),
   ];
   const routeDescription = todayVisits.length
     ? `Сегодня · ${formatDashboardDate(now, dashboardTimeZone)}`
@@ -162,8 +175,8 @@ export default async function DashboardPage() {
             <strong>{metric.value}</strong>
             <div className="dashboard-metric-footer" data-stacked={index === 1 || index === 2}>
               <span>{metric.change}</span>
-              {index === 0 ? <div className="dashboard-metric-bars" aria-hidden="true">{metric.bars.map((value, barIndex) => <i key={barIndex} style={{ height: `${Math.max(9, value * 7)}px` }} />)}</div> : null}
-              {index === 1 || index === 2 ? <div className="dashboard-metric-units" aria-hidden="true">{Array.from({ length: 10 }, (_, unitIndex) => <i key={unitIndex} data-filled={unitIndex < (index === 1 ? attentionCount : activeOrders.length)} />)}</div> : null}
+              {index === 0 && metric.bars.some((value) => value > 0) ? <div className="dashboard-metric-bars" aria-hidden="true">{metric.bars.map((value, barIndex) => <i key={barIndex} style={{ height: `${Math.max(9, value * 7)}px` }} />)}</div> : null}
+              {(index === 1 && attentionCount > 0) || (index === 2 && activeOrders.length > 0) ? <div className="dashboard-metric-units" aria-hidden="true">{Array.from({ length: 10 }, (_, unitIndex) => <i key={unitIndex} data-filled={unitIndex < (index === 1 ? attentionCount : activeOrders.length)} />)}</div> : null}
             </div>
           </article>
         ))}
@@ -171,7 +184,11 @@ export default async function DashboardPage() {
 
       <div className="dashboard-operational-row">
         <div id="dashboard-route"><TodayVisits visits={routeVisits} dateLabel={routeDescription} title={todayVisits.length ? "Маршрут на сегодня" : "Ближайшие выезды"} /></div>
-        <div id="dashboard-tasks"><TaskList tasks={visibleTasks.slice(0, 2)} canWrite={!preview && hasPermission(member, "tasks.write")} /></div>
+        <div id="dashboard-tasks"><TaskList tasks={visibleTasks.slice(0, 2)} canWrite={!preview && !isCenter && hasPermission(member, "tasks.write")} /></div>
+      </div>
+
+      <div id="dashboard-personal-notes">
+        <PersonalNotesPanel target={dashboardNoteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} />
       </div>
 
       <div id="dashboard-activity">
@@ -186,9 +203,7 @@ export default async function DashboardPage() {
         <div id="dashboard-calendar">
           <DashboardCalendar visits={calendarVisits} initialDate={initialCalendarDate} />
         </div>
-        <div id="dashboard-finance">
-          <FinancialSummary orders={currentMonthOrders} />
-        </div>
+        {canReadFinance ? <div id="dashboard-finance"><FinancialSummary orders={currentMonthOrders} /></div> : null}
       </div>
     </div>
   );
@@ -263,6 +278,8 @@ function toDashboardVisit(visit: ServiceVisit): DashboardVisit {
   const scheduledStart = new Date(visit.scheduledStartAt);
   return {
     id: visit.id,
+    organizationId: visit.organizationId,
+    organizationName: visit.organizationName,
     orderId: visit.orderId,
     orderNumber: visit.orderNumber,
     date: localDateKey(scheduledStart, visit.timezone),

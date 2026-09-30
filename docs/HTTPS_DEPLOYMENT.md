@@ -1,10 +1,11 @@
 # HTTPS ingress
 
-The base `compose.yaml` is a local HTTP stand bound to loopback. Public deployment
-uses **both** `compose.yaml` and `compose.https.yaml` (Docker Compose 2.24.4+).
-The HTTPS override removes published application and PostgreSQL ports. Only the
-gateway accepts host traffic; authenticated production trusts proxy headers only
-on this private network. Do not attach untrusted containers or publish the app port.
+`compose.yaml` is the local HTTP stand and uses local working volumes. Server
+deployment uses **only** the standalone `compose.production.yaml`; never merge
+it with `compose.yaml`. It has its own `crm-production` project, PostgreSQL,
+document and backup volumes, private network, required ClamAV and separate
+service environment files. Only the HTTPS gateway publishes host ports. The
+local CRM and its data are not inputs to this configuration.
 
 The gateway replaces `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Host` and
 `X-Forwarded-Proto`, and removes `Forwarded`. The application uses only the validated
@@ -14,7 +15,12 @@ accepting arbitrary forwarded headers.
 
 ## Configuration
 
-Supply the normal database/authentication settings plus these environment values:
+Copy the five `.env.production*.example` files to names without `.example`,
+replace every placeholder and restrict their permissions. `.env.production`
+is used for Compose interpolation; `.env.production.database`, `.web`,
+`.workers` and `.backup` are passed only to their corresponding services.
+The web authentication secret is not sent to the database or workers. The
+interpolation file contains these deployment settings:
 
 ```dotenv
 CRM_PUBLIC_ORIGIN=https://crm.example.com
@@ -22,6 +28,7 @@ CRM_PUBLIC_HOST=crm.example.com
 CRM_APP_IMAGE=crm-app:release-candidate
 CRM_TLS_CERTIFICATE=/absolute/private/path/fullchain.pem
 CRM_TLS_PRIVATE_KEY=/absolute/private/path/private-key.pem
+CRM_BACKUP_EXPORT_PATH=/absolute/private/backup-export
 CRM_HTTPS_BIND_ADDRESS=0.0.0.0
 CRM_HTTP_PORT=80
 CRM_HTTPS_PORT=443
@@ -33,15 +40,25 @@ the hostname without a port; the gateway rejects a different Host. The certifica
 and private key must already exist; they are mounted read-only, never copied into
 the image. Keep the private key outside the checkout with owner-only permissions.
 The default bind is loopback; opening it publicly is an explicit operator choice.
-Do not expose the base local HTTP deployment as a production service.
+Create the private backup export directory on the server before starting;
+Compose will not create a missing host path. It must be outside the checkout
+and separate from the Docker volumes. Keep the four service env files out of
+Git and use distinct production secrets and database credentials. A database
+password embedded in `DATABASE_URL` must be URL-encoded if it has reserved
+characters.
 
 ```sh
-docker compose --env-file .env.production -f compose.yaml -f compose.https.yaml up -d --build --wait
+npm run test:production-compose
+docker build -t crm-app:release-candidate .
+docker compose --env-file .env.production -f compose.production.yaml config --quiet
+docker compose --env-file .env.production -f compose.production.yaml up -d --no-build --wait
 ```
 
-The override forces secure cookies, trusted-proxy mode and the configured origin.
-It also points web and both workers at the same explicitly named release image;
-the base local Compose file uses older image tags for the running development stand.
+The production file forces secure cookies, trusted-proxy mode, the configured
+origin and mandatory file scanning. Web, reminder, Workflow and backup worker
+use the same explicitly named release image. The web service waits for
+PostgreSQL and ClamAV startup; its readiness requires the scanner to answer.
+Budget roughly 1 GiB for ClamAV itself before choosing a server size.
 Startup rejects HTTP origins or insecure cookies in authenticated trusted-proxy
 production. Plain HTTP redirects to the configured HTTPS origin, never a supplied
 Host. TLS supports 1.2/1.3 only; HSTS is applied without preloading or extending it
@@ -49,8 +66,41 @@ to unrelated subdomains. Certificates must be renewed before expiry. After repla
 mounted certificate files, recreate the gateway so the new files are mounted and loaded:
 
 ```sh
-docker compose --env-file .env.production -f compose.yaml -f compose.https.yaml up -d --force-recreate --no-deps gateway
+docker compose --env-file .env.production -f compose.production.yaml up -d --force-recreate --no-deps gateway
 ```
+
+After first startup has applied migrations, create the first owner account
+with a separate private `.env.production.bootstrap` file containing only
+`AUTH_BOOTSTRAP_ORGANIZATION_NAME`, `AUTH_BOOTSTRAP_TIMEZONE`,
+`AUTH_BOOTSTRAP_ADMIN_NAME`, `AUTH_BOOTSTRAP_ADMIN_EMAIL` and
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD`. Set `AUTH_BOOTSTRAP_DEVELOPER=true` in that
+file when the account must have the protected Developer role. Use the owner's
+real email; no personal email is hardcoded in the release image. Do not put
+these values in shell command
+arguments or the ongoing web/worker env files:
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps --env-from-file .env.production.bootstrap --entrypoint node crm --experimental-strip-types scripts/create-admin.ts
+```
+
+The release image contains this command. It refuses a duplicate email and
+creates the company and owner in one database transaction. The developer role
+is registered in the same transaction and cannot be assigned, deactivated,
+edited or password-reset through CRM organization settings. Protect
+or remove the bootstrap file after use.
+
+For a disposable rehearsal of this exact production Compose file on a machine
+with the candidate image, run:
+
+```sh
+CRM_PRODUCTION_CHECK_IMAGE=crm-app:release-candidate npm run test:production-stack
+```
+
+The script uses temporary env files, random credentials, a one-day localhost
+certificate and a random Compose project name. It starts all seven services,
+creates an administrator from the packaged command, verifies HTTPS login and
+removes only its own containers, volumes and temporary files. It does not
+replace checks on the chosen server, DNS, certificate renewal or offsite backup.
 
 Automated issuance/renewal and expiry alerts are not implemented yet. The gateway's
 container health check validates nginx configuration; external HTTPS monitoring is

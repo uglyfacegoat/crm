@@ -23,12 +23,12 @@ export function SiteTrafficTrendChart({ labels, series, emptyMessage }: WebsiteS
   if (!measured.length) return <div className="site-traffic-chart grid min-h-0 w-full place-items-center text-center text-sm text-[var(--muted)]">{emptyMessage}</div>;
   return <div className="site-traffic-chart relative min-h-0 w-full" role="img" aria-label="Динамика уникальных посетителей сайта">
     <ResponsiveContainer width="100%" height="100%" minHeight={180}><AreaChart data={chartData} margin={{ top: 10, right: 5, bottom: 0, left: 0 }} accessibilityLayer>
-      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#dbe5fb" /><stop offset="100%" stopColor="#eef2fb" /></linearGradient></defs>
-      <CartesianGrid vertical={false} stroke="#dfdfd9" />
-      <XAxis dataKey="label" ticks={dateTicks} interval={0} axisLine={false} tickLine={false} tick={{ fill: "#70737b", fontSize: 10 }} tickMargin={12} />
-      <YAxis domain={[0, maximum]} ticks={axisTicks} axisLine={false} tickLine={false} width={44} tick={{ fill: "#70737b", fontSize: 10 }} tickFormatter={(value) => numberFormatter.format(Number(value))} />
-      <Tooltip cursor={{ stroke: "#9dbbff", strokeWidth: 1 }} content={({ active, label, payload }) => active && payload?.length ? <div className="rounded-[9px] border border-[var(--report-line)] bg-white px-3 py-2 shadow-[0_10px_28px_rgba(0,0,0,0.12)]"><span className="block text-[9px] text-[var(--report-muted)]">{label}</span><strong className="mt-1 block text-[11px] font-semibold text-[var(--report-dark)]">{numberFormatter.format(Number(payload[0].value))} посетителей</strong></div> : null} />
-      <Area type="linear" dataKey="visitors" name="Посетители" stroke="#25272c" strokeWidth={2.5} fill={`url(#${gradientId})`} fillOpacity={1} activeDot={{ r: 4, fill: "#25272c", stroke: "#fff", strokeWidth: 2 }} isAnimationActive={false} />
+      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--report-blue)" stopOpacity={0.35} /><stop offset="100%" stopColor="var(--report-blue)" stopOpacity={0.04} /></linearGradient></defs>
+      <CartesianGrid vertical={false} stroke="var(--report-line)" />
+      <XAxis dataKey="label" ticks={dateTicks} interval={0} axisLine={false} tickLine={false} tick={{ fill: "var(--report-muted)", fontSize: 10 }} tickMargin={12} />
+      <YAxis domain={[0, maximum]} ticks={axisTicks} axisLine={false} tickLine={false} width={44} tick={{ fill: "var(--report-muted)", fontSize: 10 }} tickFormatter={(value) => numberFormatter.format(Number(value))} />
+      <Tooltip cursor={{ stroke: "var(--report-blue)", strokeWidth: 1 }} content={({ active, label, payload }) => active && payload?.length ? <div className="rounded-[9px] border border-[var(--report-line)] bg-[var(--surface-raised)] px-3 py-2 shadow-[0_10px_28px_rgba(0,0,0,0.12)]"><span className="block text-[9px] text-[var(--report-muted)]">{label}</span><strong className="mt-1 block text-[11px] font-semibold text-[var(--report-dark)]">{numberFormatter.format(Number(payload[0].value))} посетителей</strong></div> : null} />
+      <Area type="linear" dataKey="visitors" name="Посетители" stroke="var(--report-dark)" strokeWidth={2.5} fill={`url(#${gradientId})`} fillOpacity={1} activeDot={{ r: 4, fill: "var(--report-dark)", stroke: "var(--surface)", strokeWidth: 2 }} isAnimationActive={false} />
     </AreaChart></ResponsiveContainer>
   </div>;
 }

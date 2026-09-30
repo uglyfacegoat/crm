@@ -8,6 +8,7 @@ import {
   ResetMemberPasswordForm,
 } from "@/components/settings/member-admin-panel";
 import { Avatar } from "@/components/ui/avatar";
+import { roleGrades } from "@/server/auth/types";
 import { BackLink } from "@/components/ui/back-link";
 import { SegmentedTabs } from "@/components/ui/segmented-tabs";
 import type {
@@ -16,7 +17,15 @@ import type {
 } from "@/server/members/types";
 
 const roleLabels = {
+  owner: "Владелец",
   developer: "Разработчик",
+  deputy: "Заместитель",
+  finance_controller: "Финконтроль",
+  sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж",
+  regional_director: "Региональный директор",
+  crm_coordinator: "Координатор CRM",
+  tender_specialist: "Тендерный отдел",
+  foreman: "Бригадир",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -41,7 +50,7 @@ export function MemberAccountWorkspace({
   const [section, setSection] = useState<"access" | "security">("access");
   const [requestKey] = useState(() => crypto.randomUUID());
   const isCurrentMember = member.id === currentMemberId;
-  const isProtectedDeveloper = member.role === "developer";
+  const isProtectedDeveloper = member.role === "developer" || member.role === "owner";
 
   return (
     <div className="mx-auto max-w-[96rem]">
@@ -53,6 +62,7 @@ export function MemberAccountWorkspace({
             name={member.displayName}
             size="md"
             tone={member.active ? "lime" : "violet"}
+            src={`/api/v1/members/${member.id}/avatar`}
           />
           <div className="min-w-0">
             <p className="eyebrow">Учётная запись</p>
@@ -70,7 +80,7 @@ export function MemberAccountWorkspace({
               Роль
             </dt>
             <dd className="mt-1 text-[var(--text)]">
-              {roleLabels[member.role]}
+              Уровень {roleGrades[member.role]} · {roleLabels[member.role]}
             </dd>
           </div>
           <div>

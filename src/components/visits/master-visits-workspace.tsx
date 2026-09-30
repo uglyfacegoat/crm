@@ -35,6 +35,7 @@ function formatDay(visit: ServiceVisit) {
 
 function formatTime(visit: ServiceVisit) {
   const formatter = new Intl.DateTimeFormat("ru-RU", { timeZone: visit.timezone, hour: "2-digit", minute: "2-digit" });
+  if (visit.arrivalMode === "fixed") return formatter.format(new Date(visit.scheduledStartAt));
   return `${formatter.format(new Date(visit.scheduledStartAt))}–${formatter.format(new Date(visit.scheduledEndAt))}`;
 }
 

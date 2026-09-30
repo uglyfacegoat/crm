@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import {
   createClientContactAction,
   createClientObjectAction,
+  completeClientContactAction,
+  completeClientObjectAction,
   updateClientAction,
   type ClientMutationState,
 } from "@/app/(workspace)/clients/actions";
 import { Dialog } from "@/components/ui/dialog";
 import { clientCrypto as crypto } from "@/lib/client-id";
-import type { ClientDetail } from "@/server/clients/types";
+import type { ClientContact, ClientDetail, ClientObject } from "@/server/clients/types";
 
 const initialState: ClientMutationState = { status: "idle", message: null, fieldErrors: {} };
 const inputClass = "focus-ring h-12 w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
@@ -98,8 +100,8 @@ function EditClientForm({ client, onClose }: { client: ClientDetail; onClose: ()
         <Field label={kind === "legal_entity" ? "Название организации" : "ФИО клиента"} required errors={state.fieldErrors.legalName}>
           <input name="legalName" defaultValue={client.legalName} required minLength={2} maxLength={300} className={inputClass} />
         </Field>
-        <Field label="ИНН" required={kind === "legal_entity"} errors={state.fieldErrors.taxId}>
-          <input name="taxId" defaultValue={client.taxId ?? ""} required={kind === "legal_entity"} inputMode="numeric" pattern="[0-9]{10}([0-9]{2})?" className={inputClass} />
+        <Field label="ИНН" errors={state.fieldErrors.taxId}>
+          <input name="taxId" defaultValue={client.taxId ?? ""} inputMode="numeric" pattern="[0-9]{10}([0-9]{2})?" className={inputClass} />
         </Field>
         <FormStatus state={state} />
       </div>
@@ -260,4 +262,19 @@ export function ClientDetailActions({ client }: { client: ClientDetail }) {
       </Dialog>
     </>
   );
+}
+
+export function CompleteClientRecord({ clientId, contact, object }: { clientId: string; contact?: ClientContact; object?: ClientObject }) {
+  const [open, setOpen] = useState(false);
+  const [state, action, pending] = useActionState(contact ? completeClientContactAction : completeClientObjectAction, initialState);
+  const router = useRouter();
+  useEffect(() => { if (state.status === "success") { setOpen(false); router.refresh(); } }, [state.status, router]);
+  return <><button type="button" className="mt-3 text-xs font-medium underline underline-offset-4" onClick={() => setOpen(true)}>Дополнить данные</button>
+    <Dialog open={open} onClose={() => setOpen(false)} title={contact ? "Данные контакта" : "Данные объекта"} description="Уточните сведения, которые стали известны после создания заказа.">
+      <form action={action} className="flex flex-1 flex-col"><input type="hidden" name="clientId" value={clientId} />
+        {contact ? <><input type="hidden" name="contactId" value={contact.id} /><div className="grid gap-4 p-5 sm:p-7"><Field label="Имя" required errors={state.fieldErrors.fullName}><input className={inputClass} name="fullName" defaultValue={contact.fullName} required /></Field><Field label="Должность" errors={state.fieldErrors.position}><input className={inputClass} name="position" defaultValue={contact.position ?? ""} /></Field><Field label="Телефон" errors={state.fieldErrors.phone}><input className={inputClass} name="phone" type="tel" defaultValue={contact.phone} placeholder="Можно указать позже" /></Field><Field label="Email" errors={state.fieldErrors.email}><input className={inputClass} name="email" type="email" defaultValue={contact.email ?? ""} /></Field><FormStatus state={state} /></div></>
+          : object ? <><input type="hidden" name="objectId" value={object.id} /><div className="grid gap-4 p-5 sm:p-7"><Field label="Название" required errors={state.fieldErrors.name}><input className={inputClass} name="name" defaultValue={object.name} required /></Field><Field label="Адрес" errors={state.fieldErrors.address}><input className={inputClass} name="address" defaultValue={object.address} placeholder="Можно указать позже" /></Field><FormStatus state={state} /></div></> : null}
+        <FormFooter pending={pending} saved={state.status === "success"} onCancel={() => setOpen(false)} submitLabel="Сохранить" />
+      </form>
+    </Dialog></>;
 }

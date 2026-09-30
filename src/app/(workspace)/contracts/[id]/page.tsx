@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { ContractDetailWorkspace } from "@/components/contracts/contract-detail-workspace";
@@ -21,6 +22,7 @@ export default async function ContractDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "contracts.read");
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const preview = getAuthMode() === "preview";

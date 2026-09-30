@@ -12,6 +12,8 @@ export const visitStatusLabels: Record<VisitStatus, VisitDisplayStatus> = {
 
 export type ServiceVisit = {
   id: string;
+  organizationId?: string;
+  organizationName?: string;
   seriesId: string | null;
   occurrenceNumber: number | null;
   orderId: string | null;
@@ -21,6 +23,7 @@ export type ServiceVisit = {
   address: string;
   scheduledStartAt: string;
   scheduledEndAt: string;
+  arrivalMode: "fixed" | "window";
   timezone: string;
   statusCode: VisitStatus;
   status: VisitDisplayStatus;

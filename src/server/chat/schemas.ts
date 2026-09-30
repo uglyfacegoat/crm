@@ -18,14 +18,15 @@ export const sendChatMessageSchema = z.object({
   idempotencyKey: z.string().uuid(),
   channelId: z.string().uuid(),
   body: z.string().trim().max(4000, "Сообщение не должно превышать 4000 символов"),
+  hasAttachment: z.boolean().optional(),
   sharedEntityType: z.preprocess((value) => value === "" || value === null ? undefined : value, z.enum(chatEntityTypes).optional()),
   sharedEntityId: z.preprocess((value) => value === "" || value === null ? undefined : value, z.string().uuid().optional()),
 }).superRefine((input, context) => {
   if (Boolean(input.sharedEntityType) !== Boolean(input.sharedEntityId)) {
     context.addIssue({ code: "custom", path: ["sharedEntityId"], message: "Выберите объект системы повторно" });
   }
-  if (!input.body && !input.sharedEntityId) {
-    context.addIssue({ code: "custom", path: ["body"], message: "Введите сообщение или выберите объект системы" });
+  if (!input.body && !input.sharedEntityId && !input.hasAttachment) {
+    context.addIssue({ code: "custom", path: ["body"], message: "Введите сообщение или приложите файл" });
   }
 });
 

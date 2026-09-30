@@ -22,6 +22,9 @@ export const websiteLeadWebhookSchema = z.object({
   phone: optionalPhone,
   email: optionalEmail,
   serviceInterest: optionalText(500),
+  objectAddress: optionalText(500),
+  objectSize: optionalText(100),
+  comment: optionalText(2_000),
   landingUrl: optionalUrl,
   referrerUrl: optionalUrl,
   utmSource: optionalText(200),
@@ -36,6 +39,11 @@ export const websiteLeadWebhookSchema = z.object({
 export const incomingLeadListFilterSchema = z.object({
   status: z.enum(["all", "new", "reviewing", "accepted", "rejected"]).catch("all"),
   query: z.string().trim().max(200).catch(""),
+});
+
+export const incomingLeadPickerQuerySchema = z.object({
+  status: z.enum(["all", "new", "reviewing", "accepted", "rejected"]),
+  q: z.string().trim().max(100),
 });
 
 export const rejectIncomingLeadSchema = z.object({

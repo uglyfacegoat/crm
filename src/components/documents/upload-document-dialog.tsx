@@ -45,14 +45,16 @@ function UploadDocumentForm({
   options,
   requestKey,
   onComplete,
+  fixedOrderId,
 }: {
   options: DocumentUploadOptions;
   requestKey: string;
   onComplete: () => void;
+  fixedOrderId?: string;
 }) {
   const [state, setState] = useState<DocumentUploadState>(initialState);
   const [pending, startTransition] = useTransition();
-  const [orderId, setOrderId] = useState("");
+  const [orderId, setOrderId] = useState(fixedOrderId ?? "");
   const [visitId, setVisitId] = useState("");
   const [contractId, setContractId] = useState("");
   const [category, setCategory] = useState<DocumentCategory>("act");
@@ -108,7 +110,7 @@ function UploadDocumentForm({
       />
       <input type="hidden" name="category" value={category} />
       <div className="flex-1 space-y-5 p-5 sm:p-7">
-        <OrderPicker
+        {!fixedOrderId ? <OrderPicker
           label="Заказ"
           required
           value={orderId}
@@ -126,7 +128,7 @@ function UploadDocumentForm({
           }))}
           searchable
           searchPlaceholder="Номер, клиент или объект"
-        />
+        /> : <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-4 py-3 text-xs text-[var(--text-secondary)]">Заказ №{selectedOrder?.number} · {selectedOrder?.client}</div>}
         <OrderPicker
           label="Выезд"
           value={visitId}
@@ -252,8 +254,12 @@ function UploadDocumentForm({
 
 export function UploadDocumentButton({
   options,
+  fixedOrderId,
+  compact = false,
 }: {
   options: DocumentUploadOptions;
+  fixedOrderId?: string;
+  compact?: boolean;
 }) {
   const [requestKey, setRequestKey] = useState<string | null>(null);
   const close = useCallback(() => setRequestKey(null), []);
@@ -264,22 +270,23 @@ export function UploadDocumentButton({
         onClick={() => setRequestKey(crypto.randomUUID())}
         disabled={!options.orders.length}
         title={options.orders.length ? undefined : "Сначала создайте заказ"}
-        className="focus-ring flex h-11 items-center gap-2 rounded-[13px] bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--on-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+        className={`focus-ring flex items-center gap-2 rounded-[11px] bg-[var(--accent)] font-semibold text-[var(--on-accent)] disabled:cursor-not-allowed disabled:opacity-50 ${compact ? "min-h-9 px-3 text-[10px]" : "h-11 px-4 text-sm"}`}
       >
-        <Plus className="size-4" />
-        Добавить документ
+        <Plus className={compact ? "size-3.5" : "size-4"} />
+        {compact ? "Добавить" : "Добавить документ"}
       </button>
       <Dialog
         open={requestKey !== null}
         onClose={close}
         title="Новый документ"
-        description="Файл получит связи с клиентом и объектом из выбранного заказа."
+        description="Файл будет связан с заказом и клиентом, а с объектом — если он указан."
       >
         {requestKey ? (
           <UploadDocumentForm
             options={options}
             requestKey={requestKey}
             onComplete={close}
+            fixedOrderId={fixedOrderId}
           />
         ) : null}
       </Dialog>

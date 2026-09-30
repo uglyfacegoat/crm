@@ -3,6 +3,7 @@ import { PageHeading } from "@/components/ui/page-heading";
 import { WorkflowEditor } from "@/components/workflow/workflow-editor";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { requireOfficeSession } from "@/server/auth/session";
 import { getWorkflowWorkspace } from "@/server/workflow/repository";
 import { getWorkflowContext } from "@/server/workflow/context-repository";
@@ -13,10 +14,7 @@ export const metadata: Metadata = { title: "Воркфлоу" };
 
 export default async function WorkflowPage({ searchParams }: { searchParams: Promise<{ map?: string }> }) {
   const member = await requireOfficeSession();
-  if (!hasPermission(member, "workflow.read")) return (
-    <div><PageHeading eyebrow="Процессы компании" title="Воркфлоу" description="Карты рабочих процессов." />
-      <section className="surface-panel mt-6 p-8 text-sm text-[var(--muted)]">Для этой роли карты процессов недоступны.</section></div>
-  );
+  requirePagePermission(member, "workflow.read");
   const preview = getAuthMode() === "preview";
   const { map = null } = await searchParams;
   const workspace = preview ? { maps: [], selected: null, revisions: [] } : await getWorkflowWorkspace(member, map);

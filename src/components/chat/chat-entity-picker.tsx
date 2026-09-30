@@ -9,13 +9,17 @@ import type { ChatEntityType, ChatSharedEntity } from "@/server/chat/types";
 
 const typeOrder: ChatEntityType[] = ["order", "client", "object", "visit", "contract", "document", "task", "master", "website"];
 
-export function ChatEntityPicker({ options, selected, onSelect }: {
+export function ChatEntityPicker({ options, selected, onSelect, open: controlledOpen, onOpenChange }: {
   options: ChatSharedEntity[];
   selected: ChatSharedEntity | null;
   onSelect: (entity: ChatSharedEntity) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const availableTypes = useMemo(() => typeOrder.filter((type) => options.some((option) => option.type === type)), [options]);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [selectedType, setSelectedType] = useState<ChatEntityType | null>(null);
   const [query, setQuery] = useState("");
   const [searchResponse, setSearchResponse] = useState<{ type: ChatEntityType; query: string; data: ChatSharedEntity[] } | null>(null);
@@ -61,7 +65,7 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
 
   return (
     <>
-      <button
+      {controlledOpen === undefined ? <button
         type="button"
         onClick={() => setOpen(true)}
         className={`focus-ring grid size-11 shrink-0 place-items-center rounded-[13px] border transition-colors ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
@@ -69,7 +73,7 @@ export function ChatEntityPicker({ options, selected, onSelect }: {
         title="Заказ, клиент, выезд или другой объект"
       >
         <Share2 className="size-4" />
-      </button>
+      </button> : null}
       <Dialog
         open={open}
         onClose={() => setOpen(false)}

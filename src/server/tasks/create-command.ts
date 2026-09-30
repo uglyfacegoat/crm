@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requirePermission } from "../auth/permissions.ts";
 import type { AuthenticatedMember } from "../auth/types.ts";
 import { createTaskSchema, type CreateTaskInput } from "./schemas.ts";
+import { notifyTaskAssignee } from "./assignment-notification.ts";
 
 const uuid = z.string().uuid();
 
@@ -75,5 +76,12 @@ export async function createTaskInTransaction(transaction: postgres.TransactionS
     VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId},
       ${source === "manual" ? "task.create" : "task.create.workflow"}, 'task', ${taskId},
       ${transaction.json(createdState)})`;
+  await notifyTaskAssignee(transaction, {
+    organizationId: member.organizationId,
+    taskId,
+    assigneeId: input.assignedMemberId,
+    title: input.title,
+    version: 1,
+  });
   return taskId;
 }

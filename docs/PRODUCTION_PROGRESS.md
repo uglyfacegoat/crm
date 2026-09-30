@@ -23,6 +23,50 @@ Git push remains on hold until the owner asks.
 
 ## Current evidence
 
+- **2026-09-25, local activity report demo:** developer support now opens in
+  the current browser tab. The activity tab has 7/30-day filters, team trend,
+  ranked members, search, individual trends and screen distribution. Five
+  local demo logins (admin, dispatcher, manager, accountant, master) were
+  created alongside the protected developer. A private mode-0600 credentials
+  file lives outside the repository at
+  `~/.config/crm-local/demo-accounts.txt`. About two weeks of synthetic
+  screen activity is marked `source=demo` and identified in the UI; it is
+  not evidence of actual staff work. All five demo logins and same-tab
+  support navigation were checked in the local Docker CRM.
+- **2026-09-25, local user activity and account cleanup:** settings now has
+  an activity tab with approximate focused/visible CRM time by user and screen
+  for the last 30 days. Collection begins at migration 070; there is no
+  historical screen-time data before it. The duplicated deactivate button was
+  removed; the active-account switch in access settings remains. On the local
+  Docker database, five old test accounts were disabled, removed from login
+  identities/credentials, anonymized and hidden from the user list; related
+  business records retain their member foreign keys. At that cleanup point,
+  only the owner's protected developer login remained, with three company
+  shadow records. Five new demo accounts were then created for the report.
+  No remote server or GitHub was changed.
+- **2026-09-25, roles and profile acceptance:** six isolated accounts
+  (developer, admin, dispatcher, manager, accountant, master) passed a
+  hydrated-browser check of 48 route transitions across eight key screens,
+  two API permissions per role, own-name editing, avatar upload for developer
+  and master, explicit allow/deny overrides, session revocation, protected
+  developer membership and deactivation. Lint, typecheck, 236 unit tests,
+  migration tests and production build passed. The local five-service Docker
+  stack runs image `crm-app:roles-profile-20260925-final`; migration 069 is
+  applied and `unit90780@gmail.com` logs in as developer with grants to
+  three child companies. This is a bounded smoke/acceptance test, not the
+  full ACL-01–04 resource/API/tenant matrix; those items remain open.
+- **2026-09-25, SEC-04 standalone production stack:** replaced the old HTTPS
+  overlay of local `compose.yaml` with `compose.production.yaml`. The server
+  project has its own PostgreSQL/document/backup volumes, separate database,
+  web, worker and backup env files, no published app/database/scanner ports,
+  mandatory ClamAV and a single HTTPS gateway. A Compose model check passed.
+  The candidate runtime image now contains the first-admin command; the TLS
+  fixture no longer mounts that source from the host. A full disposable
+  seven-service production Compose run became healthy, created an admin from
+  the packaged command and logged in through verified HTTPS. Its project and
+  volumes were removed; the five working local services were not changed.
+  Real server sizing, certificates, secrets, external backup and deployment
+  rehearsal remain open.
 - **2026-09-25, SEC-04 direct database-test boundary:** 21 integration/browser
   files now require the isolated fixture URL propagated by their npm wrapper
   to match the database administrator URL before connecting. A direct migration
@@ -61,7 +105,7 @@ Git push remains on hold until the owner asks.
   its file, fields and retry key after this early 429; one retry saved one
   document. A 15 MiB PDF passed the gateway with matching length and SHA-256.
   Existing TLS, secure-cookie, host/origin, rate-limit and outage checks passed.
-  Only `compose.https.yaml` uses this gateway; local direct HTTP is unchanged.
+  The standalone `compose.production.yaml` now uses this gateway; local direct HTTP is unchanged.
   A bounded tmpfs was added in the next checkpoint; representative server
   resource load remains open.
 - **2026-09-25, UP-05 incoming-body profile:** a repeatable optional browser

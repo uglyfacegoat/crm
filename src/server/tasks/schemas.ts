@@ -4,6 +4,23 @@ import { taskColumns, taskPriorities } from "./types.ts";
 const optionalText = (maximum: number) => z.string().trim().max(maximum).optional().transform((value) => value || null);
 const optionalUuid = z.union([z.literal(""), z.string().uuid()]).transform((value) => value || null);
 
+export const taskPickerQuerySchema = z.object({
+  type: z.enum(["assignees", "orders"]),
+  q: z.string().trim().max(100).default(""),
+});
+
+export const myTaskPageQuerySchema = z.object({
+  q: z.string().trim().max(200).default(""),
+  priority: z.union([z.literal("all"), z.enum(taskPriorities)]).default("all"),
+  source: z.enum(["all", "manual", "visit_reminder", "workflow"]).default("all"),
+  assignee: z.union([z.literal(""), z.uuid()]).default(""),
+  dateFrom: z.union([z.literal(""), z.iso.date()]).default(""),
+  dateTo: z.union([z.literal(""), z.iso.date()]).default(""),
+  order: z.union([z.literal(""), z.uuid()]).default(""),
+  page: z.coerce.number().int().min(0).max(100_000).default(0),
+}).refine((value) => !value.dateFrom || !value.dateTo || value.dateFrom <= value.dateTo,
+  { message: "Начало периода позже окончания." });
+
 const editableTaskFields = {
   title: z.string().trim().min(2, "Укажите название задачи").max(240),
   description: optionalText(4_000),

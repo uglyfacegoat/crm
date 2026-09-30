@@ -18,6 +18,7 @@ test("message input rejects empty and oversized messages", () => {
   const base = { idempotencyKey: "00000000-0000-4000-8000-000000000001", channelId: "00000000-0000-4000-8000-000000000002" };
   assert.equal(sendChatMessageSchema.safeParse({ ...base, body: "   " }).success, false);
   assert.equal(sendChatMessageSchema.safeParse({ ...base, body: "x".repeat(4001) }).success, false);
+  assert.equal(sendChatMessageSchema.safeParse({ ...base, body: "", hasAttachment: true }).success, true);
 });
 
 test("message input accepts a permitted CRM entity without comment", () => {

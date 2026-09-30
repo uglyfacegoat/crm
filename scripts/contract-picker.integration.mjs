@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { registerHooks } from "node:module";
+import { mock, test } from "node:test";
+import postgres from "postgres";
+import { runMigrations } from "./migrate.mjs";
+
+const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) throw new Error("Run through the isolated PostgreSQL fixture.");
+const root = new URL("../src/", import.meta.url);
+const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
+  if (context.parentURL?.startsWith(root.href)) {
+    if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, root).href, context);
+    if (specifier.startsWith(".") && !/\.(ts|mjs)$/.test(specifier)) return nextResolve(`${specifier}.ts`, context);
+  }
+  return nextResolve(specifier, context);
+} });
+let sql;
+mock.module("server-only", { namedExports: {} });
+mock.module(new URL("server/database.ts", root), { namedExports: { getDatabase: () => sql } });
+const { listContracts } = await import("../src/server/contracts/repository.ts");
+const { contractPickerQuerySchema, searchContractPicker } = await import("../src/server/contracts/option-picker.ts");
+
+test("contract pickers find objects, masters and contracts beyond initial caps within the organization", async (t) => {
+  const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
+  const databaseName = `crm_contract_picker_${randomUUID().replaceAll("-", "")}`;
+  await admin`CREATE DATABASE ${admin(databaseName)}`;
+  const url = new URL(adminUrl); url.pathname = `/${databaseName}`;
+  sql = postgres(url.toString(), { max: 4 });
+  t.after(async () => {
+    mock.restoreAll(); hooks.deregister(); await sql.end();
+    try { await admin`DROP DATABASE ${admin(databaseName)}`; } finally { await admin.end(); }
+  });
+  await runMigrations({ databaseUrl: url.toString(), onApplied: () => {} });
+
+  const [organization] = await sql`INSERT INTO organizations (name, timezone) VALUES ('Contracts A', 'Europe/Moscow') RETURNING id`;
+  const [other] = await sql`INSERT INTO organizations (name, timezone) VALUES ('Contracts B', 'Europe/Moscow') RETURNING id`;
+  const [person] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${organization.id}, 'Contract editor', 'contract-editor@example.test', 'admin') RETURNING id`;
+  const member = { organizationId: organization.id, memberId: person.id, role: "owner", permissionOverrides: {} };
+  const [client] = await sql`INSERT INTO clients (organization_id, legal_name, kind)
+    VALUES (${organization.id}, 'Наш клиент', 'legal_entity') RETURNING id`;
+  const [foreignClient] = await sql`INSERT INTO clients (organization_id, legal_name, kind)
+    VALUES (${other.id}, 'Чужой клиент', 'legal_entity') RETURNING id`;
+  await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    SELECT ${organization.id}, ${client.id}, 'Объект ' || lpad(n::text, 4, '0'), 'Office', 'Тестовый адрес ' || n
+    FROM generate_series(1, 1001) n`;
+  const [lastObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    VALUES (${organization.id}, ${client.id}, 'Янтарный объект Ёж', 'Office', 'Янтарный адрес 1002') RETURNING id`;
+  await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    VALUES (${other.id}, ${foreignClient.id}, 'Чужой объект Ёж', 'Office', 'Чужой адрес 1002')`;
+
+  await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    SELECT ${organization.id}, 'Мастер ' || lpad(n::text, 4, '0'), '+7999' || lpad(n::text, 7, '0'),
+      '+7999' || lpad(n::text, 7, '0'), 'Москва', 'Москва' FROM generate_series(1, 501) n`;
+  const [lastMaster] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    VALUES (${organization.id}, 'Янтарный мастер Ёж', '+79998888888', '+79998888888', 'Москва', 'Москва') RETURNING id`;
+  await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    VALUES (${other.id}, 'Чужой мастер Ёж', '+79997777777', '+79997777777', 'Москва', 'Москва')`;
+
+  await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
+    SELECT ${organization.id}, ${client.id}, ${lastObject.id}, 'А-' || lpad(n::text, 4, '0'),
+      'draft', '2026-01-01', '2026-12-31', 30 FROM generate_series(1, 501) n`;
+  const [lastContract] = await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
+    VALUES (${organization.id}, ${client.id}, ${lastObject.id}, 'Янтарный договор Ёж', 'draft', '2027-01-01', '2027-12-31', 30) RETURNING id`;
+  await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
+    SELECT ${other.id}, ${foreignClient.id}, client_objects.id, 'Чужой договор Ёж', 'draft', '2026-01-01', '2026-12-31', 30
+    FROM client_objects WHERE organization_id = ${other.id} LIMIT 1`;
+
+  const initial = await listContracts(member);
+  assert.equal(initial.objectOptions.length, 1000);
+  assert.equal(initial.masterOptions.length, 500);
+  assert.equal(initial.contracts.length, 500);
+  assert.ok(!initial.objectOptions.some((item) => item.id === lastObject.id));
+  assert.ok(!initial.masterOptions.some((item) => item.id === lastMaster.id));
+  assert.ok(!initial.contracts.some((item) => item.id === lastContract.id));
+
+  for (const [type, id] of [["objects", lastObject.id], ["masters", lastMaster.id], ["contracts", lastContract.id]]) {
+    const first = await searchContractPicker(member, contractPickerQuerySchema.parse({ type }));
+    assert.equal(first.items.length, 20);
+    assert.equal(first.hasMore, true);
+    const found = await searchContractPicker(member, contractPickerQuerySchema.parse({ type, q: "еж" }));
+    assert.deepEqual(found.items.map((item) => item.id), [id]);
+    assert.equal((await searchContractPicker(member, contractPickerQuerySchema.parse({ type, q: "чужой" }))).items.length, 0);
+  }
+  const object = await searchContractPicker(member, contractPickerQuerySchema.parse({ type: "objects", q: "янтарный" }));
+  assert.equal(object.items[0].clientId, client.id);
+  const [source] = await sql`SELECT id FROM contracts WHERE organization_id = ${organization.id} AND contract_number = 'А-0001'`;
+  await sql`INSERT INTO contract_relations (organization_id, contract_a_id, contract_b_id, relation_type, created_by)
+    VALUES (${organization.id}, ${source.id < lastContract.id ? source.id : lastContract.id},
+      ${source.id < lastContract.id ? lastContract.id : source.id}, 'related', ${person.id})`;
+  assert.deepEqual((await searchContractPicker(member, contractPickerQuerySchema.parse({ type: "contracts", sourceContractId: source.id, q: "янтарный" }))).items, []);
+  await assert.rejects(searchContractPicker({ ...member, role: "master" }, contractPickerQuerySchema.parse({ type: "objects" })));
+});

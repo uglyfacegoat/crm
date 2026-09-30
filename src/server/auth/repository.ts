@@ -11,6 +11,7 @@ const credentialRowSchema = z.object({
   failed_login_attempts: z.number().int().nonnegative(),
   locked_until: z.date().nullable(),
   active: z.boolean(),
+  email_otp_enabled: z.boolean(),
 });
 
 const sessionRowSchema = z.object({
@@ -37,6 +38,7 @@ export async function findCredential(kind: "email" | "phone", normalizedValue: s
       credentials.password_hash,
       credentials.failed_login_attempts,
       credentials.locked_until,
+      credentials.email_otp_enabled,
       members.active
     FROM member_login_identities identities
     JOIN member_credentials credentials
@@ -134,24 +136,28 @@ export async function findSessionByTokenHash(tokenHash: string) {
       COALESCE(sessions.active_member_id, sessions.member_id) AS member_id,
       members.display_name,
       members.email,
-      CASE WHEN developer_accounts.email IS NOT NULL THEN 'developer' ELSE members.role END AS role,
+      CASE WHEN developer_accounts.email IS NOT NULL THEN developer_accounts.account_role ELSE principal_members.role END AS role,
       members.master_id,
       COALESCE(permission_overrides.values, '{}'::jsonb) AS permission_overrides
     FROM auth_sessions sessions
+    JOIN organization_members principal_members
+      ON principal_members.organization_id = sessions.organization_id
+      AND principal_members.id = sessions.member_id
     JOIN organization_members members
       ON members.organization_id = COALESCE(sessions.active_organization_id, sessions.organization_id)
       AND members.id = COALESCE(sessions.active_member_id, sessions.member_id)
     JOIN organizations ON organizations.id = COALESCE(sessions.active_organization_id, sessions.organization_id)
-    LEFT JOIN developer_accounts ON developer_accounts.email = members.email
+    LEFT JOIN developer_accounts ON developer_accounts.email = principal_members.email
     LEFT JOIN LATERAL (
       SELECT jsonb_object_agg(permission, allowed) AS values
       FROM member_permission_overrides
-      WHERE organization_id = members.organization_id AND member_id = members.id
+      WHERE organization_id = principal_members.organization_id AND member_id = principal_members.id
     ) permission_overrides ON true
     WHERE sessions.token_hash = ${tokenHash}
       AND sessions.revoked_at IS NULL
       AND sessions.expires_at > now()
       AND members.active
+      AND principal_members.active
       AND (sessions.active_organization_id IS NULL OR EXISTS (
         SELECT 1 FROM organization_access_grants grants
         WHERE grants.principal_organization_id = sessions.organization_id

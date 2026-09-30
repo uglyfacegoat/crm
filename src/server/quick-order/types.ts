@@ -1,8 +1,8 @@
 export type QuickOrderResult = {
   clientId: string;
-  objectId: string;
-  contactId: string;
+  objectId: string | null;
+  contactId: string | null;
   orderId: string;
   orderNumber: string;
-  visitId: string;
+  visitId: string | null;
 };

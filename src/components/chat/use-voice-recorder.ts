@@ -175,7 +175,7 @@ export function useVoiceRecorder() {
       }
 
       if (discardOnStopRef.current || chunksRef.current.length === 0) {
-        const failure = recordingFailureRef.current;
+        const failure = recordingFailureRef.current ?? (chunksRef.current.length === 0 && !discardOnStopRef.current ? "Запись получилась пустой. Попробуйте говорить чуть дольше." : null);
         discardOnStopRef.current = false;
         recordingFailureRef.current = null;
         resetDraft();
@@ -189,33 +189,52 @@ export function useVoiceRecorder() {
       void prepareDraft();
     };
 
-    const audioContext = new window.AudioContext();
-    const analyser = audioContext.createAnalyser();
     try {
-      if (audioContext.state === "suspended") await audioContext.resume();
-      analyser.fftSize = 256;
-      audioContext.createMediaStreamSource(stream).connect(analyser);
+      recorder.start(250);
     } catch {
-      await audioContext.close();
-      stopMediaStream(stream);
-      streamRef.current = null;
-      recorderRef.current = null;
-      startingRef.current = false;
-      setStarting(false);
-      setError("Не удалось запустить визуализацию записи. Попробуйте ещё раз.");
-      return;
+      try {
+        recorder.start();
+      } catch {
+        stopMediaStream(stream);
+        streamRef.current = null;
+        recorderRef.current = null;
+        startingRef.current = false;
+        setStarting(false);
+        setError("Не удалось запустить запись. Проверьте разрешение микрофона и повторите попытку.");
+        return;
+      }
     }
-    audioContextRef.current = audioContext;
-    const samples = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+
+    // Safari may suspend AudioContext after the asynchronous microphone prompt.
+    // Recording and its timer must continue even when visualization is unavailable.
+    let analyser: AnalyserNode | null = null;
+    let samples: Uint8Array<ArrayBuffer> | null = null;
+    try {
+      const audioContext = new window.AudioContext();
+      audioContextRef.current = audioContext;
+      const nextAnalyser = audioContext.createAnalyser();
+      nextAnalyser.fftSize = 256;
+      audioContext.createMediaStreamSource(stream).connect(nextAnalyser);
+      analyser = nextAnalyser;
+      samples = new Uint8Array(new ArrayBuffer(nextAnalyser.fftSize));
+      if (audioContext.state === "suspended") void audioContext.resume().catch(() => {
+        analyser = null;
+        samples = null;
+        if (audioContextRef.current === audioContext) audioContextRef.current = null;
+        if (audioContext.state !== "closed") void audioContext.close();
+      });
+    } catch {
+      clearAnalyser();
+    }
+
     analyserTimerRef.current = window.setInterval(() => {
       if (phaseRef.current !== "recording") return;
       const segmentStartedAt = segmentStartedAtRef.current;
       if (segmentStartedAt !== null) setElapsedMs(elapsedBeforeSegmentRef.current + performance.now() - segmentStartedAt);
-      const level = recordingLevel(analyser, samples);
+      const level = analyser && samples && audioContextRef.current?.state === "running" ? recordingLevel(analyser, samples) : 0.12;
       setWaveform((current) => [...current.slice(-(waveformSampleCount - 1)), level]);
     }, waveformSampleIntervalMs);
 
-    recorder.start(250);
     segmentStartedAtRef.current = performance.now();
     setPhase("recording");
     startingRef.current = false;

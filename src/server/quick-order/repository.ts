@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { requirePermission } from "@/server/auth/permissions";
+import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { normalizeContactPhone } from "@/server/clients/phone";
 import { getDatabase } from "@/server/database";
@@ -27,7 +27,7 @@ const existingResultSchema = z.object({
 });
 
 export class QuickOrderReferenceError extends Error {
-  constructor(readonly field: "client" | "contact" | "object" | "master") {
+  constructor(readonly field: "client" | "contact" | "object" | "master" | "catalog") {
     super(`The selected ${field} is unavailable.`);
     this.name = "QuickOrderReferenceError";
   }
@@ -76,6 +76,7 @@ function mapExistingResult(row: unknown): QuickOrderResult {
 export async function createQuickOrder(member: AuthenticatedMember, input: QuickOrderInput): Promise<QuickOrderResult> {
   requirePermission(member, "clients.write");
   requirePermission(member, "orders.write");
+  if (input.order.masterPayment && !hasPermission(member, "finance.write")) requirePermission(member, "finance.write");
   requirePermission(member, "visits.write");
   if (input.sourceLead) requirePermission(member, "leads.write");
   const sql = getDatabase();
@@ -279,10 +280,18 @@ export async function createQuickOrder(member: AuthenticatedMember, input: Quick
       const orderId = uuidSchema.parse(order.id);
 
       for (const [index, service] of serviceLines.entries()) {
+        let kind: "service" | "product" = "service";
+        let unit = "усл.";
+        if (service.catalogItemId) {
+          const linked = await transaction`SELECT kind, unit FROM catalog_items WHERE organization_id = ${member.organizationId} AND id = ${service.catalogItemId} AND name = ${service.name} AND active`;
+          if (!linked.length) throw new QuickOrderReferenceError("catalog");
+          kind = z.enum(["service", "product"]).parse(linked[0].kind);
+          unit = z.string().parse(linked[0].unit);
+        }
         await transaction`INSERT INTO order_services (
-          organization_id, order_id, service_name_snapshot, quantity, unit_price_minor, line_total_minor, position, note
+          organization_id, order_id, catalog_item_id, item_kind_snapshot, unit_snapshot, service_name_snapshot, quantity, unit_price_minor, line_total_minor, position, note
         ) VALUES (
-          ${member.organizationId}, ${orderId}, ${service.name}, ${formatQuantityForDatabase(service.quantityMilliunits)},
+          ${member.organizationId}, ${orderId}, ${service.catalogItemId ?? null}, ${kind}, ${unit}, ${service.name}, ${formatQuantityForDatabase(service.quantityMilliunits)},
           ${service.unitPriceMinor.toString()}, ${service.lineTotalMinor.toString()}, ${index + 1}, ${service.note}
         )`;
       }

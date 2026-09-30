@@ -2,7 +2,7 @@
   "name": "crm",
   "services": {
     "crm": {
-      "image": "crm-app:download-stream-up05-930bcbf",
+      "image": "crm-app:dark-theme-20260925",
       "env_file": [
         {
           "path": ".env.docker-crm",
@@ -47,7 +47,7 @@
       }
     },
     "reminder-worker": {
-      "image": "crm-app:worker-preflight-20260923",
+      "image": "crm-app:dark-theme-20260925",
       "env_file": [
         {
           "path": ".env.docker-reminder-worker",
@@ -81,7 +81,7 @@
       }
     },
     "workflow-worker": {
-      "image": "crm-app:download-stream-up05-930bcbf",
+      "image": "crm-app:dark-theme-20260925",
       "env_file": [
         {
           "path": ".env.docker-reminder-worker",
@@ -121,7 +121,7 @@
       }
     },
     "backup-worker": {
-      "image": "crm-app:worker-preflight-20260923",
+      "image": "crm-app:dark-theme-20260925",
       "env_file": [
         {
           "path": ".env.docker-backup-worker",

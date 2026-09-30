@@ -45,12 +45,15 @@ export function SiteCard({
   index,
   onConfigure,
   canWrite,
+  currentOrganizationId,
 }: {
   site: WebsiteListItem;
   index: number;
   onConfigure: (site: WebsiteListItem) => void;
   canWrite: boolean;
+  currentOrganizationId: string;
 }) {
+  const inAnotherCompany = Boolean(site.organizationId && site.organizationId !== currentOrganizationId);
   return (
     <article
       className="sites-register-row animate-rise"
@@ -58,7 +61,7 @@ export function SiteCard({
     >
       <div className="sites-register-domain">
         <Link href={`/sites/${site.id}`}>{site.name}</Link>
-        <span>{site.domain}</span>
+        <span>{site.domain}{inAnotherCompany && site.organizationName ? ` · ${site.organizationName}` : ""}</span>
       </div>
       <Sparkline values={site.trafficHistory} />
       <strong>{site.trafficHistory.some((value) => value !== null) ? integerFormatter.format(site.visitors) : "—"}</strong>
@@ -66,12 +69,10 @@ export function SiteCard({
       <strong>{integerFormatter.format(site.paidOrders)}</strong>
       <strong>{formatMoneyMinor(site.paidRevenueMinor)}</strong>
       <div className="sites-register-actions">
-        <Link href={`/sites/${site.id}`} aria-label={`Открыть ${site.name}`}>
-          <ArrowUpRight />
-        </Link>
+        <Link href={`/sites/${site.id}`} aria-label={`Открыть ${site.name}`}><ArrowUpRight /></Link>
         <button
           type="button"
-          disabled={!canWrite || site.status === "disabled"}
+          disabled={!canWrite || inAnotherCompany || site.status === "disabled"}
           onClick={() => onConfigure(site)}
           aria-label={`Настроить подключения ${site.name}`}
         >

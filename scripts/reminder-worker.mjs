@@ -6,6 +6,7 @@ import {
   reminderWorkerHealthWindow,
 } from "./reminder-worker-config.mjs";
 import { validateReminderWorkerEnvironment } from "./worker-runtime-config.mjs";
+import { sendOperationalPush } from "./operational-push.mjs";
 
 const JOB_NAME = "chat.visit-reminders";
 const { databaseUrl, intervalMs } = validateReminderWorkerEnvironment(process.env);
@@ -47,9 +48,13 @@ async function runCycle() {
 
     const [chatResult] = await connection`SELECT * FROM provision_chat_operational_reminders(NULL, NULL, NULL)`;
     const [notificationResult] = await connection`SELECT * FROM provision_operational_notifications(NULL)`;
+    const pushResult = await sendOperationalPush(connection);
     const safeResult = {
       ...parseReminderWorkerResult(chatResult),
       ...parseOperationalNotificationResult(notificationResult),
+      push_sent: pushResult.sent,
+      push_failed: pushResult.failed,
+      push_expired: pushResult.expired,
     };
 
     await connection`

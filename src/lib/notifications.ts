@@ -6,6 +6,7 @@ export const notificationKinds = [
   "visit_unassigned",
   "closing_act_overdue",
   "task_overdue",
+  "task_assigned",
   "contract_renewal",
   "document_uploaded",
   "workflow_update",
@@ -57,7 +58,7 @@ export type NotificationSeverity = (typeof notificationSeverities)[number];
 export type NotificationTargetType = (typeof notificationTargetTypes)[number];
 
 export function notificationHref(targetType: NotificationTargetType, targetId: string, role: OrganizationRole) {
-  if (role === "master") return "/my-visits";
+  if (role === "master" || role === "foreman") return "/my-visits";
   switch (targetType) {
     case "order": return `/orders/${targetId}`;
     case "visit": return "/calendar";

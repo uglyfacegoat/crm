@@ -4,6 +4,7 @@ import { isSameOriginRequest } from "@/server/auth/request";
 import { shouldUseSecureSessionCookie } from "@/server/auth/config";
 import { endSession } from "@/server/auth/service";
 import { SESSION_COOKIE_NAME } from "@/server/auth/session";
+import { EMAIL_CHALLENGE_COOKIE_NAME } from "@/server/auth/email-otp-repository";
 
 export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) return NextResponse.json({ error: { code: "invalid_origin", message: "Недопустимый источник запроса." } }, { status: 403 });
@@ -16,5 +17,6 @@ export async function POST(request: NextRequest) {
   }
   const response = NextResponse.json({ data: { authenticated: false } });
   response.cookies.set(SESSION_COOKIE_NAME, "", { httpOnly: true, secure: shouldUseSecureSessionCookie(), sameSite: "lax", path: "/", maxAge: 0 });
+  response.cookies.set(EMAIL_CHALLENGE_COOKIE_NAME, "", { httpOnly: true, secure: shouldUseSecureSessionCookie(), sameSite: "lax", path: "/", maxAge: 0 });
   return response;
 }

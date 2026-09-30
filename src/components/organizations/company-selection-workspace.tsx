@@ -20,10 +20,8 @@ import {
   type OrganizationSwitchState,
 } from "@/app/(workspace)/actions";
 import { Dialog } from "@/components/ui/dialog";
-import type {
-  OrganizationOption,
-  OrganizationUnit,
-} from "@/server/organizations/types";
+import { OrderPicker } from "@/components/orders/order-form-parts";
+import type { OrganizationOption, OrganizationUnit } from "@/server/organizations/types";
 
 const initialSwitchState: OrganizationSwitchState = {
   status: "idle",
@@ -129,10 +127,14 @@ function UnitDialog({
 
 export function CompanySelectionWorkspace({
   organizations,
+  preview,
   canManage,
+  canSwitch,
 }: {
   organizations: OrganizationOption[];
+  preview: boolean;
   canManage: boolean;
+  canSwitch: boolean;
 }) {
   const initialOrganization =
     organizations.find((organization) => organization.current) ??
@@ -172,7 +174,6 @@ export function CompanySelectionWorkspace({
       selectedOrganization?.current &&
       selectedOrganization.kind === "company",
   );
-
   if (!selectedOrganization) {
     return (
       <div className="mt-8 rounded-[var(--radius-panel)] border border-[var(--danger-border)] bg-[var(--danger-bg)] p-5 text-sm text-[var(--danger-ink)]">
@@ -193,18 +194,9 @@ export function CompanySelectionWorkspace({
             (unit) => unit.kind === "city",
           ).length;
           const selected = organization.id === selectedOrganization.id;
-          return (
-            <button
-              key={organization.id}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => {
-                setSelectedOrganizationId(organization.id);
-                setSelectedCityId(null);
-                setSelectedAreaId(null);
-              }}
-              className={`surface-panel focus-ring flex min-h-24 items-center gap-4 p-4 text-left transition-colors ${selected ? "!border-[var(--accent)] !bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-soft)]"}`}
-            >
+          const opensCenter = organization.kind === "center" && !organization.current && canSwitch && !preview;
+          const cardContent = (
+            <>
               <span className="text-xs tabular-nums text-[var(--muted)]">
                 {String(index + 1).padStart(2, "0")}
               </span>
@@ -214,7 +206,7 @@ export function CompanySelectionWorkspace({
                 </span>
                 <span className="mt-2 block text-xs text-[var(--muted)]">
                   {organization.kind === "center"
-                    ? "Центр управления"
+                    ? opensCenter ? "Открыть Центр CRM" : "Общие данные всех компаний"
                     : `${cityCount} городов`}
                 </span>
               </span>
@@ -230,12 +222,38 @@ export function CompanySelectionWorkspace({
                   <ChevronRight className="size-4" />
                 )}
               </span>
+            </>
+          );
+          const cardClassName = `surface-panel focus-ring flex min-h-24 w-full items-center gap-4 p-4 text-left transition-colors ${selected ? "!border-[var(--accent)] !bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-soft)]"}`;
+          if (opensCenter) {
+            return (
+              <form key={organization.id} action={switchAction}>
+                <input type="hidden" name="organizationId" value={organization.id} />
+                <button type="submit" disabled={switching} className={cardClassName}>{cardContent}</button>
+              </form>
+            );
+          }
+          return (
+            <button
+              key={organization.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => {
+                setSelectedOrganizationId(organization.id);
+                setSelectedCityId(null);
+                setSelectedAreaId(null);
+              }}
+              className={cardClassName}
+            >
+              {cardContent}
             </button>
           );
         })}
       </nav>
 
-      <div className="surface-panel overflow-hidden">
+      {selectedOrganization.kind !== "center" ? (
+
+      <div className="surface-panel overflow-visible">
         <div className="grid min-h-[30rem] lg:grid-cols-[16rem_minmax(0,1fr)]">
           <section className="flex min-w-0 flex-col border-b border-[var(--line)] p-5 lg:border-b-0 lg:border-r">
             <div className="flex items-center justify-between gap-3">
@@ -251,24 +269,12 @@ export function CompanySelectionWorkspace({
             </p>
             {cities.length ? (
               <>
-                <label className="mt-5 grid gap-2 text-xs text-[var(--muted)] lg:hidden">
-                  Город
-                  <select
-                    value={selectedCityId ?? ""}
-                    onChange={(event) => {
-                      setSelectedCityId(event.target.value || null);
-                      setSelectedAreaId(null);
-                    }}
-                    className="focus-ring h-12 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
-                  >
-                    <option value="">Вся компания</option>
-                    {cities.map((city) => (
-                      <option key={city.id} value={city.id}>
-                        {city.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="mt-5 lg:hidden">
+                  <OrderPicker label="Город" value={selectedCityId ?? ""}
+                    options={[{ value: "", label: "Вся компания" }, ...cities.map((city) => ({ value: city.id, label: city.name }))]}
+                    onChange={(value) => { setSelectedCityId(value || null); setSelectedAreaId(null); }}
+                    placeholder="Вся компания" searchPlaceholder="Найти город" />
+                </div>
                 <div className="mt-5 hidden space-y-2 lg:block">
                   <button
                     type="button"
@@ -317,9 +323,7 @@ export function CompanySelectionWorkspace({
             ) : (
               <div className="mt-5">
                 <EmptyLevel>
-                  {selectedOrganization.kind === "center"
-                    ? "Центр объединяет рабочие компании и не делится на города."
-                    : "Города ещё не настроены."}
+                  Города ещё не настроены.
                 </EmptyLevel>
               </div>
             )}
@@ -379,23 +383,12 @@ export function CompanySelectionWorkspace({
             </header>
             {areas.length ? (
               <>
-                <label className="grid gap-2 text-xs text-[var(--muted)] lg:hidden">
-                  Район · необязательно
-                  <select
-                    value={selectedAreaId ?? ""}
-                    onChange={(event) =>
-                      setSelectedAreaId(event.target.value || null)
-                    }
-                    className="focus-ring h-12 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
-                  >
-                    <option value="">Весь город</option>
-                    {areas.map((area) => (
-                      <option key={area.id} value={area.id}>
-                        {area.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="lg:hidden">
+                  <OrderPicker label="Район · необязательно" value={selectedAreaId ?? ""}
+                    options={[{ value: "", label: "Весь город" }, ...areas.map((area) => ({ value: area.id, label: area.name }))]}
+                    onChange={(value) => setSelectedAreaId(value || null)} placeholder="Весь город"
+                    searchPlaceholder="Найти район" placement="top" />
+                </div>
                 <div className="mt-6 hidden gap-3 lg:grid lg:grid-cols-2">
                   {areas.map((area, index) => {
                     const selected = area.id === selectedArea?.id;
@@ -465,7 +458,7 @@ export function CompanySelectionWorkspace({
                   <Check className="size-4" />
                   База уже открыта
                 </span>
-              ) : (
+              ) : canSwitch ? (
                 <form action={switchAction}>
                   <input
                     type="hidden"
@@ -486,11 +479,12 @@ export function CompanySelectionWorkspace({
                     <ChevronRight className="size-4" />
                   </button>
                 </form>
-              )}
+              ) : null}
             </footer>
           </section>
         </div>
       </div>
+      ) : null}
       {switchState.status === "error" && switchState.message ? (
         <p
           role="alert"

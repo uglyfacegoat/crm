@@ -3,12 +3,11 @@
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { Check, LoaderCircle, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useState } from "react";
-import {
-  createTaskAction,
-  type CreateTaskState,
-} from "@/app/(workspace)/tasks/actions";
+import { useCallback, useEffect, useState, useTransition } from "react";
+import type { FormEvent } from "react";
+import type { CreateTaskState } from "@/app/(workspace)/tasks/actions";
 import { Dialog } from "@/components/ui/dialog";
+import { OrderPicker } from "@/components/orders/order-form-parts";
 import { clientCrypto as crypto } from "@/lib/client-id";
 import type { TaskAssigneeOption, TaskOrderOption } from "@/server/tasks/types";
 
@@ -19,8 +18,8 @@ const initialState: CreateTaskState = {
   taskId: null,
 };
 const fieldClass =
-  "focus-ring h-12 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
-const fieldLabelClass = "grid gap-2 text-[10px] text-[var(--text-secondary)]";
+  "focus-ring h-12 min-w-0 w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
+const fieldLabelClass = "grid min-w-0 gap-2 text-[10px] text-[var(--text-secondary)]";
 
 function FieldError({ errors }: { errors?: string[] }) {
   return errors?.length ? (
@@ -29,7 +28,15 @@ function FieldError({ errors }: { errors?: string[] }) {
 }
 
 const roleLabels = {
+  owner: "Владелец",
   developer: "Разработчик",
+  deputy: "Заместитель",
+  finance_controller: "Финконтроль",
+  sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж",
+  regional_director: "Региональный директор",
+  crm_coordinator: "Координатор CRM",
+  tender_specialist: "Тендерный отдел",
+  foreman: "Бригадир",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -42,36 +49,60 @@ function CreateTaskForm({
   assigneeOptions,
   orderOptions,
   currentMemberId,
+  organizationName,
+  initialRelatedOrderId,
   onComplete,
 }: {
   requestKey: string;
   assigneeOptions: TaskAssigneeOption[];
   orderOptions: TaskOrderOption[];
   currentMemberId: string;
+  organizationName: string;
+  initialRelatedOrderId: string;
   onComplete: () => void;
 }) {
-  const [state, action, pending] = useActionState(
-    createTaskAction,
-    initialState,
-  );
+  const [state, setState] = useState<CreateTaskState>(initialState);
+  const [assigneeId, setAssigneeId] = useState(currentMemberId);
+  const [relatedOrderId, setRelatedOrderId] = useState(initialRelatedOrderId);
+  const [priority, setPriority] = useState("normal");
+  const [pending, startTransition] = useTransition();
   const router = useRouter();
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/v1/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const result = await response.json() as { taskId?: string; error?: string; fieldErrors?: Record<string, string[]> };
+        setState(response.ok && result.taskId
+          ? { status: "success", message: "Задача создана.", fieldErrors: {}, taskId: result.taskId }
+          : { status: "error", message: result.error ?? "Не удалось создать задачу. Поля сохранены в форме.", fieldErrors: result.fieldErrors ?? {}, taskId: null });
+      } catch {
+        setState({ status: "error", message: "Связь прервалась. Поля сохранены в форме; проверьте список задач перед повторной отправкой.", fieldErrors: {}, taskId: null });
+      }
+    });
+  };
   useEffect(() => {
     if (state.status !== "success") return;
-    router.refresh();
-    const timeout = window.setTimeout(onComplete, 550);
+    const timeout = window.setTimeout(() => {
+      onComplete();
+      router.refresh();
+    }, 350);
     return () => window.clearTimeout(timeout);
   }, [onComplete, router, state.status]);
 
   return (
-    <form action={action} className="task-create-form flex flex-1 flex-col">
+    <form onSubmit={submit} className="task-create-form flex flex-1 flex-col">
       <input type="hidden" name="idempotencyKey" value={requestKey} />
       <div className="task-create-fields">
         <label className={`${fieldLabelClass} task-create-title`}>
           <span>Название *</span>
           <input
             name="title"
-            required
-            minLength={2}
             maxLength={240}
             placeholder="Например, отправить акт клиенту"
             className={fieldClass}
@@ -89,34 +120,23 @@ function CreateTaskForm({
           />
           <FieldError errors={state.fieldErrors.description} />
         </label>
-        <label className={fieldLabelClass}>
-          <span>Исполнитель</span>
-          <select
-            name="assignedMemberId"
-            defaultValue={currentMemberId}
-            className={fieldClass}
-          >
-            <option value="">Без ответственного</option>
-            {assigneeOptions.map((assignee) => (
-              <option key={assignee.id} value={assignee.id}>
-                {assignee.displayName} · {roleLabels[assignee.role]}
-              </option>
-            ))}
-          </select>
-          <FieldError errors={state.fieldErrors.assignedMemberId} />
-        </label>
-        <label className={fieldLabelClass}>
-          <span>Связанный заказ</span>
-          <select name="relatedOrderId" defaultValue="" className={fieldClass}>
-            <option value="">Не связан с заказом</option>
-            {orderOptions.map((order) => (
-              <option key={order.id} value={order.id}>
-                {order.orderNumber} · {order.clientName}
-              </option>
-            ))}
-          </select>
-          <FieldError errors={state.fieldErrors.relatedOrderId} />
-        </label>
+        <div className="grid gap-2">
+          <input type="hidden" name="assignedMemberId" value={assigneeId} />
+          <OrderPicker label="Исполнитель" value={assigneeId} onChange={setAssigneeId}
+            options={[{ value: "", label: "Без ответственного" },
+              ...assigneeOptions.map((assignee) => ({ value: assignee.id, label: assignee.displayName, detail: roleLabels[assignee.role] }))]}
+            placeholder="Без ответственного" remoteUrl="/api/v1/tasks/options?type=assignees"
+            searchPlaceholder="Имя или email" errors={state.fieldErrors.assignedMemberId} />
+          <span className="text-[10px] leading-4 text-[var(--muted)]">Исполнитель увидит задачу в контуре «{organizationName}».</span>
+        </div>
+        <div>
+          <input type="hidden" name="relatedOrderId" value={relatedOrderId} />
+          <OrderPicker label="Связанный заказ" value={relatedOrderId} onChange={setRelatedOrderId}
+            options={[{ value: "", label: "Не связан с заказом" },
+              ...orderOptions.map((order) => ({ value: order.id, label: order.orderNumber, detail: order.clientName }))]}
+            placeholder="Не связан с заказом" remoteUrl="/api/v1/tasks/options?type=orders"
+            searchPlaceholder="Номер заказа или клиент" errors={state.fieldErrors.relatedOrderId} />
+        </div>
         <fieldset className="task-create-deadline">
           <legend className="text-[10px] text-[var(--text-secondary)]">
             Срок
@@ -124,42 +144,31 @@ function CreateTaskForm({
           <div>
             <label className="grid gap-2 text-[10px] text-[var(--muted)]">
               <span className="sr-only">Дата</span>
-              <DateInput name="localDate" className={fieldClass} />
+              <DateInput name="localDate" className="w-full" />
               <FieldError errors={state.fieldErrors.localDate} />
             </label>
             <label className="grid gap-2 text-[10px] text-[var(--muted)]">
               <span className="sr-only">Время</span>
-              <TimeInput name="localTime" className={fieldClass} />
+              <TimeInput name="localTime" className="w-full" />
               <FieldError errors={state.fieldErrors.localTime} />
             </label>
           </div>
+          <p className="mt-2 text-[10px] text-[var(--muted)]">Если нужен срок, укажите и дату, и время. Можно оставить оба поля пустыми.</p>
         </fieldset>
-        <label className={fieldLabelClass}>
-          <span>Приоритет</span>
-          <select name="priority" defaultValue="normal" className={fieldClass}>
-            <option value="low">Низкий</option>
-            <option value="normal">Обычный</option>
-            <option value="high">Высокий</option>
-            <option value="critical">Критичный</option>
-          </select>
-          <FieldError errors={state.fieldErrors.priority} />
-        </label>
+        <div>
+          <input type="hidden" name="priority" value={priority} />
+          <OrderPicker label="Приоритет" value={priority} onChange={setPriority}
+            options={[{ value: "low", label: "Низкий" }, { value: "normal", label: "Обычный" },
+              { value: "high", label: "Высокий" }, { value: "critical", label: "Критичный" }]}
+            placeholder="Выберите приоритет" searchable={false} errors={state.fieldErrors.priority} />
+        </div>
         <p className="task-create-note">
           Автоматические напоминания создаются из выездов.
         </p>
-        {state.message ? (
-          <p
-            role="status"
-            className={`task-create-status rounded-[12px] border p-3 text-xs ${state.status === "success" ? "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]" : "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]"}`}
-          >
-            {state.status === "success" ? (
-              <Check className="mr-2 inline size-4" />
-            ) : null}
-            {state.message}
-          </p>
-        ) : null}
       </div>
-      <footer className="sticky bottom-0 flex gap-2 border-t border-[var(--line)] bg-[var(--surface)] p-4 sm:px-7">
+      <footer className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-[var(--line)] bg-[var(--surface)] p-4 sm:px-7">
+        {state.message ? <p role="status" className={`rounded-[12px] border p-3 text-xs ${state.status === "success" ? "border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)]" : "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]"}`}>{state.status === "success" ? <Check className="mr-2 inline size-4" /> : null}{state.message}</p> : null}
+        <div className="flex gap-2">
         <button
           type="button"
           onClick={onComplete}
@@ -187,6 +196,7 @@ function CreateTaskForm({
             "Создать задачу"
           )}
         </button>
+        </div>
       </footer>
     </form>
   );
@@ -196,10 +206,14 @@ export function CreateTaskButton({
   assigneeOptions,
   orderOptions,
   currentMemberId,
+  organizationName,
+  initialRelatedOrderId = "",
 }: {
   assigneeOptions: TaskAssigneeOption[];
   orderOptions: TaskOrderOption[];
   currentMemberId: string;
+  organizationName: string;
+  initialRelatedOrderId?: string;
 }) {
   const [requestKey, setRequestKey] = useState<string | null>(null);
   const close = useCallback(() => setRequestKey(null), []);
@@ -224,6 +238,8 @@ export function CreateTaskButton({
             assigneeOptions={assigneeOptions}
             orderOptions={orderOptions}
             currentMemberId={currentMemberId}
+            organizationName={organizationName}
+            initialRelatedOrderId={initialRelatedOrderId}
             onComplete={close}
           />
         ) : null}

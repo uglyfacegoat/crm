@@ -27,7 +27,15 @@ const initialState: ChatMutationState = {
   entityId: null,
 };
 const roleLabels = {
+  owner: "Владелец",
   developer: "Разработчик",
+  deputy: "Заместитель",
+  finance_controller: "Финконтроль",
+  sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж",
+  regional_director: "Региональный директор",
+  crm_coordinator: "Координатор CRM",
+  tender_specialist: "Тендерный отдел",
+  foreman: "Бригадир",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -114,6 +122,7 @@ function CreateGroupForm({
                     name={member.displayName}
                     size="sm"
                     tone={current ? "lime" : "violet"}
+                    src={member.avatarUrl ?? undefined}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs text-[var(--text)]">
@@ -218,7 +227,7 @@ function CreateDirectChatForm({ requestKey, memberOptions, currentMemberId, onCo
       <fieldset>
         <legend className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Сотрудник</legend>
         <div className="mt-3 max-h-80 space-y-1 overflow-y-auto rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-inset)] p-2">
-          {availableMembers.map((member) => <label key={member.id} className="flex cursor-pointer items-center gap-3 rounded-[11px] px-2.5 py-2.5 transition-colors hover:bg-[var(--surface-soft)]"><input type="radio" name="targetMemberId" value={member.id} required className="peer sr-only" /><span className="grid size-5 shrink-0 place-items-center rounded-full border border-[var(--line-strong)] text-transparent peer-checked:border-[var(--accent)] peer-checked:bg-[var(--accent)] peer-checked:text-[var(--on-accent)] peer-checked:ring-4 peer-checked:ring-[var(--accent-soft)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[var(--focus)]"><Check className="size-3" /></span><Avatar name={member.displayName} size="sm" tone="mint" /><span className="min-w-0 flex-1"><span className="block truncate text-xs text-[var(--text)]">{member.displayName}</span><span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">{roleLabels[member.role]} · {member.email}</span></span></label>)}
+          {availableMembers.map((member) => <label key={member.id} className="flex cursor-pointer items-center gap-3 rounded-[11px] px-2.5 py-2.5 transition-colors hover:bg-[var(--surface-soft)]"><input type="radio" name="targetMemberId" value={member.id} required className="peer sr-only" /><span className="grid size-5 shrink-0 place-items-center rounded-full border border-[var(--line-strong)] text-transparent peer-checked:border-[var(--accent)] peer-checked:bg-[var(--accent)] peer-checked:text-[var(--on-accent)] peer-checked:ring-4 peer-checked:ring-[var(--accent-soft)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[var(--focus)]"><Check className="size-3" /></span><Avatar name={member.displayName} size="sm" tone="mint" src={member.avatarUrl ?? undefined} /><span className="min-w-0 flex-1"><span className="block truncate text-xs text-[var(--text)]">{member.displayName}</span><span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">{roleLabels[member.role]} · {member.email}</span></span></label>)}
           {!availableMembers.length ? <p className="p-5 text-center text-xs text-[var(--muted)]">Нет других активных сотрудников.</p> : null}
         </div>
         {state.fieldErrors.targetMemberId?.[0] ? <p className="mt-2 text-[10px] text-[var(--danger-ink)]">{state.fieldErrors.targetMemberId[0]}</p> : null}

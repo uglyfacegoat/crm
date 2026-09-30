@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { CreateMasterButton } from "@/components/masters/master-dialog";
 import { MastersWorkspace } from "@/components/masters/masters-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
@@ -12,6 +13,7 @@ export const metadata: Metadata = { title: "Мастера" };
 
 export default async function MastersPage() {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "masters.read");
   const preview = getAuthMode() === "preview";
   const masters = preview ? getPreviewMasters() : await listMasters(member);
   const canWrite = hasPermission(member, "masters.write");

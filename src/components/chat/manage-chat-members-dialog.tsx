@@ -32,7 +32,15 @@ const initialState: ChatMutationState = {
   entityId: null,
 };
 const roleLabels = {
+  owner: "Владелец",
   developer: "Разработчик",
+  deputy: "Заместитель",
+  finance_controller: "Финконтроль",
+  sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж",
+  regional_director: "Региональный директор",
+  crm_coordinator: "Координатор CRM",
+  tender_specialist: "Тендерный отдел",
+  foreman: "Бригадир",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -121,6 +129,7 @@ function ManageMembersForm({
                     name={member.displayName}
                     size="sm"
                     tone={owner ? "lime" : "violet"}
+                    src={member.avatarUrl ?? undefined}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs text-[var(--text)]">
@@ -169,7 +178,7 @@ export function ManageChatMembersButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="focus-ring grid size-9 place-items-center rounded-[11px] border border-[var(--line)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
+        className="focus-ring grid size-9 shrink-0 place-items-center rounded-[11px] border border-[var(--line)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
         aria-label="Изменить состав группы"
         title="Состав группы"
       >

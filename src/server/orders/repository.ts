@@ -1,8 +1,9 @@
 import "server-only";
 import { z } from "zod";
-import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
+import { AuthorizationError, hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { listCatalogItems } from "@/server/catalog/repository";
 import { publishOrderCreated } from "@/server/domain-events/order-created";
 import { calculateOrderEconomics } from "@/server/domain/order-economics";
 import {
@@ -14,6 +15,7 @@ import {
   parseQuantityToMilliunits,
 } from "./money";
 import type { AddOrderExpenseInput, CreateOrderInput, UpdateOrderInput } from "./schemas";
+import type { completeOrderLinksSchema } from "./schemas";
 import { orderStatusLabels, type OrderCreationOptions, type OrderDetail, type OrderListItem } from "./types";
 
 const uuidSchema = z.string().uuid();
@@ -33,8 +35,9 @@ const orderListRowSchema = z.object({
   master_name_snapshot: z.string().nullable(),
 });
 const orderDetailRowSchema = orderListRowSchema.extend({
+  price_pending: z.boolean(),
   client_id: uuidSchema,
-  object_id: uuidSchema,
+  object_id: uuidSchema.nullable(),
   client_contact_id: uuidSchema.nullable(),
   contact_name_snapshot: z.string().nullable(),
   contact_phone_snapshot: z.string().nullable(),
@@ -51,10 +54,14 @@ const orderDetailRowSchema = orderListRowSchema.extend({
 });
 const serviceRowSchema = z.object({
   id: uuidSchema,
+  catalog_item_id: uuidSchema.nullable(),
+  item_kind_snapshot: z.enum(["service", "product"]),
+  unit_snapshot: z.string(),
   service_name_snapshot: z.string(),
   quantity: z.string(),
   unit_price_minor: minorUnitsSchema,
   line_total_minor: minorUnitsSchema,
+  price_pending: z.boolean(),
   note: z.string().nullable(),
 });
 const expenseRowSchema = z.object({
@@ -78,7 +85,7 @@ export class OrderVersionConflictError extends Error {
 }
 
 export class OrderReferenceError extends Error {
-  constructor(readonly field: "client" | "object" | "contact" | "master") {
+  constructor(readonly field: "client" | "object" | "contact" | "master" | "catalog") {
     super(`The selected ${field} is unavailable.`);
     this.name = "OrderReferenceError";
   }
@@ -102,7 +109,7 @@ function requireOrderRead(member: AuthenticatedMember) {
   requirePermission(member, "orders.read");
   // A master account is not yet linked to a masters row. Denying access avoids exposing
   // unrelated customer orders until that resource-level relationship exists.
-  if (member.role === "master") throw new AuthorizationError();
+  if (member.role === "master" || member.role === "foreman") throw new AuthorizationError();
 }
 
 function mapListRow(row: unknown): OrderListItem {
@@ -141,8 +148,9 @@ export async function listOrders(member: AuthenticatedMember): Promise<OrderList
   return rows.map(mapListRow);
 }
 
-export async function listOrdersWithoutActiveVisit(member: AuthenticatedMember): Promise<OrderListItem[]> {
+export async function listOrdersWithoutActiveVisit(member: AuthenticatedMember, focusedOrderId: string | null = null): Promise<OrderListItem[]> {
   requireOrderRead(member);
+  const orderId = focusedOrderId ? z.string().uuid().parse(focusedOrderId) : null;
   const sql = getDatabase();
   const rows = await sql`
     SELECT orders.id, orders.order_number, orders.client_name_snapshot, orders.object_name_snapshot,
@@ -155,6 +163,7 @@ export async function listOrdersWithoutActiveVisit(member: AuthenticatedMember):
       WHERE order_services.organization_id = orders.organization_id AND order_services.order_id = orders.id
     ) services ON true
     WHERE orders.organization_id = ${member.organizationId}
+      AND (${orderId}::uuid IS NULL OR orders.id = ${orderId}::uuid)
       AND orders.status NOT IN ('completed', 'cancelled')
       AND NOT EXISTS (
         SELECT 1
@@ -172,10 +181,11 @@ export async function listOrdersWithoutActiveVisit(member: AuthenticatedMember):
 export async function listOrderCreationOptions(member: AuthenticatedMember, focusClientId?: string): Promise<OrderCreationOptions> {
   requirePermission(member, "orders.write");
   const sql = getDatabase();
-  const [clientRows, focusedRows, masterRows] = await Promise.all([
+  const [clientRows, focusedRows, masterRows, catalogItems] = await Promise.all([
     sql`SELECT id, legal_name AS name FROM clients WHERE organization_id = ${member.organizationId} ORDER BY legal_name, id LIMIT 20`,
     focusClientId ? sql`SELECT id, legal_name AS name FROM clients WHERE organization_id = ${member.organizationId} AND id = ${focusClientId}` : Promise.resolve([]),
     sql`SELECT id, full_name AS name, phone FROM masters WHERE organization_id = ${member.organizationId} AND active AND operational_status = 'working' ORDER BY full_name, id LIMIT 20`,
+    listCatalogItems(member),
   ]);
   const focused = focusedRows[0];
   const relatedClientId = focused?.id ?? clientRows[0]?.id ?? null;
@@ -185,6 +195,7 @@ export async function listOrderCreationOptions(member: AuthenticatedMember, focu
   ]) : [[], []];
   return {
     remote: true,
+    catalogItems: catalogItems.filter((item) => item.active),
     clients: [...clientRows, ...(focused && !clientRows.some((row) => row.id === focused.id) ? [focused] : [])].map((row) => optionRowSchema.parse(row)),
     objects: objectRows.map((row) => { const parsed = objectOptionRowSchema.parse(row); return { id: parsed.id, clientId: parsed.client_id, name: parsed.name, address: parsed.address }; }),
     contacts: contactRows.map((row) => { const parsed = contactOptionRowSchema.parse(row); return { id: parsed.id, clientId: parsed.client_id, name: parsed.name, phone: parsed.phone, isPrimary: parsed.is_primary }; }),
@@ -195,11 +206,11 @@ export async function listOrderCreationOptions(member: AuthenticatedMember, focu
 export async function getOrderDetail(member: AuthenticatedMember, orderId: string): Promise<OrderDetail> {
   requireOrderRead(member);
   const sql = getDatabase();
-  const [orderRows, serviceRows, expenseRows] = await Promise.all([
+  const [orderRows, serviceRows, expenseRows, relatedContactRows, relatedObjectRows, relatedPhoneRows] = await Promise.all([
     sql`SELECT orders.id, orders.order_number, orders.client_id, orders.object_id, orders.client_contact_id,
       orders.client_name_snapshot, orders.object_name_snapshot, orders.object_address_snapshot,
       orders.contact_name_snapshot, orders.contact_phone_snapshot, orders.status, orders.status_reason,
-      orders.currency, orders.agreed_total_minor, orders.invoiced_total_minor, orders.paid_total_minor,
+      orders.currency, orders.agreed_total_minor, orders.price_pending, orders.invoiced_total_minor, orders.paid_total_minor,
       orders.assigned_master_id, orders.master_name_snapshot, orders.master_phone_snapshot,
       orders.master_payment_snapshot_minor, orders.master_paid_total_minor, orders.notes, orders.version, orders.created_at,
       coalesce(services.service_summary, 'Услуги не указаны') AS service_summary
@@ -209,10 +220,20 @@ export async function getOrderDetail(member: AuthenticatedMember, orderId: strin
         FROM order_services WHERE order_services.organization_id = orders.organization_id AND order_services.order_id = orders.id
       ) services ON true
       WHERE orders.organization_id = ${member.organizationId} AND orders.id = ${orderId}`,
-    sql`SELECT id, service_name_snapshot, quantity::text, unit_price_minor, line_total_minor, note
+    sql`SELECT id, catalog_item_id, item_kind_snapshot, unit_snapshot, service_name_snapshot, quantity::text, unit_price_minor, line_total_minor, price_pending, note
       FROM order_services WHERE organization_id = ${member.organizationId} AND order_id = ${orderId} ORDER BY position`,
     sql`SELECT id, category, amount_minor, occurred_on::text, note
       FROM order_expenses WHERE organization_id = ${member.organizationId} AND order_id = ${orderId} ORDER BY occurred_on DESC, created_at DESC`,
+    sql`SELECT contacts.id, contacts.full_name AS name, contacts.phone, contacts.email, contacts.position FROM order_contacts links
+      JOIN client_contacts contacts ON contacts.organization_id = links.organization_id AND contacts.id = links.contact_id
+      WHERE links.organization_id = ${member.organizationId} AND links.order_id = ${orderId} ORDER BY links.position`,
+    sql`SELECT objects.id, objects.name, objects.address FROM order_objects links
+      JOIN client_objects objects ON objects.organization_id = links.organization_id AND objects.id = links.object_id
+      WHERE links.organization_id = ${member.organizationId} AND links.order_id = ${orderId} ORDER BY links.position`,
+    sql`SELECT phones.id, phones.label, phones.phone, contacts.full_name AS contact_name FROM orders
+      JOIN client_phone_numbers phones ON phones.organization_id = orders.organization_id AND phones.client_id = orders.client_id
+      LEFT JOIN client_contacts contacts ON contacts.organization_id = phones.organization_id AND contacts.id = phones.contact_id
+      WHERE orders.organization_id = ${member.organizationId} AND orders.id = ${orderId} ORDER BY phones.created_at`,
   ]);
   if (!orderRows.length) throw new OrderNotFoundError();
   const order = orderDetailRowSchema.parse(orderRows[0]);
@@ -227,11 +248,15 @@ export async function getOrderDetail(member: AuthenticatedMember, orderId: strin
   });
   return {
     ...mapListRow(orderRows[0]),
+    pricePending: order.price_pending,
+    relatedContacts: relatedContactRows.map((row) => z.object({ id: uuidSchema, name: z.string(), phone: z.string(), email: z.string().nullable(), position: z.string().nullable() }).parse(row)),
+    relatedObjects: relatedObjectRows.map((row) => z.object({ id: uuidSchema, name: z.string(), address: z.string() }).parse(row)),
+    relatedPhones: relatedPhoneRows.map((row) => { const item = z.object({ id: uuidSchema, label: z.string(), phone: z.string(), contact_name: z.string().nullable() }).parse(row); return { id: item.id, label: item.label, phone: item.phone, contactName: item.contact_name }; }),
     clientId: order.client_id,
     objectId: order.object_id,
     contactId: order.client_contact_id,
     contactName: order.contact_name_snapshot ?? "Не указан",
-    contactPhone: order.contact_phone_snapshot ?? "Не указан",
+    contactPhone: order.contact_phone_snapshot || "Не указан",
     statusCode: order.status,
     statusReason: order.status_reason,
     currency: order.currency,
@@ -249,10 +274,14 @@ export async function getOrderDetail(member: AuthenticatedMember, orderId: strin
     version: order.version,
     services: services.map((service) => ({
       id: service.id,
+      catalogItemId: service.catalog_item_id,
+      kind: service.item_kind_snapshot,
+      unit: service.unit_snapshot,
       name: service.service_name_snapshot,
       quantity: service.quantity,
       unitPriceMinor: service.unit_price_minor,
       lineTotalMinor: service.line_total_minor,
+      pricePending: service.price_pending,
       note: service.note,
     })),
     expenses: expenses.map((expense) => ({
@@ -323,10 +352,24 @@ export async function createOrder(member: AuthenticatedMember, input: CreateOrde
     const orderId = uuidSchema.parse(order.id);
 
     for (const [index, service] of serviceLines.entries()) {
+      let kind: "service" | "product" = "service";
+      let unit = "усл.";
+      if (service.catalogItemId) {
+        const linked = await transaction`SELECT ci.kind, ci.unit FROM catalog_items ci
+          WHERE ci.organization_id = ${member.organizationId} AND ci.id = ${service.catalogItemId} AND ci.active
+            AND (ci.name = ${service.name} OR EXISTS (
+              SELECT 1 FROM object_service_rates rate WHERE rate.organization_id = ci.organization_id
+                AND rate.object_id = ${input.objectId} AND rate.catalog_item_id = ci.id
+                AND rate.line_kind = 'contract' AND rate.name = ${service.name}
+            ))`;
+        if (!linked.length) throw new OrderReferenceError("catalog");
+        kind = z.enum(["service", "product"]).parse(linked[0].kind);
+        unit = z.string().parse(linked[0].unit);
+      }
       await transaction`INSERT INTO order_services (
-        organization_id, order_id, service_name_snapshot, quantity, unit_price_minor, line_total_minor, position, note
+        organization_id, order_id, catalog_item_id, item_kind_snapshot, unit_snapshot, service_name_snapshot, quantity, unit_price_minor, line_total_minor, position, note
       ) VALUES (
-        ${member.organizationId}, ${orderId}, ${service.name}, ${formatQuantityForDatabase(service.quantityMilliunits)},
+        ${member.organizationId}, ${orderId}, ${service.catalogItemId ?? null}, ${kind}, ${unit}, ${service.name}, ${formatQuantityForDatabase(service.quantityMilliunits)},
         ${service.unitPriceMinor.toString()}, ${service.lineTotalMinor.toString()}, ${index + 1}, ${service.note}
       )`;
     }
@@ -347,46 +390,74 @@ export async function updateOrder(member: AuthenticatedMember, input: UpdateOrde
   requirePermission(member, "orders.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
-    const [existing] = await transaction`SELECT status, assigned_master_id, master_payment_snapshot_minor, master_paid_total_minor, notes, version,
+    const [existing] = await transaction`SELECT status, object_id, assigned_master_id, master_payment_snapshot_minor, master_paid_total_minor, notes, version,
       agreed_total_minor, invoiced_total_minor, paid_total_minor
       FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId} FOR UPDATE`;
     if (!existing) throw new OrderNotFoundError();
     if (z.number().int().parse(existing.version) !== input.expectedVersion) throw new OrderVersionConflictError();
+    if (!hasPermission(member, "finance.write") && input.masterPayment !== "preserve"
+      && !(input.masterPayment === null && !input.assignedMasterId && existing.master_payment_snapshot_minor === null)) {
+      throw new AuthorizationError();
+    }
     const masterRows = input.assignedMasterId
       ? await transaction`SELECT id, full_name, phone FROM masters WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
       : [];
     if (input.assignedMasterId && !masterRows.length) throw new OrderReferenceError("master");
     const master = masterRows[0] ?? null;
-    const masterPaymentMinor = input.masterPayment === null ? null : parseMoneyToMinorUnits(input.masterPayment);
-    const masterPaidMinor = BigInt(existing.master_paid_total_minor);
     const masterChanged = input.assignedMasterId !== existing.assigned_master_id;
+    const masterPaymentMinor = input.masterPayment === "preserve"
+      ? masterChanged || !input.assignedMasterId || existing.master_payment_snapshot_minor === null
+        ? null : BigInt(existing.master_payment_snapshot_minor)
+      : input.masterPayment === null ? null : parseMoneyToMinorUnits(input.masterPayment);
+    const masterPaidMinor = BigInt(existing.master_paid_total_minor);
     if (masterPaidMinor > 0n && (masterChanged || masterPaymentMinor === null || masterPaymentMinor < masterPaidMinor)) {
       throw new OrderMasterFinancialsLockedError(masterPaidMinor);
     }
     const serviceLines = input.services.map((service) => {
       const quantityMilliunits = parseQuantityToMilliunits(service.quantity);
-      const unitPriceMinor = parseMoneyToMinorUnits(service.unitPrice);
+      const unitPriceMinor = service.unitPrice ? parseMoneyToMinorUnits(service.unitPrice) : 0n;
       return { ...service, quantityMilliunits, unitPriceMinor, lineTotalMinor: calculateServiceLineTotalMinor(unitPriceMinor, quantityMilliunits) };
     });
-    const agreedTotalMinor = serviceLines.reduce((total, service) => total + service.lineTotalMinor, 0n);
+    const agreedTotalMinor = serviceLines.length
+      ? serviceLines.reduce((total, service) => total + service.lineTotalMinor, 0n)
+      : parseMoneyToMinorUnits(input.agreedTotal);
     const minimumTotalMinor = minimumRecordedOrderTotalMinor(BigInt(existing.invoiced_total_minor), BigInt(existing.paid_total_minor));
     if (agreedTotalMinor < minimumTotalMinor) throw new OrderTotalBelowRecordedFinancialsError(minimumTotalMinor);
-    const previousServiceRows = await transaction`SELECT service_name_snapshot, quantity::text, unit_price_minor, line_total_minor, position, note
+    const previousServiceRows = await transaction`SELECT id, catalog_item_id, item_kind_snapshot, unit_snapshot, service_name_snapshot, quantity::text, unit_price_minor, line_total_minor, position, note
       FROM order_services WHERE organization_id = ${member.organizationId} AND order_id = ${input.orderId} ORDER BY position`;
     const [updated] = await transaction`UPDATE orders SET
       status = ${input.status}, status_reason = ${input.status === "cancelled" ? input.statusReason : null},
       assigned_master_id = ${input.assignedMasterId}, master_name_snapshot = ${master?.full_name ?? null},
       master_phone_snapshot = ${master?.phone ?? null}, master_payment_snapshot_minor = ${masterPaymentMinor?.toString() ?? null},
-      notes = ${input.notes}, agreed_total_minor = ${agreedTotalMinor.toString()}, version = version + 1, updated_at = now()
+      notes = ${input.notes}, agreed_total_minor = ${agreedTotalMinor.toString()}, price_pending = ${serviceLines.length ? serviceLines.some((service) => !service.unitPrice) : agreedTotalMinor === 0n}, version = version + 1, updated_at = now()
       WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}
       RETURNING version`;
     await transaction`DELETE FROM order_services WHERE organization_id = ${member.organizationId} AND order_id = ${input.orderId}`;
     for (const [index, service] of serviceLines.entries()) {
+      const prior = service.existingLineId ? previousServiceRows.find((row) => row.id === service.existingLineId) : null;
+      if (service.existingLineId && !prior) throw new OrderReferenceError("catalog");
+      let kind: "service" | "product" = "service";
+      let unit = "усл.";
+      if (prior && (!service.catalogItemId || (service.catalogItemId === prior.catalog_item_id && service.name === prior.service_name_snapshot))) {
+        kind = z.enum(["service", "product"]).parse(prior.item_kind_snapshot);
+        unit = z.string().parse(prior.unit_snapshot);
+      } else if (service.catalogItemId) {
+        const linked = await transaction`SELECT ci.kind, ci.unit FROM catalog_items ci
+          WHERE ci.organization_id = ${member.organizationId} AND ci.id = ${service.catalogItemId} AND ci.active
+            AND (ci.name = ${service.name} OR EXISTS (
+              SELECT 1 FROM object_service_rates rate WHERE rate.organization_id = ci.organization_id
+                AND rate.object_id = ${existing.object_id} AND rate.catalog_item_id = ci.id
+                AND rate.line_kind = 'contract' AND rate.name = ${service.name}
+            ))`;
+        if (!linked.length) throw new OrderReferenceError("catalog");
+        kind = z.enum(["service", "product"]).parse(linked[0].kind);
+        unit = z.string().parse(linked[0].unit);
+      }
       await transaction`INSERT INTO order_services (
-        organization_id, order_id, service_name_snapshot, quantity, unit_price_minor, line_total_minor, position, note
+        organization_id, order_id, catalog_item_id, item_kind_snapshot, unit_snapshot, service_name_snapshot, quantity, unit_price_minor, line_total_minor, price_pending, position, note
       ) VALUES (
-        ${member.organizationId}, ${input.orderId}, ${service.name}, ${formatQuantityForDatabase(service.quantityMilliunits)},
-        ${service.unitPriceMinor.toString()}, ${service.lineTotalMinor.toString()}, ${index + 1}, ${service.note}
+        ${member.organizationId}, ${input.orderId}, ${service.catalogItemId ?? null}, ${kind}, ${unit}, ${service.name}, ${formatQuantityForDatabase(service.quantityMilliunits)},
+        ${service.unitPriceMinor.toString()}, ${service.lineTotalMinor.toString()}, ${!service.unitPrice}, ${index + 1}, ${service.note}
       )`;
     }
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
@@ -396,8 +467,40 @@ export async function updateOrder(member: AuthenticatedMember, input: UpdateOrde
   });
 }
 
-export async function addOrderExpense(member: AuthenticatedMember, input: AddOrderExpenseInput) {
+export async function completeOrderLinks(member: AuthenticatedMember, input: z.infer<typeof completeOrderLinksSchema>) {
   requirePermission(member, "orders.write");
+  const sql = getDatabase();
+  return sql.begin(async (transaction) => {
+    const [order] = await transaction`SELECT client_id, object_id, client_contact_id, contact_phone_snapshot, version
+      FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId} FOR UPDATE`;
+    if (!order) throw new OrderNotFoundError();
+    if (Number(order.version) !== input.expectedVersion) throw new OrderVersionConflictError();
+    const objectId = input.objectId ?? z.string().uuid().nullable().parse(order.object_id);
+    const contactId = input.contactId ?? z.string().uuid().nullable().parse(order.client_contact_id);
+    const [objectRows, contactRows] = await Promise.all([
+      objectId ? transaction`SELECT name, address FROM client_objects WHERE organization_id = ${member.organizationId}
+        AND client_id = ${order.client_id} AND id = ${objectId}` : Promise.resolve([]),
+      contactId ? transaction`SELECT full_name, phone FROM client_contacts WHERE organization_id = ${member.organizationId}
+        AND client_id = ${order.client_id} AND id = ${contactId}` : Promise.resolve([]),
+    ]);
+    const object = objectRows[0];
+    const contact = contactRows[0];
+    if (objectId && !object?.name) throw new OrderReferenceError("object");
+    if (contactId && !contact?.full_name) throw new OrderReferenceError("contact");
+    await transaction`UPDATE orders SET object_id = ${objectId}, client_contact_id = ${contactId},
+      object_name_snapshot = ${object?.name ?? "Объект не указан"},
+      object_address_snapshot = ${object?.address ?? "Адрес не указан"},
+      contact_name_snapshot = ${contact?.full_name ?? null},
+      contact_phone_snapshot = ${contact?.phone ?? order.contact_phone_snapshot}, version = version + 1, updated_at = now()
+      WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}`;
+    await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+      VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'order.links_update', 'order', ${input.orderId},
+        ${transaction.json({ objectId, contactId })})`;
+  });
+}
+
+export async function addOrderExpense(member: AuthenticatedMember, input: AddOrderExpenseInput) {
+  requirePermission(member, "finance.write");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
     const insertedRequest = await transaction`INSERT INTO idempotency_requests (organization_id, idempotency_key, operation)

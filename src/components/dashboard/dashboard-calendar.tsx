@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
+import { openCenterRecordAction } from "@/app/(workspace)/companies/center-actions";
 import { DashboardPanelLink } from "@/components/dashboard/dashboard-panel-link";
 
 export type DashboardVisitTone = "warning" | "support" | "accent" | "success" | "danger";
 
 export type DashboardVisit = {
   id: string;
+  organizationId?: string;
+  organizationName?: string;
   orderId: string | null;
   orderNumber: string | null;
   date: string;
@@ -96,11 +99,15 @@ export function DashboardCalendar({ visits, initialDate }: { visits: DashboardVi
         <div className="dashboard-calendar-visits">
           {selectedVisits.length ? <div>{selectedVisits.slice(0, 4).map((visit) => {
             const destination = visit.orderId ? `/orders/${visit.orderId}` : `/calendar?date=${visit.date}&view=day`;
-            return <Link key={visit.id} href={destination} title={`${visit.time} · ${visit.client} · ${visit.address}`} className={`focus-ring dashboard-calendar-visit ${eventColors[visit.tone]}`}>
+            const contents = <>
               <strong>{visit.time}</strong>
-              <span><b>{visit.client}</b><small>{visit.address} · {visit.master}</small></span>
+              <span><b>{visit.client}</b><small>{visit.address} · {visit.master}{visit.organizationName ? ` · ${visit.organizationName}` : ""}</small></span>
               <em>{visit.orderNumber ?? "Без заказа"}</em>
-            </Link>;
+            </>;
+            return visit.organizationId ? <form key={visit.id} action={openCenterRecordAction}>
+              <input type="hidden" name="kind" value={visit.orderId ? "order" : "visit"} /><input type="hidden" name="organizationId" value={visit.organizationId} /><input type="hidden" name="recordId" value={visit.orderId ?? visit.id} />
+              <button type="submit" title={`${visit.time} · ${visit.client} · ${visit.address}`} className={`focus-ring dashboard-calendar-visit w-full text-left ${eventColors[visit.tone]}`}>{contents}</button>
+            </form> : <Link key={visit.id} href={destination} title={`${visit.time} · ${visit.client} · ${visit.address}`} className={`focus-ring dashboard-calendar-visit ${eventColors[visit.tone]}`}>{contents}</Link>;
           })}{selectedVisits.length > 4 ? <Link href={`/calendar?date=${selectedDate}&view=day`} className="dashboard-calendar-more">Ещё {selectedVisits.length - 4} выезд.</Link> : null}</div> : <div className="dashboard-calendar-empty"><CalendarDays /><p>На этот день выездов нет</p></div>}
         </div>
       </div>

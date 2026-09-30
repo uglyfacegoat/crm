@@ -45,11 +45,13 @@ const channelRowSchema = z.object({
   muted: z.boolean(),
   pinned: z.boolean(),
   avatar_exists: z.boolean(),
+  peer_member_id: uuidSchema.nullable(),
   online: z.boolean(),
 });
 const messageRowSchema = z.object({
   id: uuidSchema,
   body: z.string(),
+  body_is_placeholder: z.boolean(),
   created_at: z.coerce.date(),
   edited_at: z.coerce.date().nullable(),
   author_id: uuidSchema.nullable(),
@@ -171,6 +173,7 @@ function mapChannel(row: unknown): ChatChannel {
     muted: channel.muted,
     pinned: channel.pinned,
     avatarUrl: channel.avatar_exists ? `/api/v1/chat/channels/${channel.id}/avatar` : null,
+    peerMemberId: channel.peer_member_id,
     online: channel.online,
   };
 }
@@ -195,7 +198,7 @@ async function ensureMasterDirectChannel(member: AuthenticatedMember) {
       LIMIT 1`;
     let channelId = existingRows.length ? uuidSchema.parse(existingRows[0].id) : null;
     const ownerRows = await transaction`SELECT id FROM organization_members
-      WHERE organization_id = ${member.organizationId} AND active AND role <> 'master'
+      WHERE organization_id = ${member.organizationId} AND active AND role NOT IN ('master', 'foreman')
       ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'dispatcher' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END, created_at
       LIMIT 1`;
     if (!ownerRows.length) throw new Error("A master chat requires an active office member.");
@@ -219,14 +222,14 @@ async function ensureMasterDirectChannel(member: AuthenticatedMember) {
       USING organization_members members
       WHERE membership.organization_id = ${member.organizationId} AND membership.channel_id = ${channelId}
         AND members.organization_id = membership.organization_id AND members.id = membership.member_id
-        AND (NOT members.active OR (members.role = 'master' AND members.id <> ${member.memberId}))`;
+        AND (NOT members.active OR (members.role IN ('master', 'foreman') AND members.id <> ${member.memberId}))`;
     await transaction`INSERT INTO chat_channel_members AS membership
       (organization_id, channel_id, member_id, channel_role, joined_by)
       SELECT members.organization_id, ${channelId}, members.id,
         CASE WHEN members.id = ${ownerMemberId} THEN 'owner' ELSE 'member' END, ${ownerMemberId}
       FROM organization_members members
       WHERE members.organization_id = ${member.organizationId} AND members.active
-        AND (members.id = ${member.memberId} OR members.role <> 'master')
+        AND (members.id = ${member.memberId} OR members.role NOT IN ('master', 'foreman'))
       ON CONFLICT (organization_id, channel_id, member_id) DO UPDATE
         SET channel_role = EXCLUDED.channel_role
         WHERE membership.channel_role IS DISTINCT FROM EXCLUDED.channel_role`;
@@ -235,7 +238,7 @@ async function ensureMasterDirectChannel(member: AuthenticatedMember) {
 }
 
 async function ensureAccessibleChatChannels(member: AuthenticatedMember) {
-  if (member.role === "master") return ensureMasterDirectChannel(member);
+  if (member.role === "master" || member.role === "foreman") return ensureMasterDirectChannel(member);
   return ensureGeneralChannel(member);
 }
 
@@ -248,13 +251,13 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
     case "order":
       return sql`SELECT orders.id,
           'Заказ ' || orders.order_number AS title,
-          clients.legal_name || ' · ' || objects.name AS subtitle,
+          clients.legal_name || ' · ' || coalesce(objects.name, orders.object_name_snapshot) AS subtitle,
           orders.status,
           '/orders/' || orders.id::text AS href,
-          ARRAY[coalesce(masters.full_name, 'Без мастера'), objects.address]::text[] AS meta
+          ARRAY[coalesce(masters.full_name, 'Без мастера'), coalesce(objects.address, orders.object_address_snapshot)]::text[] AS meta
         FROM orders
         JOIN clients ON clients.organization_id = orders.organization_id AND clients.id = orders.client_id
-        JOIN client_objects objects ON objects.organization_id = orders.organization_id AND objects.id = orders.object_id
+        LEFT JOIN client_objects objects ON objects.organization_id = orders.organization_id AND objects.id = orders.object_id
         LEFT JOIN masters ON masters.organization_id = orders.organization_id AND masters.id = orders.assigned_master_id
         WHERE orders.organization_id = ${member.organizationId}
           AND (${entityId}::uuid IS NULL OR orders.id = ${entityId}::uuid)
@@ -322,10 +325,10 @@ async function queryChatEntitySource(member: AuthenticatedMember, type: ChatEnti
           clients.legal_name || ' · ' || orders.order_number AS subtitle,
           documents.category AS status,
           '/documents?document=' || documents.id::text AS href,
-          ARRAY['Версия ' || coalesce(versions.version_number, 1)::text, objects.name]::text[] AS meta
+          ARRAY['Версия ' || coalesce(versions.version_number, 1)::text, coalesce(objects.name, 'Без объекта')]::text[] AS meta
         FROM documents
         JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
-        JOIN client_objects objects ON objects.organization_id = documents.organization_id AND objects.id = documents.object_id
+        LEFT JOIN client_objects objects ON objects.organization_id = documents.organization_id AND objects.id = documents.object_id
         JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
         LEFT JOIN document_versions versions ON versions.organization_id = documents.organization_id AND versions.id = documents.current_version_id
         WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
@@ -403,7 +406,7 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
       CASE WHEN channels.audience_kind = 'direct' THEN 'Личная переписка' ELSE channels.description END AS description,
       channels.kind, channels.audience_kind, channels.version, membership.muted, membership.pinned,
       (avatars.channel_id IS NOT NULL) AS avatar_exists,
-      coalesce(direct_peer.online, false) AS online,
+      coalesce(direct_peer.online, false) AS online, direct_peer.id AS peer_member_id,
       channels.audience_kind <> 'office' OR channels.kind = 'general' AS managed,
       (SELECT count(*) FROM chat_channel_members all_members WHERE all_members.organization_id = channels.organization_id AND all_members.channel_id = channels.id) AS member_count,
       (SELECT count(*) FROM chat_messages unread_messages
@@ -415,7 +418,7 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
     JOIN chat_channels channels ON channels.organization_id = membership.organization_id AND channels.id = membership.channel_id
     LEFT JOIN chat_channel_avatars avatars ON avatars.organization_id = channels.organization_id AND avatars.channel_id = channels.id
     LEFT JOIN LATERAL (
-      SELECT members.display_name,
+      SELECT members.id, members.display_name,
         EXISTS (
           SELECT 1 FROM auth_sessions sessions
           WHERE sessions.revoked_at IS NULL AND sessions.expires_at > now()
@@ -440,21 +443,35 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
     WHERE membership.organization_id = ${member.organizationId} AND membership.member_id = ${member.memberId} AND channels.archived_at IS NULL
     ORDER BY membership.pinned DESC, CASE channels.kind WHEN 'general' THEN 0 ELSE 1 END, coalesce(latest.created_at, channels.created_at) DESC
   `;
-  const channels = channelRows.map(mapChannel);
+  const avatarRows = await sql`SELECT target.id, photo.version, photo.updated_at FROM organization_members target
+    JOIN LATERAL (
+      SELECT avatars.version, avatars.updated_at FROM organization_members identities
+      JOIN member_profile_avatars avatars ON avatars.organization_id = identities.organization_id AND avatars.member_id = identities.id
+      WHERE lower(identities.email) = lower(target.email)
+      ORDER BY avatars.updated_at DESC LIMIT 1
+    ) photo ON true
+    WHERE target.organization_id = ${member.organizationId} AND target.active`;
+  const avatarUrls = new Map(avatarRows.map((row) => [String(row.id), `/api/v1/members/${row.id}/avatar?v=${Number(row.version)}-${new Date(row.updated_at as Date).getTime()}`]));
+  const channels = channelRows.map((row) => {
+    const channel = mapChannel(row);
+    if (channel.peerMemberId) channel.avatarUrl = avatarUrls.get(channel.peerMemberId) ?? null;
+    else if (channel.avatarUrl) channel.avatarUrl += `?v=${channel.version}`;
+    return channel;
+  });
   const activeChannel = channels.find((channel) => channel.id === requestedChannelId) ?? channels[0] ?? null;
   const entityOptionsPromise = listChatEntityOptions(member);
   if (!activeChannel) return { channels, activeChannel: null, messages: [], members: [], memberOptions: [], entityOptions: await entityOptionsPromise };
 
   const [messageRows, channelMemberRows, memberOptionRows, entityOptions] = await Promise.all([
-    sql`SELECT ordered_messages.id, ordered_messages.body, ordered_messages.created_at, ordered_messages.edited_at,
+    sql`SELECT ordered_messages.id, ordered_messages.body, ordered_messages.body_is_placeholder, ordered_messages.created_at, ordered_messages.edited_at,
         ordered_messages.author_id, ordered_messages.author_name, ordered_messages.author_role, ordered_messages.message_kind,
         ordered_messages.attachment_id, ordered_messages.attachment_filename, ordered_messages.attachment_mime_type,
         ordered_messages.attachment_extension, ordered_messages.attachment_size_bytes,
         ordered_messages.shared_entity_snapshot, ordered_messages.reactions
       FROM (
-        SELECT messages.id, messages.body, messages.created_at, messages.edited_at, messages.author_id,
+        SELECT messages.id, messages.body, messages.body_is_placeholder, messages.created_at, messages.edited_at, messages.author_id,
           authors.display_name AS author_name,
-          CASE WHEN author_developers.email IS NOT NULL THEN 'developer' ELSE authors.role END AS author_role,
+          CASE WHEN author_developers.email IS NOT NULL THEN author_developers.account_role ELSE authors.role END AS author_role,
           messages.message_kind,
           attachments.id AS attachment_id, attachments.original_filename AS attachment_filename,
           attachments.mime_type AS attachment_mime_type, attachments.extension AS attachment_extension,
@@ -481,7 +498,7 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
         ORDER BY messages.created_at DESC LIMIT 150
       ) ordered_messages ORDER BY ordered_messages.created_at`,
     sql`SELECT members.id, members.display_name, members.email,
-        CASE WHEN developers.email IS NOT NULL THEN 'developer' ELSE members.role END AS role,
+        CASE WHEN developers.email IS NOT NULL THEN developers.account_role ELSE members.role END AS role,
         membership.channel_role,
         EXISTS (
           SELECT 1 FROM auth_sessions sessions
@@ -496,7 +513,7 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
       WHERE membership.organization_id = ${member.organizationId} AND membership.channel_id = ${activeChannel.id} AND members.active
       ORDER BY CASE membership.channel_role WHEN 'owner' THEN 0 ELSE 1 END, members.display_name`,
     sql`SELECT members.id, members.display_name, members.email,
-          CASE WHEN developers.email IS NOT NULL THEN 'developer' ELSE members.role END AS role
+          CASE WHEN developers.email IS NOT NULL THEN developers.account_role ELSE members.role END AS role
           FROM organization_members members
           LEFT JOIN developer_accounts developers ON developers.email = lower(members.email)
           WHERE members.organization_id = ${member.organizationId} AND members.active
@@ -505,10 +522,11 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
   ]);
   const messages: ChatMessage[] = messageRows.map((row) => { const message = messageRowSchema.parse(row); return {
     id: message.id,
-    body: message.body,
+    body: message.body_is_placeholder ? "" : message.body,
     createdAt: message.created_at.toISOString(),
     editedAt: message.edited_at?.toISOString() ?? null,
     authorId: message.author_id,
+    authorAvatarUrl: message.author_id ? avatarUrls.get(message.author_id) ?? null : null,
     authorName: message.author_name ?? "Система",
     authorRole: message.author_role,
     kind: message.message_kind,
@@ -519,9 +537,25 @@ export async function getChatWorkspace(member: AuthenticatedMember, requestedCha
     mine: message.author_id === member.memberId,
     reactions: message.reactions,
   }; });
-  const members: ChatMember[] = channelMemberRows.map((row) => { const channelMember = memberRowSchema.parse(row); return { id: channelMember.id, displayName: channelMember.display_name, email: channelMember.email, role: channelMember.role, channelRole: channelMember.channel_role, current: channelMember.id === member.memberId, online: channelMember.online }; });
-  const memberOptions: ChatMemberOption[] = memberOptionRows.map((row) => { const option = memberOptionRowSchema.parse(row); return { id: option.id, displayName: option.display_name, email: option.email, role: option.role }; });
+  const members: ChatMember[] = channelMemberRows.map((row) => { const channelMember = memberRowSchema.parse(row); return { id: channelMember.id, displayName: channelMember.display_name, email: channelMember.email, role: channelMember.role, channelRole: channelMember.channel_role, current: channelMember.id === member.memberId, online: channelMember.online, avatarUrl: avatarUrls.get(channelMember.id) ?? null }; });
+  const memberOptions: ChatMemberOption[] = memberOptionRows.map((row) => { const option = memberOptionRowSchema.parse(row); return { id: option.id, displayName: option.display_name, email: option.email, role: option.role, avatarUrl: avatarUrls.get(option.id) ?? null }; });
   return { channels, activeChannel, messages, members, memberOptions, entityOptions };
+}
+
+export async function getChatLatestMessageAt(member: AuthenticatedMember): Promise<string | null> {
+  requirePermission(member, "chat.read");
+  const [row] = await getDatabase()`SELECT max(latest.created_at) AS latest_at
+    FROM chat_channel_members membership
+    JOIN chat_channels channels ON channels.organization_id = membership.organization_id AND channels.id = membership.channel_id
+      AND channels.archived_at IS NULL
+    LEFT JOIN LATERAL (
+      SELECT messages.created_at FROM chat_messages messages
+      WHERE messages.organization_id = membership.organization_id AND messages.channel_id = membership.channel_id
+        AND messages.deleted_at IS NULL
+      ORDER BY messages.created_at DESC LIMIT 1
+    ) latest ON true
+    WHERE membership.organization_id = ${member.organizationId} AND membership.member_id = ${member.memberId}`;
+  return row?.latest_at instanceof Date ? row.latest_at.toISOString() : null;
 }
 
 export async function createChatChannel(member: AuthenticatedMember, input: CreateChatChannelInput) {
@@ -639,7 +673,7 @@ export async function assertChatAvatarAccess(member: AuthenticatedMember, channe
     WHERE channels.organization_id = ${member.organizationId} AND channels.id = ${channelId}
       AND channels.archived_at IS NULL`;
   if (!channel) throw new ChatChannelNotFoundError();
-  if (channel.kind !== "group" || channel.audience_kind !== "office") throw new ChatGeneralChannelMutationError();
+  if (channel.audience_kind !== "office") throw new ChatGeneralChannelMutationError();
   if (channel.version !== expectedVersion) throw new ChatChannelVersionConflictError();
 }
 
@@ -656,10 +690,13 @@ export async function chatMessageExists(member: AuthenticatedMember, messageId: 
 
 export async function sendChatMessage(member: AuthenticatedMember, input: SendChatMessageInput, attachment: ChatAttachmentUpload | null = null) {
   requirePermission(member, "chat.write");
+  if (!input.body && !input.sharedEntityId && !attachment) throw new Error("A message needs text, an entity, or an attachment.");
   const sharedEntity = input.sharedEntityType && input.sharedEntityId
     ? await resolveChatEntity(member, input.sharedEntityType, input.sharedEntityId)
     : null;
-  const messageBody = input.body || (sharedEntity ? `Поделился объектом: ${sharedEntity.typeLabel.toLowerCase()}` : "");
+  const bodyIsPlaceholder = !input.body && Boolean(attachment);
+  const messageBody = input.body || (sharedEntity ? `Поделился объектом: ${sharedEntity.typeLabel.toLowerCase()}`
+    : attachment?.mimeType.startsWith("image/") ? "Фото" : attachment?.mimeType.startsWith("audio/") ? "Голосовое сообщение" : "Файл");
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
     const accessRows = await transaction`SELECT membership.channel_id FROM chat_channel_members membership
@@ -667,14 +704,14 @@ export async function sendChatMessage(member: AuthenticatedMember, input: SendCh
       WHERE membership.organization_id = ${member.organizationId} AND membership.channel_id = ${input.channelId}
         AND membership.member_id = ${member.memberId} AND channels.archived_at IS NULL`;
     if (!accessRows.length) throw new ChatChannelNotFoundError();
-    const inserted = await transaction`INSERT INTO chat_messages (id, organization_id, channel_id, author_id, body)
-      VALUES (${input.idempotencyKey}, ${member.organizationId}, ${input.channelId}, ${member.memberId}, ${messageBody})
+    const inserted = await transaction`INSERT INTO chat_messages (id, organization_id, channel_id, author_id, body, body_is_placeholder)
+      VALUES (${input.idempotencyKey}, ${member.organizationId}, ${input.channelId}, ${member.memberId}, ${messageBody}, ${bodyIsPlaceholder})
       ON CONFLICT (id) DO NOTHING RETURNING id`;
     if (!inserted.length) {
       const existing = await transaction`SELECT id FROM chat_messages WHERE organization_id = ${member.organizationId}
         AND id = ${input.idempotencyKey} AND channel_id = ${input.channelId} AND author_id = ${member.memberId}`;
       if (!existing.length) throw new Error("Message idempotency key collision.");
-      return input.idempotencyKey;
+      return { id: input.idempotencyKey, created: false };
     }
     if (attachment) {
       await transaction`INSERT INTO chat_message_attachments
@@ -696,7 +733,7 @@ export async function sendChatMessage(member: AuthenticatedMember, input: SendCh
     await transaction`UPDATE chat_channels SET updated_at = now() WHERE organization_id = ${member.organizationId} AND id = ${input.channelId}`;
     await transaction`UPDATE chat_channel_members SET last_read_at = now()
       WHERE organization_id = ${member.organizationId} AND channel_id = ${input.channelId} AND member_id = ${member.memberId}`;
-    return input.idempotencyKey;
+    return { id: input.idempotencyKey, created: true };
   });
 }
 
@@ -825,13 +862,20 @@ export async function updateChatChannelSettings(
       }).parse(channel);
       if (parsed.version !== input.expectedVersion) throw new ChatChannelVersionConflictError();
       const canEditDetails = hasPermission(member, "chat.manage") && parsed.kind === "group" && parsed.audience_kind === "office";
+      const canEditAvatar = hasPermission(member, "chat.manage") && parsed.audience_kind === "office";
       if (canEditDetails) {
         const updated = await transaction`UPDATE chat_channels SET name = ${input.name}, description = ${input.description},
             version = version + 1, updated_at = now()
           WHERE organization_id = ${member.organizationId} AND id = ${input.channelId} AND version = ${input.expectedVersion}
           RETURNING version`;
         if (!updated.length) throw new ChatChannelVersionConflictError();
-        if (avatar) {
+      } else if (avatar && canEditAvatar) {
+        const updated = await transaction`UPDATE chat_channels SET version = version + 1, updated_at = now()
+          WHERE organization_id = ${member.organizationId} AND id = ${input.channelId} AND version = ${input.expectedVersion}
+          RETURNING version`;
+        if (!updated.length) throw new ChatChannelVersionConflictError();
+      }
+      if (avatar && canEditAvatar) {
           await transaction`INSERT INTO chat_channel_avatars
               (organization_id, channel_id, storage_key, mime_type, size_bytes, sha256, uploaded_by, request_id, version)
             VALUES (${member.organizationId}, ${input.channelId}, ${avatar.storageKey}, ${avatar.mimeType}, ${avatar.sizeBytes}, ${avatar.sha256}, ${member.memberId}, ${input.idempotencyKey}, ${parsed.avatar_version ?? 1})
@@ -839,7 +883,6 @@ export async function updateChatChannelSettings(
               mime_type = EXCLUDED.mime_type, size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256,
               uploaded_by = EXCLUDED.uploaded_by, request_id = EXCLUDED.request_id,
               version = chat_channel_avatars.version + 1, updated_at = now()`;
-        }
       } else if (avatar) {
         throw new ChatGeneralChannelMutationError();
       }
@@ -871,7 +914,7 @@ export async function chatAvatarRequestAlreadyApplied(
     JOIN chat_channel_avatars avatars ON avatars.organization_id = channels.organization_id
       AND avatars.channel_id = channels.id
     WHERE channels.organization_id = ${member.organizationId} AND channels.id = ${input.channelId}
-      AND channels.archived_at IS NULL AND channels.kind = 'group' AND channels.audience_kind = 'office'`;
+      AND channels.archived_at IS NULL AND channels.audience_kind = 'office'`;
   if (!row) return false;
   const saved = z.object({
     version: z.number().int().positive(), name: z.string(), description: z.string().nullable(), muted: z.boolean(),

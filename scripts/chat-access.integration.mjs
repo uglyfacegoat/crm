@@ -25,6 +25,7 @@ let sql;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", sourceRoot), { namedExports: { getDatabase: () => sql } });
 const chat = await import("../src/server/chat/repository.ts");
+const push = await import("../src/server/chat/push.ts");
 
 test("chat file authorization uses current tenant, membership, channel and permission state", async (t) => {
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
@@ -68,10 +69,34 @@ test("chat file authorization uses current tenant, membership, channel and permi
     const { member, channelId, input } = await fixture();
     await chat.assertChatMessageAccess(member, channelId);
     await chat.assertChatAvatarAccess(member, channelId, 1);
-    assert.equal(await chat.sendChatMessage(member, input), input.idempotencyKey);
-    assert.equal(await chat.sendChatMessage(member, input), input.idempotencyKey);
+    assert.deepEqual(await chat.sendChatMessage(member, input), { id: input.idempotencyKey, created: true });
+    assert.deepEqual(await chat.sendChatMessage(member, input), { id: input.idempotencyKey, created: false });
     const [count] = await sql`SELECT count(*)::integer AS total FROM chat_messages WHERE channel_id = ${channelId}`;
     assert.equal(count.total, 1);
+  });
+  await t.test("chat push respects channel membership, mute and revoked sessions", async () => {
+    const { member, channelId } = await fixture();
+    const [recipient] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+      VALUES (${member.organizationId}, 'Push recipient', 'push@example.invalid', 'manager') RETURNING id`;
+    await sql`INSERT INTO chat_channel_members (organization_id, channel_id, member_id, channel_role, joined_by)
+      VALUES (${member.organizationId}, ${channelId}, ${recipient.id}, 'member', ${member.memberId})`;
+    const [session] = await sql`INSERT INTO auth_sessions (organization_id, member_id, token_hash, expires_at)
+      VALUES (${member.organizationId}, ${recipient.id}, ${"a".repeat(64)}, now() + interval '1 day') RETURNING id`;
+    const recipientMember = { ...member, memberId: recipient.id, sessionId: session.id };
+    const endpoint = `https://fcm.googleapis.com/fcm/send/${randomUUID()}`;
+    const subscription = { endpoint, keys: { p256dh: "a".repeat(80), auth: "b".repeat(20) } };
+    assert.equal(push.chatPushSubscriptionSchema.safeParse(subscription).success, true);
+    await push.savePushSubscription(recipientMember, subscription, "chat");
+    assert.deepEqual((await push.listChatPushRecipients(member, channelId)).map((row) => row.endpoint), [endpoint]);
+    await sql`UPDATE chat_channel_members SET muted = true
+      WHERE organization_id = ${member.organizationId} AND channel_id = ${channelId} AND member_id = ${recipient.id}`;
+    assert.equal((await push.listChatPushRecipients(member, channelId)).length, 0);
+    await sql`UPDATE chat_channel_members SET muted = false
+      WHERE organization_id = ${member.organizationId} AND channel_id = ${channelId} AND member_id = ${recipient.id}`;
+    await sql`UPDATE auth_sessions SET revoked_at = now() WHERE id = ${session.id}`;
+    assert.equal((await push.listChatPushRecipients(member, channelId)).length, 0);
+    assert.equal(push.chatPushSubscriptionSchema.safeParse({ ...subscription,
+      endpoint: "https://fcm.googleapis.com.evil.example/send/123" }).success, false);
   });
   await t.test("sharing order and task cards does not assign work or change business state", async () => {
     const { member, channelId } = await fixture();
@@ -119,9 +144,10 @@ test("chat file authorization uses current tenant, membership, channel and permi
     assert.deepEqual(older.map((item) => item.id), [olderId]);
     assert.deepEqual(await chat.searchChatEntityOptions(other.member, "client", "Needle"), []);
     await assert.rejects(chat.searchChatEntityOptions({ ...own.member, permissionOverrides: { "clients.read": false } }, "client", "Needle"), AuthorizationError);
-    for (const type of ["order", "object", "visit", "contract", "document", "task", "master", "website"]) {
+    for (const type of ["order", "object", "visit", "contract", "document", "task", "master"]) {
       assert.deepEqual(await chat.searchChatEntityOptions(own.member, type, "never-matches-anything"), []);
     }
+    await assert.rejects(chat.searchChatEntityOptions(own.member, "website", "never-matches-anything"), AuthorizationError);
   });
   await t.test("cross-company channels and nonmembers are rejected", async () => {
     const own = await fixture();
@@ -154,8 +180,10 @@ test("chat file authorization uses current tenant, membership, channel and permi
       assert.equal(count.total, 0);
     });
   }
-  await t.test("avatars reject system/direct channels and stale versions", async () => {
-    for (const [kind, audience] of [["general", "office"], ["group", "direct"], ["group", "master_direct"]]) {
+  await t.test("avatars allow office channels and reject direct channels and stale versions", async () => {
+    const general = await fixture("general", "office");
+    await chat.assertChatAvatarAccess(general.member, general.channelId, 1);
+    for (const [kind, audience] of [["group", "direct"], ["group", "master_direct"]]) {
       const { member, channelId } = await fixture(kind, audience);
       await assert.rejects(chat.assertChatAvatarAccess(member, channelId, 1), chat.ChatGeneralChannelMutationError);
     }

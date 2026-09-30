@@ -24,6 +24,7 @@ import {
   type UpdateTaskState,
 } from "@/app/(workspace)/tasks/actions";
 import { Dialog } from "@/components/ui/dialog";
+import { OrderPicker } from "@/components/orders/order-form-parts";
 import type {
   TaskAssigneeOption,
   TaskCard,
@@ -38,7 +39,15 @@ const initialUpdateState: UpdateTaskState = {
   taskId: null,
 };
 const roleLabels = {
+  owner: "Владелец",
   developer: "Разработчик",
+  deputy: "Заместитель",
+  finance_controller: "Финконтроль",
+  sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж",
+  regional_director: "Региональный директор",
+  crm_coordinator: "Координатор CRM",
+  tender_specialist: "Тендерный отдел",
+  foreman: "Бригадир",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -60,8 +69,8 @@ const eventLabels = {
   cancelled: "Задача отменена",
 } as const;
 const fieldClass =
-  "focus-ring h-12 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none disabled:cursor-not-allowed disabled:opacity-55";
-const fieldLabelClass = "grid gap-2 text-[10px] text-[var(--text-secondary)]";
+  "focus-ring h-12 min-w-0 w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none disabled:cursor-not-allowed disabled:opacity-55";
+const fieldLabelClass = "grid min-w-0 gap-2 text-[10px] text-[var(--text-secondary)]";
 
 function deadlineParts(timestamp: string | null, timeZone: string) {
   if (!timestamp) return { date: "", time: "" };
@@ -105,6 +114,7 @@ function EditTaskForm({
     updateTaskAction,
     initialUpdateState,
   );
+  const [assigneeId, setAssigneeId] = useState(task.assignedMemberId ?? "");
   const router = useRouter();
   const deadline = useMemo(
     () => deadlineParts(task.dueAt, timeZone),
@@ -135,6 +145,7 @@ function EditTaskForm({
         </>
       ) : null}
       <div className="flex-1 space-y-5 p-5 sm:p-7">
+        {task.needsAssignment ? <p role="status" className="rounded-[12px] border border-[var(--danger-ink)]/30 bg-[var(--danger-bg)] p-3 text-xs text-[var(--danger-ink)]">{task.assignedMemberId ? "Прежний исполнитель отключён. Выберите действующего сотрудника, чтобы задача появилась у него в «Моих задачах»." : "У задачи нет исполнителя. Назначьте сотрудника, чтобы она появилась у него в «Моих задачах»."}</p> : null}
         {managedByVisit ? (
           <p className="rounded-[12px] border border-[var(--support-strong)] bg-[var(--support-soft)] p-3 text-[10px] leading-4 text-[var(--support-strong)]">
             Эта задача синхронизирована с выездом. Здесь можно изменить
@@ -167,22 +178,16 @@ function EditTaskForm({
           />
           <FieldError errors={state.fieldErrors.description} />
         </label>
-        <label className={fieldLabelClass}>
-          <span>Ответственный</span>
-          <select
-            name="assignedMemberId"
-            defaultValue={task.assignedMemberId ?? ""}
-            className={fieldClass}
-          >
-            <option value="">Без ответственного</option>
-            {assigneeOptions.map((assignee) => (
-              <option key={assignee.id} value={assignee.id}>
-                {assignee.displayName} · {roleLabels[assignee.role]}
-              </option>
-            ))}
-          </select>
-          <FieldError errors={state.fieldErrors.assignedMemberId} />
-        </label>
+        <div>
+          <input type="hidden" name="assignedMemberId" value={assigneeId} />
+          <OrderPicker label="Ответственный" value={assigneeId} onChange={setAssigneeId}
+            options={[{ value: "", label: "Без ответственного" },
+              ...assigneeOptions.map((assignee) => ({ value: assignee.id, label: assignee.displayName, detail: roleLabels[assignee.role] })),
+              ...(task.assignedMemberId && !assigneeOptions.some((assignee) => assignee.id === task.assignedMemberId)
+                ? [{ value: task.assignedMemberId, label: task.assigneeName ?? "Текущий исполнитель", detail: "Отключён — выберите другого" }] : [])]}
+            placeholder="Без ответственного" remoteUrl="/api/v1/tasks/options?type=assignees"
+            searchPlaceholder="Имя или email" errors={state.fieldErrors.assignedMemberId} />
+        </div>
         <fieldset>
           <legend className="text-[10px] text-[var(--text-secondary)]">
             Приоритет
@@ -217,7 +222,7 @@ function EditTaskForm({
               <DateInput
                 name={managedByVisit ? undefined : "localDate"}
                 defaultValue={deadline.date}
-                className={fieldClass}
+                className="w-full"
               />
               <FieldError errors={state.fieldErrors.localDate} />
             </label>
@@ -226,7 +231,7 @@ function EditTaskForm({
               <TimeInput
                 name={managedByVisit ? undefined : "localTime"}
                 defaultValue={deadline.time}
-                className={fieldClass}
+                className="w-full"
               />
               <FieldError errors={state.fieldErrors.localTime} />
             </label>

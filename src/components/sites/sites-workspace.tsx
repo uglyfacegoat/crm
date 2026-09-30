@@ -50,15 +50,15 @@ function AcquisitionFunnel({ snapshot }: { snapshot: WebsiteSnapshot }) {
     <div className="sites-funnel-desktop">
       <div className="sites-funnel-values"><strong>{integerFormatter.format(leads)} заявок</strong><strong>{integerFormatter.format(orders)} заказов</strong><strong>{integerFormatter.format(paid)} оплаченных</strong></div>
       <div className="sites-funnel-shape"><span /><i /></div>
-      <div className="sites-funnel-notes"><span>{orderRate}% заявок → заказ</span><span>{paidRate}% заказов → оплата</span><strong>Получено {formatMoneyMinor(snapshot.summary.paidRevenueMinor)}</strong></div>
+      <div className="sites-funnel-notes"><span>{leads ? `${orderRate}%` : "—"} заявок → заказ</span><span>{orders ? `${paidRate}%` : "—"} заказов → оплата</span><strong>Получено {formatMoneyMinor(snapshot.summary.paidRevenueMinor)}</strong></div>
     </div>
     <div className="sites-funnel-mobile">
-      {[{ label: "Входящие заявки", value: leads, rate: 100, note: `↓ ${orderRate}% заявок становятся заказами`, tone: "#25272c" }, { label: "Создано заказов", value: orders, rate: orderRate, note: `↓ ${paidRate}% заказов имеют оплату`, tone: "#9fa2aa" }, { label: "Оплаченные заказы", value: paid, rate: finalRate, note: "", tone: "#9dbbff" }].map((entry) => <article key={entry.label}>
+      {[{ label: "Входящие заявки", value: leads, rate: 100, note: `↓ ${leads ? `${orderRate}%` : "—"} заявок становятся заказами`, tone: "#25272c" }, { label: "Создано заказов", value: orders, rate: orderRate, note: `↓ ${orders ? `${paidRate}%` : "—"} заказов имеют оплату`, tone: "#9fa2aa" }, { label: "Оплаченные заказы", value: paid, rate: finalRate, note: "", tone: "#9dbbff" }].map((entry) => <article key={entry.label}>
         <div><span>{entry.label}</span><strong>{integerFormatter.format(entry.value)}</strong></div>
         <i><span style={{ width: `${Math.max(0, Math.min(100, entry.rate))}%`, background: entry.tone }} /></i>
         {entry.note ? <small>{entry.note}</small> : null}
       </article>)}
-      <strong>{finalRate.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% заявок привели к оплате</strong>
+      <strong>{leads ? `${finalRate.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%` : "—"} заявок привели к оплате</strong>
     </div>
   </section>;
 }
@@ -71,7 +71,7 @@ function SourceState({ snapshot }: { snapshot: WebsiteSnapshot }) {
   </section>;
 }
 
-export function SitesWorkspace({ snapshot, canWrite, preview }: { snapshot: WebsiteSnapshot; canWrite: boolean; preview: boolean }) {
+export function SitesWorkspace({ snapshot, canWrite, currentOrganizationId, preview }: { snapshot: WebsiteSnapshot; canWrite: boolean; currentOrganizationId: string; preview: boolean }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -110,7 +110,7 @@ export function SitesWorkspace({ snapshot, canWrite, preview }: { snapshot: Webs
     setFilters(draftFilters); setFiltersOpen(false);
   }
 
-  return <div className="figma-report-page sites-page">
+  return <div className="figma-report-page sites-page" data-can-write={canWrite}>
     <header className="sites-page-header">
       <p className="figma-report-kicker">Единый центр сайтов</p>
       <h1 className="figma-report-title mt-[9px]">Сайты и трафик</h1>
@@ -129,16 +129,16 @@ export function SitesWorkspace({ snapshot, canWrite, preview }: { snapshot: Webs
     </div>
 
     <div className="sites-figma-layout">
+      <section className="figma-report-panel sites-register"><header><h2 className="figma-card-heading">Домены и результат</h2><p className="figma-card-caption mt-1">Сайтов: {sites.length}</p></header><div className="sites-register-head"><span>Сайт</span><span>Трафик за {periodDays} дней</span><span>Посетители</span><span>Заявки</span><span>С оплатой</span><span>Получено</span><span /></div><div className="sites-register-list">{sites.map((site, index) => <SiteCard key={site.id} site={site} index={index} onConfigure={openIntegrationDialog} canWrite={canWrite && !preview} currentOrganizationId={currentOrganizationId} />)}{!sites.length ? <p className="p-6 text-sm text-[var(--muted)]">{snapshot.sites.length ? "Нет сайтов по выбранным фильтрам." : "Сайты ещё не добавлены."}</p> : null}</div></section>
       <AcquisitionFunnel snapshot={snapshot} />
-      <div className="sites-chart-row">
-        <section className="figma-report-panel sites-traffic-card"><header><h2 className="figma-card-heading">Как приходит аудитория</h2><p className="figma-card-caption mt-1">Уникальные посетители · данные подключённых источников</p></header><div className="sites-traffic-total"><strong>{hasTrafficData ? integerFormatter.format(snapshot.summary.visitors) : "—"}</strong><span>за {periodDays} дней</span></div><SiteTrafficTrendChart {...snapshot.trafficTrend} emptyMessage="За период данных о трафике нет" /></section>
+      <div className={`sites-chart-row${hasTrafficData ? "" : " sites-chart-row-empty"}`}>
+        <section className={`figma-report-panel sites-traffic-card${hasTrafficData ? "" : " sites-empty-card"}`}><header><h2 className="figma-card-heading">Как приходит аудитория</h2><p className="figma-card-caption mt-1">Уникальные посетители · данные подключённых источников</p></header>{hasTrafficData ? <><div className="sites-traffic-total"><strong>{integerFormatter.format(snapshot.summary.visitors)}</strong><span>за {periodDays} дней</span></div><SiteTrafficTrendChart {...snapshot.trafficTrend} emptyMessage="За период данных о трафике нет" /></> : <p className="sites-empty-copy">Данных о посетителях пока нет. Они появятся после подключения источника аналитики.</p>}</section>
         <section className="figma-report-panel sites-sources-card"><header><h2 className="figma-card-heading">Откуда приходят заявки</h2><p className="figma-card-caption mt-1">{integerFormatter.format(snapshot.summary.leads)} заявок · доля источника</p></header><TrafficSourcesChart entries={snapshot.trafficSources} /></section>
       </div>
 
-      <section className="figma-report-panel sites-register"><header><h2 className="figma-card-heading">Домены и результат</h2><p className="figma-card-caption mt-1">Сайтов: {sites.length}</p></header><div className="sites-register-head"><span>Сайт</span><span>Трафик за {periodDays} дней</span><span>Посетители</span><span>Заявки</span><span>С оплатой</span><span>Получено</span><span /></div><div className="sites-register-list">{sites.map((site, index) => <SiteCard key={site.id} site={site} index={index} onConfigure={openIntegrationDialog} canWrite={canWrite && !preview} />)}{!sites.length ? <p className="p-6 text-sm text-[var(--muted)]">{snapshot.sites.length ? "Нет сайтов по выбранным фильтрам." : "Сайты ещё не добавлены."}</p> : null}</div></section>
       <SourceState snapshot={snapshot} />
       {preview ? <section className="figma-report-panel sites-missing-state"><h2 className="figma-card-heading">Нет источника ≠ нет посетителей</h2><p>В рабочем режиме до подключения источника здесь будет «Нет данных», а не фиктивный график.</p></section> : null}
-      <button type="button" disabled={!canWrite || !snapshot.sites[0]} onClick={() => snapshot.sites[0] && openIntegrationDialog(snapshot.sites[0])} className="figma-report-control sites-source-button focus-ring">Настроить источники</button>
+      <button type="button" disabled={!canWrite || !snapshot.sites[0] || Boolean(snapshot.sites[0].organizationId && snapshot.sites[0].organizationId !== currentOrganizationId)} onClick={() => snapshot.sites[0] && openIntegrationDialog(snapshot.sites[0])} className="figma-report-control sites-source-button focus-ring">Настроить источники</button>
     </div>
 
     <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Фильтры сайтов" description="Отберите домены по источнику данных, состоянию интеграции и результативности.">
@@ -149,7 +149,7 @@ export function SitesWorkspace({ snapshot, canWrite, preview }: { snapshot: Webs
         <fieldset><legend className="mb-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">Сортировка</legend><div className="grid gap-2 sm:grid-cols-2" role="radiogroup">{(["visitors-desc", "leads-desc", "conversion-desc", "name"] as const).map((value) => <FilterChoice key={value} value={value} current={draftFilters.sort} label={({ "visitors-desc": "Сначала по трафику", "leads-desc": "Сначала по заявкам", "conversion-desc": "Сначала по конверсии", name: "По названию" })[value]} onChange={(sort) => setDraftFilters((current) => ({ ...current, sort }))} />)}</div></fieldset>
         {filterError ? <p role="alert" className="rounded-[12px] border border-[var(--danger-border)] bg-[var(--danger-bg)] p-3 text-xs text-[var(--danger-ink)]">{filterError}</p> : null}
       </div>
-      <footer className="sticky bottom-0 grid grid-cols-[auto_minmax(0,1fr)] gap-2 border-t bg-white p-4"><button type="button" onClick={() => setDraftFilters(defaultFilters)} className="figma-report-control px-4">Очистить</button><button type="button" onClick={applyFilters} className="figma-report-control bg-black px-4 text-white">Показать сайты</button></footer>
+      <footer className="sticky bottom-0 grid grid-cols-[auto_minmax(0,1fr)] gap-2 border-t bg-[var(--surface)] p-4"><button type="button" onClick={() => setDraftFilters(defaultFilters)} className="figma-report-control px-4">Очистить</button><button type="button" onClick={applyFilters} className="figma-report-control !bg-[var(--accent)] px-4 !text-[var(--on-accent)]">Показать сайты</button></footer>
     </Dialog>
     <ConfigureIntegrationDialog selection={integrationSelection} onClose={closeIntegrationDialog} />
   </div>;

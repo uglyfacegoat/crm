@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { redirect } from "next/navigation";
 import { CompanySelectionWorkspace } from "@/components/organizations/company-selection-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
@@ -11,13 +12,14 @@ export const metadata: Metadata = { title: "Компании" };
 
 export default async function CompaniesPage() {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "companies.read");
   if (!hasPermission(member, "companies.read")) redirect("/");
   const organizations =
     getAuthMode() === "preview"
       ? [
           {
             id: member.organizationId,
-            name: member.organizationName,
+            name: "Центр CRM",
             kind: "center" as const,
             current: true,
             units: [],
@@ -49,20 +51,21 @@ export default async function CompaniesPage() {
           },
         ]
       : await listAccessibleOrganizations(member);
-
   return (
     <div>
       <PageHeading
         eyebrow="Рабочий контур"
         title="Компании"
-        description="Выберите компанию, с данными которой хотите работать. Доступны только связанные с вашей учётной записью контуры."
+        description="Переключайтесь между рабочими базами компаний и Центром CRM."
       />
       <CompanySelectionWorkspace
         organizations={organizations}
+        preview={getAuthMode() === "preview"}
         canManage={
           hasPermission(member, "companies.write") &&
           getAuthMode() === "required"
         }
+        canSwitch={hasPermission(member, "companies.switch")}
       />
     </div>
   );

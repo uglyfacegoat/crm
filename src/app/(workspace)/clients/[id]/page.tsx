@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { notFound } from "next/navigation";
 import { ClientDetailWorkspace } from "@/components/clients/client-detail-workspace";
+import { PersonalNotesPanel } from "@/components/personal-notes/personal-notes-panel";
 import { clients } from "@/lib/mock-data";
 import { getAuthMode } from "@/server/auth/config";
 import { requireOfficeSession } from "@/server/auth/session";
 import { ClientNotFoundError, getClientDetail } from "@/server/clients/repository";
 import { clientIdSchema } from "@/server/clients/schemas";
 import type { ClientDetail } from "@/server/clients/types";
+import { listPersonalNotes, listPersonalNoteTemplates, type NoteTarget } from "@/server/personal-notes/repository";
 
 export const metadata: Metadata = { title: "Карточка клиента" };
 
@@ -32,10 +35,11 @@ function previewClientDetail(clientId: string): ClientDetail | null {
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const member = await requireOfficeSession();
+  requirePagePermission(member, "clients.read");
   if (getAuthMode() === "preview") {
     const client = previewClientDetail(id);
     if (!client) notFound();
-    return <ClientDetailWorkspace client={client} />;
+    return <ClientDetailWorkspace client={client} notes={<PersonalNotesPanel target={{ kind: "client", organizationId: member.organizationId, id: client.id }} initialNotes={[]} initialTemplates={[]} objectName={client.objects[0]?.name} />} />;
   }
   if (!clientIdSchema.safeParse(id).success) notFound();
   let client: ClientDetail;
@@ -45,5 +49,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
     if (error instanceof ClientNotFoundError) notFound();
     throw error;
   }
-  return <ClientDetailWorkspace client={client} />;
+  const target: NoteTarget = { kind: "client", organizationId: member.organizationId, id: client.id };
+  const [notes, templates] = await Promise.all([listPersonalNotes(member, target), listPersonalNoteTemplates(member)]);
+  return <ClientDetailWorkspace client={client} notes={<PersonalNotesPanel target={target} initialNotes={notes} initialTemplates={templates} objectName={client.objects[0]?.name} />} />;
 }

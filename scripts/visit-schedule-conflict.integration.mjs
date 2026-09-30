@@ -25,7 +25,8 @@ const hooks = registerHooks({
 let sql;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", sourceRoot), { namedExports: { getDatabase: () => sql } });
-const { createVisit, VisitScheduleConflictError } = await import("../src/server/visits/repository.ts");
+const { createVisit, createVisitSeries, getVisitDispatchCard, VisitScheduleConflictError } = await import("../src/server/visits/repository.ts");
+const { createVisitSeriesSchema } = await import("../src/server/visits/schemas.ts");
 
 test("master schedule rejects sequential and simultaneous conflicting assignments", { timeout: 60_000 }, async (t) => {
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
@@ -59,8 +60,8 @@ test("master schedule rejects sequential and simultaneous conflicting assignment
   }
   const [client] = await sql`INSERT INTO clients (organization_id, legal_name)
     VALUES (${organization.id}, 'Schedule customer') RETURNING id`;
-  const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
-    VALUES (${organization.id}, ${client.id}, 'Schedule object', 'Office', 'Test address') RETURNING id`;
+  const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address, area_square_meters)
+    VALUES (${organization.id}, ${client.id}, 'Schedule object', 'Office', 'Test address', 250.50) RETURNING id`;
   const [master] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
     VALUES (${organization.id}, 'Schedule master', '+70000000000', '+70000000000', 'Test region', 'Test zone') RETURNING id`;
   const orders = [];
@@ -78,6 +79,9 @@ test("master schedule rejects sequential and simultaneous conflicting assignment
     durationMinutes: 60, assignedMasterId: master.id, notes: null,
   });
   const firstVisitId = await createVisit(members[0], input(orders[0], "10:00"));
+  const dispatch = await getVisitDispatchCard(members[0], firstVisitId);
+  assert.equal(dispatch.clientKind, 'legal_entity');
+  assert.equal(dispatch.areaSquareMeters, 250.5);
   await assert.rejects(createVisit(members[1], input(orders[1], "10:30")), VisitScheduleConflictError);
   assert.equal(Number((await sql`SELECT count(*) FROM service_visits WHERE organization_id = ${organization.id}`)[0].count), 1);
   assert.equal(Number((await sql`SELECT count(*) FROM tasks WHERE related_visit_id = ${firstVisitId}`)[0].count), 1);
@@ -111,4 +115,15 @@ test("master schedule rejects sequential and simultaneous conflicting assignment
   await right`ROLLBACK`;
   assert.equal(Number((await sql`SELECT count(*) FROM service_visits WHERE organization_id = ${organization.id}
     AND scheduled_start_at = '2030-01-15T14:00:00Z'`)[0].count), 1);
+  const manual = createVisitSeriesSchema.parse({ idempotencyKey: randomUUID(), orderId: orders[0],
+    scheduleMode: 'dates', selectedDates: ['2030-02-03', '2030-02-17'], startsOn: '2030-02-03', endsOn: '2030-02-17',
+    localTime: '10:00', durationMinutes: 60, frequencyUnit: 'month', frequencyInterval: 1,
+    assignedMasterId: '', notes: 'По выбранным дням' });
+  const manualResult = await createVisitSeries(members[0], manual);
+  assert.equal(manualResult.visitCount, 2);
+  const [savedManual] = await sql`SELECT frequency_unit, selected_dates::text[] AS selected_dates FROM service_visit_series
+    WHERE id = ${manualResult.seriesId}`;
+  assert.equal(savedManual.frequency_unit, 'custom');
+  assert.deepEqual(savedManual.selected_dates, ['2030-02-03', '2030-02-17']);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM service_visits WHERE series_id = ${manualResult.seriesId}`)[0].count, 2);
 });

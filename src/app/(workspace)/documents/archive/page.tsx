@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { DocumentArchiveManager } from "@/components/documents/document-archive-manager";
 import { BackLink } from "@/components/ui/back-link";
 import { PageHeading } from "@/components/ui/page-heading";
@@ -14,6 +15,7 @@ export const metadata: Metadata = { title: "Управление архивом"
 
 export default async function DocumentArchivePage() {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "documents.read");
   const canRead = hasPermission(member, "documents.read");
   const canWrite =
     hasPermission(member, "documents.write") && getAuthMode() !== "preview";

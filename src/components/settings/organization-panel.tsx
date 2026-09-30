@@ -369,7 +369,7 @@ export function OrganizationPanel({
 
       {!canCreate && current?.kind === "company" ? (
         <p className="text-[10px] text-[var(--muted)]">
-          Вернитесь в «Центр компаний» через{" "}
+          Вернитесь в «Центр CRM» через{" "}
           <Link
             href="/companies"
             className="focus-ring rounded text-[var(--accent-ink)] underline decoration-[var(--accent)]/40 underline-offset-2 hover:text-[var(--accent)]"

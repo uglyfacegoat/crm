@@ -17,7 +17,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     if (limited) return limited;
     const file = await readVerifiedDocumentFile(avatar.storageKey, avatar, MAX_CHAT_AVATAR_BYTES);
     return new Response(file, { headers: {
-      "Cache-Control": "private, no-store",
+      "Cache-Control": "private, max-age=60",
       "Content-Length": String(file.length),
       "Content-Type": avatar.mimeType,
       "X-Content-Type-Options": "nosniff",

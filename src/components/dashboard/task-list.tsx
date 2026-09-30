@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { completeTaskAction } from "@/app/(workspace)/tasks/actions";
+import { openCenterRecordAction } from "@/app/(workspace)/companies/center-actions";
 import { DashboardPanelLink } from "@/components/dashboard/dashboard-panel-link";
 import type { TaskCard } from "@/server/tasks/types";
 
@@ -50,7 +51,7 @@ export function TaskList({ tasks, canWrite }: { tasks: TaskCard[]; canWrite: boo
             <button type="button" disabled={!canWrite || pendingId !== null} onClick={() => complete(task)} aria-label={`Выполнить задачу ${task.title}`} className="focus-ring dashboard-task-check">✓</button>
             <div>
               <h3>{task.title}</h3>
-              <p>{task.meta}</p>
+              <p>{task.meta}{task.organizationName ? ` · ${task.organizationName}` : ""}</p>
             </div>
             <div className="dashboard-task-meta">
               <span data-priority={task.priority}>{priorityLabels[task.priority]}</span>
@@ -58,7 +59,10 @@ export function TaskList({ tasks, canWrite }: { tasks: TaskCard[]; canWrite: boo
             </div>
             <footer>
               <span>{task.source === "manual" ? "Ручная задача" : "Подготовка к выезду"}</span>
-              <Link href={task.relatedOrderId ? `/orders/${task.relatedOrderId}` : "/tasks"}>Открыть ↗</Link>
+              {task.organizationId ? <form action={openCenterRecordAction}>
+                <input type="hidden" name="kind" value={task.relatedOrderId ? "order" : "task"} /><input type="hidden" name="organizationId" value={task.organizationId} /><input type="hidden" name="recordId" value={task.relatedOrderId ?? task.id} />
+                <button type="submit">Открыть ↗</button>
+              </form> : <Link href={task.relatedOrderId ? `/orders/${task.relatedOrderId}` : "/tasks"}>Открыть ↗</Link>}
             </footer>
           </article>
         ))}

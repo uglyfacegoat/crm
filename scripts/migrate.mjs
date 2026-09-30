@@ -11,7 +11,8 @@ export async function runMigrations({
   onApplied = (name) => console.log(`Applied ${name}`),
 }) {
   if (!databaseUrl) throw new Error("DATABASE_URL is required to run migrations.");
-  const filenames = (await readdir(migrationsDirectory)).filter((file) => file.endsWith(".sql")).sort();
+  const filenames = (await readdir(migrationsDirectory))
+    .filter((file) => file.endsWith(".sql") && !file.startsWith("._")).sort();
   if (!filenames.length) throw new Error("No SQL migrations found.");
   const migrations = await Promise.all(filenames.map(async (name) => {
     const source = await readFile(resolve(migrationsDirectory, name), "utf8");

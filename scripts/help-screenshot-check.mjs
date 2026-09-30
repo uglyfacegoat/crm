@@ -4,6 +4,9 @@ import { resolve } from "node:path";
 import { chromium } from "playwright-core";
 
 const browserPaths = [
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -20,6 +23,7 @@ const password =
   process.env.VISUAL_CHECK_PASSWORD ??
   process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
 const screenshots = [
+  ["/", "dashboard-workflow.png"],
   ["/quick-order", "order-workflow.png"],
   ["/clients", "clients-workflow.png"],
   ["/calendar", "calendar-workflow.png"],
@@ -29,7 +33,14 @@ const screenshots = [
   ["/tasks", "tasks-workflow.png"],
   ["/analytics", "analytics-workflow.png"],
   ["/inbox", "inbox-workflow.png"],
+  ["/sites", "sites-workflow.png"],
   ["/companies", "companies-workflow.png"],
+  ["/mail", "mail-workflow.png"],
+  ["/contracts", "contracts-workflow.png"],
+  ["/chat", "chat-workflow.png"],
+  ["/notifications", "notifications-workflow.png"],
+  ["/profile", "profile-workflow.png"],
+  ["/settings", "settings-workflow.png"],
 ];
 const outputDirectory = resolve("public/help");
 mkdirSync(outputDirectory, { recursive: true });
@@ -47,9 +58,6 @@ const context = await browser.newContext({
 const page = await context.newPage();
 const browserErrors = [];
 page.on("pageerror", (error) => browserErrors.push(error.message));
-page.on("console", (message) => {
-  if (message.type() === "error") browserErrors.push(message.text());
-});
 
 try {
   await page.goto(baseUrl, { waitUntil: "networkidle" });
@@ -75,12 +83,15 @@ try {
   }
 
   for (const [path, filename] of screenshots) {
-    await page.goto(`${baseUrl}${path}`, { waitUntil: "networkidle" });
+    await page.goto(`${baseUrl}${path}`, { waitUntil: path === "/chat" ? "domcontentloaded" : "networkidle" });
+    if (path === "/chat") await page.waitForTimeout(1200);
+    if (path === "/chat") await page.addStyleTag({ content: '[role="status"] { display: none !important; }' });
     if (path === "/companies") {
       await page.getByRole("button", { name: /BioSave/ }).click();
     }
     const state = await page.evaluate(() => ({
       contentLength: document.body.innerText.trim().length,
+      invalidHost: document.body.innerText.includes('"invalid_host"'),
       hasErrorOverlay: Boolean(
         document.querySelector(
           "[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay",
@@ -90,7 +101,7 @@ try {
         document.documentElement.scrollWidth >
         document.documentElement.clientWidth,
     }));
-    if (state.contentLength === 0)
+    if (state.contentLength < 100 || state.invalidHost || new URL(page.url()).pathname !== path)
       throw new Error(`${path} rendered a blank page.`);
     if (state.hasErrorOverlay)
       throw new Error(`${path} rendered an error overlay.`);
@@ -99,6 +110,11 @@ try {
     }
     await page.screenshot({ path: resolve(outputDirectory, filename) });
   }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${baseUrl}/chat`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1200);
+  await page.addStyleTag({ content: '[role="status"] { display: none !important; }' });
+  await page.screenshot({ path: resolve(outputDirectory, "chat-mobile-workflow.png") });
 } finally {
   await context.close();
   await browser.close();

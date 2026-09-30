@@ -611,9 +611,9 @@ export function DocumentsWorkspace({
 
   return (
     <section
-      className={`mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] grid min-h-[36rem] gap-5 ${selected ? "2xl:grid-cols-[20rem_minmax(0,1fr)_23rem]" : "lg:grid-cols-[20rem_minmax(0,1fr)]"}`}
+      className={`mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] grid min-h-0 gap-5 lg:min-h-[36rem] ${selected ? "2xl:grid-cols-[20rem_minmax(0,1fr)_23rem]" : "lg:grid-cols-[20rem_minmax(0,1fr)]"}`}
     >
-      <aside className="surface-panel min-w-0 p-3 lg:max-h-[calc(100vh-10rem)] lg:overflow-y-auto">
+      <aside className="surface-panel min-w-0 self-start p-3 lg:max-h-[calc(100vh-10rem)] lg:self-stretch lg:overflow-y-auto">
         <div className="mb-3 hidden border-b border-[var(--line)] px-2 pb-3 lg:block">
           <p className="text-[9px] uppercase tracking-[0.14em] text-[var(--accent)]">
             Структура архива
@@ -643,8 +643,8 @@ export function DocumentsWorkspace({
             </p>
           </div>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <label className="soft-button flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] px-3 sm:max-w-md">
-              <Search className="size-4 text-[var(--muted)]" />
+            <label className="soft-button flex min-h-11 w-full min-w-0 flex-1 items-center gap-2 rounded-[12px] px-3 sm:max-w-md">
+              <Search className="size-4 shrink-0 text-[var(--muted)]" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}

@@ -20,6 +20,7 @@ require production credentials.
 | `CRM_TRUST_PROXY` | Exactly `true` or `false`; false unless explicitly configured. True only behind the private HTTPS ingress that overwrites client-IP headers. Authenticated production with proxy trust requires HTTPS origins and secure cookies. |
 | `CRM_BIND_ADDRESS` | Base local Compose bind defaults to `127.0.0.1`. Use the HTTPS override for a public deployment, not an exposed local HTTP stand. |
 | `CRM_WEBSITE_WEBHOOK_SECRET` | Empty or omitted disables public website intake. When configured, the same minimum secret requirements apply. Use a distinct secret, never the authentication-throttle key. |
+| `CRM_PUSH_PUBLIC_KEY`, `CRM_PUSH_PRIVATE_KEY` | Persistent VAPID key pair for chat push notifications. Put both in the private web-process environment; without either, chat continues to work but device subscriptions are unavailable. Keep the private key out of Git and preserve the pair across deployments so existing subscriptions keep working. |
 
 For a local configuration preflight, run:
 
@@ -100,3 +101,9 @@ secret scanning. This startup guard does not claim those are complete.
 
 See [HTTPS deployment](HTTPS_DEPLOYMENT.md) for the opt-in ingress, certificate
 handling, proxy trust boundary, initial limits and disposable acceptance test.
+The standalone `compose.production.yaml` uses a separate `crm-production`
+project and project-owned volumes; it does not merge the local `compose.yaml`
+or read `.env.docker-*`. Database, web, worker and backup env files are separate.
+The candidate configuration and a full seven-service disposable production
+stack both passed local acceptance; actual server secrets and capacity still
+need their own preflight.

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { assignableOrganizationRoles } from "../auth/types.ts";
-import { configurablePermissions } from "../auth/permissions.ts";
+import { assignableOrganizationRoles, type OrganizationRole } from "../auth/types.ts";
+import { canRoleHavePermission, configurablePermissions } from "../auth/permissions.ts";
 import { isValidContactPhone, normalizeContactPhone } from "../clients/phone.ts";
 
 const optionalMasterId = z.union([z.literal(""), z.string().uuid()]).transform((value) => value || null);
@@ -10,12 +10,13 @@ const roleAndMaster = {
   role: z.enum(assignableOrganizationRoles),
   masterId: optionalMasterId,
 };
+const editableMemberRoles = [...assignableOrganizationRoles, "admin", "dispatcher", "manager"] as const;
 const memberPasswordSchema = z.string().min(12, "Минимум 12 символов").max(128)
   .refine((value) => /\p{L}/u.test(value) && /\d/.test(value), "Добавьте хотя бы одну букву и одну цифру");
 
-function validateMasterLink(value: { role: (typeof assignableOrganizationRoles)[number]; masterId: string | null }, context: z.RefinementCtx) {
-  if (value.role === "master" && !value.masterId) context.addIssue({ code: "custom", path: ["masterId"], message: "Выберите профиль мастера" });
-  if (value.role !== "master" && value.masterId) context.addIssue({ code: "custom", path: ["masterId"], message: "Привязка доступна только роли мастера" });
+function validateMasterLink(value: { role: OrganizationRole; masterId: string | null }, context: z.RefinementCtx) {
+  if ((value.role === "master" || value.role === "foreman") && !value.masterId) context.addIssue({ code: "custom", path: ["masterId"], message: "Выберите профиль мастера" });
+  if (value.role !== "master" && value.role !== "foreman" && value.masterId) context.addIssue({ code: "custom", path: ["masterId"], message: "Привязка доступна только полевой роли" });
 }
 
 export const createMemberSchema = z.object({
@@ -32,8 +33,16 @@ export const updateMemberAccessSchema = z.object({
   expectedVersion: z.coerce.number().int().positive(),
   active: z.boolean(),
   permissionOverrides: z.partialRecord(z.enum(configurablePermissions), z.boolean()).default({}),
-  ...roleAndMaster,
-}).superRefine(validateMasterLink);
+  role: z.enum(editableMemberRoles),
+  masterId: optionalMasterId,
+}).superRefine((value, context) => {
+  validateMasterLink(value, context);
+  for (const [permission, allowed] of Object.entries(value.permissionOverrides)) {
+    if (allowed && !canRoleHavePermission(value.role, permission as (typeof configurablePermissions)[number])) {
+      context.addIssue({ code: "custom", path: ["permissionOverrides"], message: "Это разрешение недоступно на выбранном уровне" });
+    }
+  }
+});
 
 export const resetMemberPasswordSchema = z.object({
   idempotencyKey: z.string().uuid(),

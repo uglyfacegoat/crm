@@ -15,7 +15,7 @@ const jobRow = z.object({ id: uuid, organization_id: uuid, map_id: uuid,
 const activationRow = z.object({ activation_id: uuid, version: z.number().int().positive(),
   enabled: z.boolean(), enabled_by: uuid });
 const memberRow = z.object({ id: uuid, organization_id: uuid, organization_name: z.string(),
-  display_name: z.string(), email: z.string(), role: z.enum(["developer", "admin", "dispatcher", "manager", "accountant", "master"]),
+  display_name: z.string(), email: z.string(), role: z.enum(["owner", "developer", "admin", "dispatcher", "manager", "deputy", "finance_controller", "sales_lead", "regional_director", "crm_coordinator", "tender_specialist", "foreman", "accountant", "master"]),
   master_id: uuid.nullable(), permission_overrides: z.record(z.string(), z.boolean()), active: z.boolean() });
 
 export class WorkflowJobPermanentError extends Error {

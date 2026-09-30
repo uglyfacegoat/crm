@@ -23,9 +23,6 @@ services:
       retries: 6
     volumes:
       - storage:/app/storage
-      - ../../scripts/create-admin.ts:/app/scripts/create-admin.ts:ro
-      - ../../src/server/auth/password.ts:/app/src/server/auth/password.ts:ro
-      - ../../src/server/auth/identity.ts:/app/src/server/auth/identity.ts:ro
   database:
     image: postgres:17-alpine
     environment:

@@ -1,5 +1,7 @@
 .git
 .next
+.next-*
+**/._*
 node_modules
 artifacts
 .env
@@ -11,6 +13,7 @@ compose*.yaml
 README.md
 backups
 output
+.codex-local
 .crm-storage
 *.pem
 *.key

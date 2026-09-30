@@ -308,29 +308,31 @@ export function ContractsWorkspace({
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] space-y-4">
       <section
         aria-label="Быстрые фильтры договоров"
-        className="surface-panel scrollbar-hidden flex gap-1 overflow-x-auto p-2"
+        className="surface-panel"
       >
-        {quickFilters.map((entry) => (
-          <button
-            key={entry.value}
-            type="button"
-            onClick={() => setQuickFilter(entry.value)}
-            aria-pressed={quickFilter === entry.value}
-            className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors ${quickFilter === entry.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
-          >
-            {entry.label}
-            <span
-              className={`font-display text-[9px] ${quickFilter === entry.value ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}`}
+        <div className="scrollbar-hidden flex w-full min-w-0 gap-1 overflow-x-auto p-2 touch-pan-x">
+          {quickFilters.map((entry) => (
+            <button
+              key={entry.value}
+              type="button"
+              onClick={() => setQuickFilter(entry.value)}
+              aria-pressed={quickFilter === entry.value}
+              className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors ${quickFilter === entry.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
             >
-              {counts[entry.value]}
-            </span>
-          </button>
-        ))}
+              {entry.label}
+              <span
+                className={`font-display text-[9px] ${quickFilter === entry.value ? "text-[var(--canvas)]/65" : "text-[var(--muted-subtle)]"}`}
+              >
+                {counts[entry.value]}
+              </span>
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="surface-panel panel-stack overflow-hidden">
         <header className="flex flex-col gap-3 border-b border-[var(--line)] p-3 sm:p-4 lg:flex-row lg:items-center">
-          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 lg:max-w-md">
+          <label className="flex h-11 w-full min-w-0 shrink-0 items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 lg:max-w-md lg:flex-1">
             <Search className="size-4 shrink-0 text-[var(--muted)]" />
             <input
               value={query}

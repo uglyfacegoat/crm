@@ -83,7 +83,7 @@ const documentRowSchema = z.object({
 const orderOptionSchema = z.object({
   id: uuidSchema,
   client_id: uuidSchema,
-  object_id: uuidSchema,
+  object_id: uuidSchema.nullable(),
   order_number: z.string(),
   client: z.string(),
   object: z.string(),
@@ -287,7 +287,9 @@ export async function listDocuments(
   const rows = await sql`
     SELECT documents.id, documents.folder_id, documents.contract_id, documents.title, documents.category, documents.description,
       documents.client_id, clients.legal_name AS client_name,
-      documents.object_id, client_objects.name AS object_name, client_objects.address AS object_address,
+      coalesce(documents.object_id, documents.order_id) AS object_id,
+      coalesce(client_objects.name, 'Без объекта') AS object_name,
+      coalesce(client_objects.address, '') AS object_address,
       documents.order_id, orders.order_number,
       documents.visit_id, service_visits.scheduled_start_at AS visit_scheduled_start_at,
       document_versions.original_filename, document_versions.mime_type, document_versions.extension,
@@ -296,7 +298,7 @@ export async function listDocuments(
       (document_favorites.member_id IS NOT NULL) AS favorite, version_history.versions
     FROM documents
     JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
-    JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
+    LEFT JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
     JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
     JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.id = documents.current_version_id
     JOIN organization_members ON organization_members.organization_id = documents.organization_id AND organization_members.id = document_versions.uploaded_by
@@ -316,7 +318,7 @@ export async function listDocuments(
     ) version_history ON true
     WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
       AND (${selection.clientId}::uuid IS NULL OR documents.client_id = ${selection.clientId}::uuid)
-      AND (${selection.objectId}::uuid IS NULL OR documents.object_id = ${selection.objectId}::uuid)
+      AND (${selection.objectId}::uuid IS NULL OR coalesce(documents.object_id, documents.order_id) = ${selection.objectId}::uuid)
       AND (${selection.orderId}::uuid IS NULL OR documents.order_id = ${selection.orderId}::uuid)
       AND (${selection.category}::text IS NULL OR documents.category = ${selection.category}::text)
       AND (${selection.folderId}::uuid IS NULL OR documents.folder_id = ${selection.folderId}::uuid)
@@ -336,21 +338,21 @@ export async function getDocumentArchiveTree(
     SELECT
       documents.client_id,
       clients.legal_name AS client_name,
-      documents.object_id,
-      client_objects.name AS object_name,
-      client_objects.address AS object_address,
+      coalesce(documents.object_id, documents.order_id) AS object_id,
+      coalesce(client_objects.name, 'Без объекта') AS object_name,
+      coalesce(client_objects.address, '') AS object_address,
       documents.order_id,
       orders.order_number,
       documents.category,
       count(*) AS document_count
     FROM documents
     JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
-    JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
+    LEFT JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
     JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
     WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
     GROUP BY documents.client_id, clients.legal_name, documents.object_id, client_objects.name,
       client_objects.address, documents.order_id, orders.order_number, orders.created_at, documents.category
-    ORDER BY lower(clients.legal_name), lower(client_objects.name), orders.created_at DESC,
+    ORDER BY lower(clients.legal_name), lower(coalesce(client_objects.name, 'Без объекта')), orders.created_at DESC,
       CASE documents.category
         WHEN 'contract' THEN 1 WHEN 'act' THEN 2 WHEN 'visit_card' THEN 3 WHEN 'invoice' THEN 4
         WHEN 'receipt' THEN 5 WHEN 'photo' THEN 6 ELSE 7
@@ -382,7 +384,9 @@ export async function listOrderDocuments(
   const rows = await sql`
     SELECT documents.id, documents.folder_id, documents.contract_id, documents.title, documents.category, documents.description,
       documents.client_id, clients.legal_name AS client_name,
-      documents.object_id, client_objects.name AS object_name, client_objects.address AS object_address,
+      coalesce(documents.object_id, documents.order_id) AS object_id,
+      coalesce(client_objects.name, 'Без объекта') AS object_name,
+      coalesce(client_objects.address, '') AS object_address,
       documents.order_id, orders.order_number,
       documents.visit_id, service_visits.scheduled_start_at AS visit_scheduled_start_at,
       document_versions.original_filename, document_versions.mime_type, document_versions.extension,
@@ -391,7 +395,7 @@ export async function listOrderDocuments(
       (document_favorites.member_id IS NOT NULL) AS favorite, version_history.versions
     FROM documents
     JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
-    JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
+    LEFT JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
     JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
     JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.id = documents.current_version_id
     JOIN organization_members ON organization_members.organization_id = documents.organization_id AND organization_members.id = document_versions.uploaded_by
@@ -484,6 +488,49 @@ export async function listDocumentUploadOptions(
   };
 }
 
+export async function getOrderDocumentUploadOptions(
+  member: AuthenticatedMember,
+  orderId: string,
+): Promise<DocumentUploadOptions> {
+  requirePermission(member, "documents.write");
+  const sql = getDatabase();
+  const [orderRows, visitRows, contractRows] = await Promise.all([
+    sql`SELECT id, client_id, object_id, order_number, client_name_snapshot AS client,
+        object_name_snapshot AS object, object_address_snapshot AS address
+      FROM orders WHERE organization_id = ${member.organizationId} AND id = ${orderId}`,
+    sql`SELECT id, order_id, scheduled_start_at, status FROM service_visits
+      WHERE organization_id = ${member.organizationId} AND order_id = ${orderId}
+      ORDER BY scheduled_start_at DESC LIMIT 100`,
+    sql`SELECT contracts.id, contracts.contract_number, contracts.client_id, contracts.object_id,
+        clients.legal_name AS client_name, client_objects.name AS object_name
+      FROM contracts
+      JOIN orders ON orders.organization_id = contracts.organization_id AND orders.object_id = contracts.object_id
+        AND orders.client_id = contracts.client_id AND orders.id = ${orderId}
+      JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
+      JOIN client_objects ON client_objects.organization_id = contracts.organization_id AND client_objects.id = contracts.object_id
+      WHERE contracts.organization_id = ${member.organizationId} AND contracts.status <> 'cancelled'
+      ORDER BY contracts.created_at DESC LIMIT 100`,
+  ]);
+  return {
+    orders: orderRows.map((row) => {
+      const order = orderOptionSchema.parse(row);
+      return { id: order.id, clientId: order.client_id, objectId: order.object_id,
+        number: order.order_number, client: order.client, object: order.object, address: order.address };
+    }),
+    visits: visitRows.map((row) => {
+      const visit = visitOptionSchema.parse(row);
+      return { id: visit.id, orderId: visit.order_id,
+        scheduledStartAt: visit.scheduled_start_at.toISOString(), status: visit.status };
+    }),
+    contracts: contractRows.map((row) => {
+      const contract = contractOptionSchema.parse(row);
+      return { id: contract.id, contractNumber: contract.contract_number,
+        clientId: contract.client_id, objectId: contract.object_id,
+        clientName: contract.client_name, objectName: contract.object_name };
+    }),
+  };
+}
+
 export async function documentUploadExists(
   member: AuthenticatedMember,
   documentId: string,
@@ -518,7 +565,7 @@ export async function createDocument(
       if (!visitRows.length) throw new DocumentReferenceError("visit");
     }
     const order = z
-      .object({ client_id: uuidSchema, object_id: uuidSchema })
+      .object({ client_id: uuidSchema, object_id: uuidSchema.nullable() })
       .parse(orderRows[0]);
     if (input.contractId) {
       const contractRows = await transaction`SELECT id FROM contracts
@@ -789,15 +836,16 @@ export async function getDocumentBatchExport(
     await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
       document_versions.original_filename, document_versions.mime_type, document_versions.size_bytes,
       document_versions.sha256, document_versions.storage_key, documents.client_id, clients.legal_name AS client_name,
-      documents.object_id, client_objects.name AS object_name, orders.order_number, documents.category
+      coalesce(documents.object_id, documents.order_id) AS object_id,
+      coalesce(client_objects.name, 'Без объекта') AS object_name, orders.order_number, documents.category
     FROM documents
     JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.id = documents.current_version_id
     JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
-    JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
+    LEFT JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
     JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
     WHERE documents.organization_id = ${member.organizationId} AND documents.id = ANY(${documentIds}::uuid[])
       AND documents.archived_at IS NULL
-    ORDER BY lower(clients.legal_name), lower(client_objects.name), orders.order_number, lower(document_versions.original_filename)`;
+    ORDER BY lower(clients.legal_name), lower(coalesce(client_objects.name, 'Без объекта')), orders.order_number, lower(document_versions.original_filename)`;
   if (rows.length !== documentIds.length) throw new DocumentNotFoundError();
   return rows.map((row) => {
     const file = exportFileSchema.parse(row);

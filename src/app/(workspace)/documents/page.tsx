@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import Link from "next/link";
 import { FolderCog } from "lucide-react";
 import { z } from "zod";
@@ -33,6 +34,7 @@ export default async function DocumentsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "documents.read");
   const resolvedSearchParams = await searchParams;
   const selection = parseDocumentArchiveSelection(resolvedSearchParams);
   const parsedDocumentId = documentIdSchema.safeParse(

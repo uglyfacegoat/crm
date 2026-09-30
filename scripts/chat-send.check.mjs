@@ -7,8 +7,8 @@ const actionUrl = new URL("../src/app/(workspace)/chat/actions.ts", import.meta.
 const sourceRoot = new URL("../src/", import.meta.url);
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (context.parentURL === actionUrl.href && specifier === "next/cache") {
-      return nextResolve("next/cache.js", context);
+    if (context.parentURL === actionUrl.href && (specifier === "next/cache" || specifier === "next/server")) {
+      return nextResolve(`${specifier}.js`, context);
     }
     if (context.parentURL === actionUrl.href && specifier.startsWith("@/")) {
       return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, sourceRoot).href, context);
@@ -30,6 +30,8 @@ const consumeRequestLimit = mock.fn();
 const writeDocumentFile = mock.fn();
 const removeDocumentFile = mock.fn();
 mock.module("next/cache.js", { namedExports: { revalidatePath: mock.fn() } });
+mock.module("next/server.js", { namedExports: { after: mock.fn() } });
+mock.module(new URL("server/chat/push.ts", sourceRoot), { namedExports: { sendChatPush: mock.fn() } });
 mock.module(new URL("server/auth/config.ts", sourceRoot), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", sourceRoot), { namedExports: { requireSession: async () => member } });
 mock.module(new URL("server/file-writes/gate.mjs", sourceRoot), { namedExports: {
@@ -73,7 +75,7 @@ test("chat actions authorize and throttle before attachment reads/writes", async
     functions.chatMessageExists.mock.mockImplementation(async () => { events.push("existing"); return false; });
     consumeRequestLimit.mock.mockImplementation(async (_member, operation) => { events.push(operation); return { allowed: true, retryAfterSeconds: 60 }; });
     writeDocumentFile.mock.mockImplementation(async () => { events.push("write"); });
-    functions.sendChatMessage.mock.mockImplementation(async (_member, input) => { events.push("send"); return input.idempotencyKey; });
+    functions.sendChatMessage.mock.mockImplementation(async (_member, input) => { events.push("send"); return { id: input.idempotencyKey, created: true }; });
     functions.updateChatChannelSettings.mock.mockImplementation(async () => ({ previousAvatarStorageKey: null }));
   });
   for (const operation of ["chat_message", "chat_upload"]) {

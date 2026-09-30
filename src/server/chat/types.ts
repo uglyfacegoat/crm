@@ -42,6 +42,7 @@ export type ChatChannel = {
   muted: boolean;
   pinned: boolean;
   avatarUrl: string | null;
+  peerMemberId: string | null;
   online: boolean;
 };
 
@@ -59,6 +60,7 @@ export type ChatMessage = {
   createdAt: string;
   editedAt: string | null;
   authorId: string | null;
+  authorAvatarUrl: string | null;
   authorName: string;
   authorRole: OrganizationRole | null;
   kind: "user" | "system";
@@ -76,10 +78,12 @@ export type ChatMember = {
   channelRole: "owner" | "member";
   current: boolean;
   online: boolean;
+  avatarUrl: string | null;
 };
 
 export type ChatMemberOption = {
   id: string;
+  avatarUrl: string | null;
   displayName: string;
   email: string;
   role: OrganizationRole;

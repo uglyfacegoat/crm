@@ -17,8 +17,6 @@ export const createClientSchema = z.object({
   contactPosition: z.string().trim().max(120).optional().transform((value) => value || null),
   phone: contactPhone,
   email: optionalEmail,
-}).superRefine((value, context) => {
-  if (value.kind === "legal_entity" && !value.taxId) context.addIssue({ code: "custom", path: ["taxId"], message: "Для юридического лица укажите ИНН" });
 });
 
 export type CreateClientInput = z.infer<typeof createClientSchema>;
@@ -31,8 +29,6 @@ export const updateClientSchema = z.object({
   kind: z.enum(["legal_entity", "individual"]),
   legalName: z.string().trim().min(2, "Введите название или ФИО").max(300),
   taxId: optionalTaxId,
-}).superRefine((value, context) => {
-  if (value.kind === "legal_entity" && !value.taxId) context.addIssue({ code: "custom", path: ["taxId"], message: "Для юридического лица укажите ИНН" });
 });
 
 export const createClientContactSchema = z.object({
@@ -61,6 +57,24 @@ export const createClientObjectSchema = z.object({
   infestationLevel: z.coerce.number().int().min(0).max(5),
 });
 
+export const completeClientContactSchema = z.object({
+  clientId: clientIdSchema,
+  contactId: clientIdSchema,
+  fullName: z.string().trim().min(2).max(200),
+  position: optionalText(120),
+  phone: z.string().trim().max(40).refine((value) => !value || isValidContactPhone(value), "Проверьте телефон"),
+  email: optionalEmail,
+});
+
+export const completeClientObjectSchema = z.object({
+  clientId: clientIdSchema,
+  objectId: clientIdSchema,
+  name: z.string().trim().min(2).max(240),
+  address: z.string().trim().max(500).refine((value) => !value || value.length >= 5, "Укажите полный адрес"),
+});
+
 export type UpdateClientInput = z.infer<typeof updateClientSchema>;
 export type CreateClientContactInput = z.infer<typeof createClientContactSchema>;
 export type CreateClientObjectInput = z.infer<typeof createClientObjectSchema>;
+export type CompleteClientContactInput = z.infer<typeof completeClientContactSchema>;
+export type CompleteClientObjectInput = z.infer<typeof completeClientObjectSchema>;

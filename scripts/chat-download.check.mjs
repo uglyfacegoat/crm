@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
@@ -137,6 +138,40 @@ test("chat download preserves authorization, range semantics and bounded integri
     }
     assert.equal((await send({ "if-none-match": "W/" + etag })).status, 304);
     assert.equal((await send({ "if-match": '"stale"' })).status, 412);
+  });
+  await t.test("WebM playback reuses one bounded MP3 conversion across full and range requests", async (subtest) => {
+    const encoded = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.3", "-c:a", "libopus", "-f", "webm", "pipe:1"], { maxBuffer: 2 * 1024 * 1024 });
+    if (encoded.error && "code" in encoded.error && encoded.error.code === "ENOENT") return subtest.skip("FFmpeg is not installed in this test environment");
+    assert.equal(encoded.status, 0);
+    const { transcodeWebmToMp3 } = await import("../src/server/chat/transcode-audio.ts");
+    const firstConversion = transcodeWebmToMp3(encoded.stdout);
+    const simultaneousConversion = transcodeWebmToMp3(encoded.stdout);
+    assert.strictEqual(simultaneousConversion, firstConversion);
+    const playable = await firstConversion;
+    assert.ok(playable.length > 128);
+    assert.strictEqual(await transcodeWebmToMp3(Buffer.from(encoded.stdout)), playable);
+
+    const webmAttachment = { id: randomUUID(), filename: "voice.webm", mimeType: "audio/webm", sizeBytes: encoded.stdout.length,
+      sha256: createHash("sha256").update(encoded.stdout).digest("hex") };
+    webmAttachment.storageKey = storage.createChatAttachmentStorageKey(member.organizationId, webmAttachment.id, "webm");
+    const webmPath = join(directory, webmAttachment.storageKey);
+    await mkdir(dirname(webmPath), { recursive: true });
+    await writeFile(webmPath, encoded.stdout, { flag: "wx" });
+    getChatAttachmentDownload.mock.mockImplementation(async () => webmAttachment);
+    const webmContext = { params: Promise.resolve({ id: webmAttachment.id }) };
+    const url = "http://localhost/file?format=mp3";
+    const full = await GET(new Request(url), webmContext);
+    assert.equal(full.status, 200);
+    assert.equal(full.headers.get("content-type"), "audio/mpeg");
+    assert.deepEqual(Buffer.from(await full.arrayBuffer()), playable);
+    const partial = await GET(new Request(url, { headers: { range: "bytes=0-127" } }), webmContext);
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get("content-range"), `bytes 0-127/${playable.length}`);
+    assert.deepEqual(Buffer.from(await partial.arrayBuffer()), playable.subarray(0, 128));
+    getChatAttachmentDownload.mock.mockImplementation(async () => { throw new AuthorizationError(); });
+    const readsBeforeDenial = readFile.mock.callCount();
+    assert.equal((await GET(new Request(url), webmContext)).status, 403);
+    assert.equal(readFile.mock.callCount(), readsBeforeDenial);
   });
   await t.test("a corrupted file is rejected even when the requested slice is unchanged", async () => {
     await writeFile(join(directory, attachment.storageKey), "012345678X");

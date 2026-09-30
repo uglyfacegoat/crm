@@ -6,7 +6,7 @@ import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { normalizeContactPhone } from "./phone";
-import type { CreateClientContactInput, CreateClientInput, CreateClientObjectInput, UpdateClientInput } from "./schemas";
+import type { CompleteClientContactInput, CompleteClientObjectInput, CreateClientContactInput, CreateClientInput, CreateClientObjectInput, UpdateClientInput } from "./schemas";
 import type { ClientDetail } from "./types";
 
 const clientListRowSchema = z.object({
@@ -62,7 +62,7 @@ export async function listClientsPage(member: AuthenticatedMember, query: Client
       WITH client_rows AS (
         SELECT clients.id, clients.legal_name, clients.kind, clients.tax_id,
           primary_contact.full_name AS contact_name,
-          coalesce(primary_contact.phone, clients.primary_phone) AS phone,
+          coalesce(nullif(primary_contact.phone, ''), clients.primary_phone) AS phone,
           coalesce(primary_contact.email, clients.primary_email) AS email,
           (SELECT count(*)::int FROM client_objects objects WHERE objects.organization_id = clients.organization_id AND objects.client_id = clients.id) AS object_count,
           (SELECT count(*)::int FROM orders WHERE orders.organization_id = clients.organization_id AND orders.client_id = clients.id) AS order_count
@@ -106,7 +106,7 @@ export async function listClientsPage(member: AuthenticatedMember, query: Client
 export async function getClientDetail(member: AuthenticatedMember, clientId: string): Promise<ClientDetail> {
   requirePermission(member, "clients.read");
   const sql = getDatabase();
-  const [clientRows, contactRows, objectRows] = await Promise.all([
+  const [clientRows, contactRows, objectRows, phoneRows] = await Promise.all([
     sql`SELECT clients.id, clients.legal_name, clients.kind, clients.tax_id, clients.primary_phone,
       clients.primary_email, clients.version, clients.created_at, count(orders.id)::int AS order_count
       FROM clients LEFT JOIN orders ON orders.organization_id = clients.organization_id AND orders.client_id = clients.id
@@ -119,6 +119,7 @@ export async function getClientDetail(member: AuthenticatedMember, clientId: str
       access_instructions, parking_notes, restrictions, risk_level, infestation_level, created_at
       FROM client_objects WHERE organization_id = ${member.organizationId} AND client_id = ${clientId}
       ORDER BY created_at DESC`,
+    sql`SELECT id, contact_id, label, phone FROM client_phone_numbers WHERE organization_id = ${member.organizationId} AND client_id = ${clientId} ORDER BY created_at`,
   ]);
   if (!clientRows.length) throw new ClientNotFoundError();
   const client = clientDetailRowSchema.parse(clientRows[0]);
@@ -126,6 +127,7 @@ export async function getClientDetail(member: AuthenticatedMember, clientId: str
     id: client.id, legalName: client.legal_name, kind: client.kind, taxId: client.tax_id,
     primaryPhone: client.primary_phone, primaryEmail: client.primary_email, version: client.version,
     createdAt: client.created_at.toISOString(), orderCount: client.order_count,
+    phoneNumbers: phoneRows.map((row) => { const value = z.object({ id: z.string().uuid(), contact_id: z.string().uuid().nullable(), label: z.string(), phone: z.string() }).parse(row); return { id: value.id, contactId: value.contact_id, label: value.label, phone: value.phone }; }),
     contacts: contactRows.map((row) => { const contact = contactRowSchema.parse(row); return { id: contact.id, fullName: contact.full_name, position: contact.position, phone: contact.phone, email: contact.email, isPrimary: contact.is_primary, createdAt: contact.created_at.toISOString() }; }),
     objects: objectRows.map((row) => { const object = objectRowSchema.parse(row); return { id: object.id, name: object.name, objectType: object.object_type, address: object.address, areaSquareMeters: object.area_square_meters, floorCount: object.floor_count, onsiteContact: object.onsite_contact, accessInstructions: object.access_instructions, parkingNotes: object.parking_notes, restrictions: object.restrictions, riskLevel: object.risk_level, infestationLevel: object.infestation_level, createdAt: object.created_at.toISOString() }; }),
   };
@@ -218,6 +220,48 @@ export async function createClientContact(member: AuthenticatedMember, input: Cr
     });
   } catch (error) {
     if (databaseConstraint(error) === "client_contacts_client_phone_unique_idx") throw new ClientContactConflictError();
+    throw error;
+  }
+}
+
+export async function completeClientContact(member: AuthenticatedMember, input: CompleteClientContactInput) {
+  requirePermission(member, "clients.write");
+  const sql = getDatabase();
+  try {
+    await sql.begin(async (transaction) => {
+      const [contact] = await transaction`UPDATE client_contacts SET full_name = ${input.fullName}, position = ${input.position}, phone = ${input.phone},
+        normalized_phone = ${input.phone ? normalizeContactPhone(input.phone) : null}, email = ${input.email}, updated_at = now()
+        WHERE organization_id = ${member.organizationId} AND client_id = ${input.clientId} AND id = ${input.contactId}
+        RETURNING is_primary`;
+      if (!contact) throw new ClientNotFoundError();
+      if (contact.is_primary) await transaction`UPDATE clients SET primary_phone = ${input.phone ? normalizeContactPhone(input.phone) : null}, primary_email = ${input.email}, version = version + 1, updated_at = now()
+        WHERE organization_id = ${member.organizationId} AND id = ${input.clientId}`;
+      await transaction`UPDATE orders SET contact_name_snapshot = ${input.fullName}, contact_phone_snapshot = ${input.phone}, updated_at = now()
+        WHERE organization_id = ${member.organizationId} AND client_contact_id = ${input.contactId} AND contact_phone_snapshot = ''`;
+      await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+        VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'client_contact.update', 'client_contact', ${input.contactId}, ${transaction.json({ completedFromClientCard: true })})`;
+    });
+  } catch (error) {
+    if (databaseConstraint(error) === "client_contacts_client_phone_unique_idx") throw new ClientContactConflictError();
+    throw error;
+  }
+}
+
+export async function completeClientObject(member: AuthenticatedMember, input: CompleteClientObjectInput) {
+  requirePermission(member, "clients.write");
+  const sql = getDatabase();
+  try {
+    await sql.begin(async (transaction) => {
+      const [object] = await transaction`UPDATE client_objects SET name = ${input.name}, address = ${input.address}, updated_at = now()
+        WHERE organization_id = ${member.organizationId} AND client_id = ${input.clientId} AND id = ${input.objectId} RETURNING id`;
+      if (!object) throw new ClientNotFoundError();
+      await transaction`UPDATE orders SET object_name_snapshot = ${input.name}, object_address_snapshot = ${input.address || 'Адрес не указан'}, updated_at = now()
+        WHERE organization_id = ${member.organizationId} AND object_id = ${input.objectId} AND object_address_snapshot = 'Адрес не указан'`;
+      await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
+        VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'client_object.update', 'client_object', ${input.objectId}, ${transaction.json({ completedFromClientCard: true })})`;
+    });
+  } catch (error) {
+    if (databaseConstraint(error) === "client_objects_client_address_unique_idx") throw new ClientObjectConflictError();
     throw error;
   }
 }

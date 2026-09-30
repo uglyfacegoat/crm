@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AnalyticsOverview } from "@/components/analytics/analytics-report";
@@ -42,6 +43,7 @@ function formatAnalyticsPeriod(snapshot: AnalyticsSnapshot) {
 
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "analytics.read");
   if (!hasPermission(member, "analytics.read")) redirect("/");
   const params = await searchParams;
   const range = parseRange(params.range);
@@ -62,7 +64,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
       <div className="analytics-range-controls"><span>{periodLabel}</span>{analyticsRanges.map((days) => <Link key={days} href={`/analytics?range=${days}`} aria-current={range === days ? "true" : undefined} data-active={range === days} className="figma-report-control focus-ring">{days === 365 ? "Год" : days === 90 ? "90" : `${days} дней`}</Link>)}</div>
     </div>
 
-    <AnalyticsOverview snapshot={snapshot} />
     <a href={`/api/v1/analytics/export?range=${range}`} className="figma-report-control analytics-export-mobile focus-ring">Экспорт CSV</a>
+    <AnalyticsOverview snapshot={snapshot} />
   </div>;
 }

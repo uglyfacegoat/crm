@@ -69,7 +69,7 @@ export async function proxy(request: NextRequest) {
   if (!authMode) throw new Error("AUTH_MODE is required in production.");
   if (authMode === "preview") return response;
   if (authMode !== "required") throw new Error("AUTH_MODE must be either preview or required.");
-  if (!isPage || path === "/login" || request.cookies.has(SESSION_COOKIE_NAME)) return response;
+  if (!isPage || path === "/login" || path === "/login/verify" || path === "/mail/verify" || request.cookies.has(SESSION_COOKIE_NAME)) return response;
 
   const loginUrl = new URL("/login", request.url);
   loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
@@ -78,6 +78,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest$|crm-app-icon\\.svg$|help/[^/]+\\.png$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest$|push-sw\\.js$|icon\\.svg$|core-app-icon\\.svg$|apple-touch-icon\\.png$|app-icon-(?:192|512|maskable-512)\\.png$|core-share\\.png$|brand/[^/]+\\.svg$|help/[^/]+\\.png$).*)",
   ],
 };

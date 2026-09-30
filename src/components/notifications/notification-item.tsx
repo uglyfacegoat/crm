@@ -8,6 +8,7 @@ const kindPresentation = {
   visit_unassigned: { icon: UserRoundSearch, label: "Назначение", tone: "border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)]" },
   closing_act_overdue: { icon: FileWarning, label: "Документы", tone: "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]" },
   task_overdue: { icon: ClipboardCheck, label: "Задача", tone: "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-ink)]" },
+  task_assigned: { icon: ClipboardCheck, label: "Новая задача", tone: "border-[var(--support-strong)] bg-[var(--support-soft)] text-[var(--support-strong)]" },
   contract_renewal: { icon: AlertTriangle, label: "Договор", tone: "border-[var(--warning-border)] bg-[var(--warning-bg)] text-[var(--warning)]" },
   document_uploaded: { icon: FileUp, label: "Файл", tone: "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" },
   workflow_update: { icon: GitBranch, label: "Воркфлоу", tone: "border-[var(--support-strong)] bg-[var(--support-soft)] text-[var(--support-strong)]" },

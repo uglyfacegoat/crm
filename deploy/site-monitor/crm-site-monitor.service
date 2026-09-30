@@ -1,0 +1,9 @@
+[Unit]
+Description=Measure website and VPS health for CRM
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/crm-deploy/deploy/site-monitor/measure.py
+TimeoutStartSec=40

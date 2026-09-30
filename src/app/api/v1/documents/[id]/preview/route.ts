@@ -8,6 +8,7 @@ import {
   DocumentNotFoundError,
   getDocumentDownload,
 } from "@/server/documents/repository";
+import { resolveCenterDocumentScope } from "@/server/organizations/center-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,7 @@ export async function GET(
     return Response.json({ error: "authentication_required" }, { status: 401 });
   try {
     const { id } = await context.params;
-    const document = await getDocumentDownload(member, id);
+    const document = await getDocumentDownload(await resolveCenterDocumentScope(member, id) ?? member, id);
     if (document.mimeType !== docxMimeType)
       return Response.json({ error: "preview_not_supported" }, { status: 415 });
     const limited = await rejectLimitedFileRead(member, "document_download");

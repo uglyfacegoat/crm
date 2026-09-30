@@ -66,7 +66,7 @@ export type DocumentListItem = {
 export type DocumentOrderOption = {
   id: string;
   clientId: string;
-  objectId: string;
+  objectId: string | null;
   number: string;
   client: string;
   object: string;

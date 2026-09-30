@@ -19,9 +19,16 @@ export type IncomingLead = {
   phone: string | null;
   email: string | null;
   serviceInterest: string | null;
+  objectAddress: string | null;
+  objectSize: string | null;
+  comment: string | null;
   landingUrl: string | null;
+  referrerUrl: string | null;
   utmSource: string | null;
+  utmMedium: string | null;
   utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
   status: IncomingLeadStatus;
   reviewNote: string | null;
   reviewerName: string | null;

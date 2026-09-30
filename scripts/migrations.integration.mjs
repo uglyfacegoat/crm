@@ -54,6 +54,45 @@ test("all application migrations install cleanly and repeated deployment changes
   assert.deepEqual(await sql`SELECT name, checksum, applied_at FROM schema_migrations ORDER BY name`, before);
 });
 
+test("push choices survive deletion of an expired login session", async (t) => {
+  const { sql, databaseUrl } = await databaseFixture(t);
+  await runMigrations({ databaseUrl, onApplied: quiet });
+  const [organization] = await sql`INSERT INTO organizations (name, timezone)
+    VALUES ('Push preference fixture', 'Europe/Moscow') RETURNING id`;
+  const [member] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${organization.id}, 'Push tester', 'push-tester@fixture.invalid', 'manager') RETURNING id`;
+  const [firstSession] = await sql`INSERT INTO auth_sessions
+    (organization_id, member_id, token_hash, expires_at)
+    VALUES (${organization.id}, ${member.id}, ${'a'.repeat(64)}, now() + interval '1 day') RETURNING id`;
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/fixture-device';
+  await sql`INSERT INTO chat_push_subscriptions
+    (endpoint, organization_id, member_id, session_id, p256dh, auth_secret, chat_enabled, events_enabled, events_enabled_at)
+    VALUES (${endpoint}, ${organization.id}, ${member.id}, ${firstSession.id},
+      ${'b'.repeat(44)}, ${'c'.repeat(16)}, true, true, now())`;
+  await sql`DELETE FROM auth_sessions WHERE id = ${firstSession.id}`;
+  const [retained] = await sql`SELECT session_id, chat_enabled, events_enabled
+    FROM chat_push_subscriptions WHERE endpoint = ${endpoint}`;
+  assert.deepEqual(retained, { session_id: null, chat_enabled: true, events_enabled: true });
+});
+
+test("business roles install with field-account linkage enforced by the database", async (t) => {
+  const { sql, databaseUrl } = await databaseFixture(t);
+  await runMigrations({ databaseUrl, onApplied: quiet });
+  const [organization] = await sql`INSERT INTO organizations (name, timezone) VALUES ('Role architecture fixture', 'Europe/Moscow') RETURNING id`;
+  const [master] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    VALUES (${organization.id}, 'Field lead fixture', '+70000000111', '+70000000111', 'Moscow', 'Center') RETURNING id`;
+  for (const role of ["deputy", "finance_controller", "sales_lead", "regional_director", "crm_coordinator", "tender_specialist"]) {
+    const rows = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+      VALUES (${organization.id}, ${`Role ${role}`}, ${`${role}@fixture.invalid`}, ${role}) RETURNING id`;
+    assert.equal(rows.length, 1);
+  }
+  const foreman = await sql`INSERT INTO organization_members (organization_id, display_name, email, role, master_id)
+    VALUES (${organization.id}, 'Field lead', 'foreman@fixture.invalid', 'foreman', ${master.id}) RETURNING id`;
+  assert.equal(foreman.length, 1);
+  await assert.rejects(sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${organization.id}, 'Unlinked foreman', 'unlinked@fixture.invalid', 'foreman')`, { code: "23514" });
+});
+
 test("upgrade from the committed 049 baseline preserves existing business records", async (t) => {
   const { sql, databaseUrl } = await databaseFixture(t);
   const baseline = "049_master_direct_chat.sql";

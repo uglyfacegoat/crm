@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, ChevronDown, ChevronRight, ClipboardList, FileText, Folder, FolderRoot, MapPin, Star } from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, ChevronRight, ClipboardList, FileText, Folder, FolderRoot, MapPin, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -110,10 +110,11 @@ function ArchiveDesktopTree({ archive, folders, selection, navigate }: { archive
 }
 
 function MobileFolderButton({ icon: Icon, title, subtitle, count, onClick }: { icon: typeof FolderRoot; title: string; subtitle?: string; count?: number; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="focus-ring flex w-[min(17rem,82vw)] shrink-0 items-center gap-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-3 text-left hover:bg-[var(--surface-soft)]"><span className="grid size-10 shrink-0 place-items-center rounded-[11px] bg-[var(--surface-soft)] text-[var(--accent)]"><Icon className="size-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-[var(--text)]">{title}</span>{subtitle ? <span className="mt-1 block truncate text-[9px] text-[var(--muted)]">{subtitle}</span> : null}</span>{count === undefined ? null : <Count value={count} />}</button>;
+  return <button type="button" onClick={onClick} className="focus-ring flex min-h-16 w-full min-w-0 items-center gap-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-3 text-left hover:bg-[var(--surface-soft)]"><span className="grid size-10 shrink-0 place-items-center rounded-[11px] bg-[var(--surface-soft)] text-[var(--accent)]"><Icon className="size-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-[var(--text)]">{title}</span>{subtitle ? <span className="mt-1 block truncate text-[10px] text-[var(--muted)]">{subtitle}</span> : null}</span>{count === undefined ? null : <Count value={count} />}<ChevronRight className="size-4 shrink-0 text-[var(--muted)]" /></button>;
 }
 
 function ArchiveMobileNavigator({ archive, folders, selection, navigate }: { archive: DocumentArchiveTree; folders: DocumentFolder[]; selection: DocumentArchiveSelection; navigate: (target: SelectionTarget) => void }) {
+  const [expanded, setExpanded] = useState(false);
   const client = archive.clients.find((candidate) => candidate.id === selection.clientId) ?? null;
   const object = client?.objects.find((candidate) => candidate.id === selection.objectId) ?? null;
   const order = object?.orders.find((candidate) => candidate.id === selection.orderId) ?? null;
@@ -128,9 +129,19 @@ function ArchiveMobileNavigator({ archive, folders, selection, navigate }: { arc
   else if (!order) children = object.orders.map((item) => <MobileFolderButton key={item.id} icon={ClipboardList} title={`Заказ №${item.number}`} subtitle={`${item.categories.length} категорий`} count={item.documentCount} onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: item.id, category: null })} />);
   else children = order.categories.map((item) => <MobileFolderButton key={item.category} icon={FileText} title={item.label} count={item.documentCount} onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: selectedOrderId, category: item.category })} />);
 
+  const atRoot = !client && !selectedFolder && !selection.favoriteOnly;
+  const title = category?.label ?? (order ? `Заказ №${order.number}` : null) ?? object?.name ?? client?.name ?? selectedFolder?.name ?? (selection.favoriteOnly ? "Избранное" : "Архив");
+  const parent: SelectionTarget = category
+    ? { clientId: selectedClientId, objectId: selectedObjectId, orderId: selectedOrderId, category: null }
+    : order
+      ? { clientId: selectedClientId, objectId: selectedObjectId, orderId: null, category: null }
+      : object
+        ? { clientId: selectedClientId, objectId: null, orderId: null, category: null }
+        : { clientId: null, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: false };
+
   return <nav aria-label="Навигация по архиву" className="lg:hidden">
-    <div className="scrollbar-hidden flex items-center gap-1 overflow-x-auto pb-2 text-[9px] text-[var(--muted)]"><button type="button" onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: false })} className="focus-ring shrink-0 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">Архив</button>{selection.favoriteOnly ? <><ChevronRight className="size-3 shrink-0" /><span className="shrink-0 px-2 py-1.5 text-[var(--accent)]">Избранное</span></> : null}{selectedFolder ? <><ChevronRight className="size-3 shrink-0" /><span className="max-w-40 shrink-0 truncate px-2 py-1.5 text-[var(--accent)]">{selectedFolder.name}</span></> : null}{client ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: null, orderId: null, category: null })} className="focus-ring max-w-40 shrink-0 truncate rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">{client.name}</button></> : null}{object ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: null, category: null })} className="focus-ring max-w-36 shrink-0 truncate rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">{object.name}</button></> : null}{order ? <><ChevronRight className="size-3 shrink-0" /><button type="button" onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: selectedOrderId, category: null })} className="focus-ring shrink-0 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">№{order.number}</button></> : null}{category ? <><ChevronRight className="size-3 shrink-0" /><span className="shrink-0 px-2 py-1.5 text-[var(--accent)]">{category.label}</span></> : null}</div>
-    {!category && !selection.favoriteOnly && !selectedFolder ? <div className="scrollbar-hidden flex gap-2 overflow-x-auto pb-1">{children}</div> : null}
+    {atRoot ? <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="focus-ring flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[11px] px-2 text-left hover:bg-[var(--surface-soft)]"><FolderRoot className="size-4 shrink-0 text-[var(--accent)]" /><span className="min-w-0 flex-1 text-xs font-semibold text-[var(--text)]">Папки архива</span><Count value={archive.documentCount} /><ChevronDown className={`size-4 shrink-0 text-[var(--muted)] transition-transform ${expanded ? "rotate-180" : ""}`} /></button> : <div className="mb-3 flex min-w-0 items-center gap-2 px-1"><button type="button" onClick={() => navigate(parent)} className="focus-ring grid size-9 shrink-0 place-items-center rounded-[10px] border border-[var(--line)]" aria-label="На уровень выше"><ArrowLeft className="size-4" /></button><p className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text)]">{title}</p></div>}
+    {!category && !selection.favoriteOnly && !selectedFolder && (!atRoot || expanded) ? <div className={`grid gap-2 ${atRoot ? "mt-2" : ""}`}>{children}</div> : null}
   </nav>;
 }
 

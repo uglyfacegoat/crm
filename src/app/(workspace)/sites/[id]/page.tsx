@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { notFound } from "next/navigation";
 import { CalendarClock, ExternalLink } from "lucide-react";
 import { z } from "zod";
@@ -57,6 +58,14 @@ function formatStorage(megabytes: number) {
     : `${integerFormatter.format(megabytes)} МБ`;
 }
 
+function dueLabel(value: string | null) {
+  if (!value) return "Дата не указана";
+  const days = Math.ceil((Date.parse(`${value}T00:00:00Z`) - Date.now()) / 86_400_000);
+  if (days < 0) return "Срок истёк";
+  if (days === 0) return "Сегодня";
+  return `Через ${days} дн.`;
+}
+
 function CapacityGauge({
   label,
   value,
@@ -93,6 +102,7 @@ export default async function WebsiteDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "sites.read");
   const { id } = await params;
   const preview = getAuthMode() === "preview";
   let site;
@@ -114,14 +124,12 @@ export default async function WebsiteDetailPage({
   const healthPeriod = healthDates.length
     ? `${shortDateFormatter.format(healthDates[0]).replaceAll(".", "")} — ${shortDateFormatter.format(healthDates[healthDates.length - 1]).replaceAll(".", "")}`
     : "Контрольных замеров нет";
-  const memoryPercent =
-    site.hosting && health
-      ? usagePercent(health.memoryUsedMb, site.hosting.memoryCapacityMb)
-      : 0;
-  const diskPercent =
-    site.hosting && health
-      ? usagePercent(health.diskUsedMb, site.hosting.diskCapacityMb)
-      : 0;
+  const memoryCapacityMb = health?.memoryCapacityMb ?? site.hosting?.memoryCapacityMb ?? null;
+  const diskCapacityMb = health?.diskCapacityMb ?? site.hosting?.diskCapacityMb ?? null;
+  const memoryPercent = health && memoryCapacityMb ? usagePercent(health.memoryUsedMb, memoryCapacityMb) : 0;
+  const diskPercent = health && diskCapacityMb ? usagePercent(health.diskUsedMb, diskCapacityMb) : 0;
+  const sslExpiresOn = health?.sslExpiresOn ?? site.hosting?.sslExpiresOn ?? null;
+  const hasTrafficData = site.trafficHistory.some((value) => value !== null);
 
   return (
     <div className="figma-report-page site-detail-page">
@@ -145,7 +153,7 @@ export default async function WebsiteDetailPage({
           </a>
           <SiteInfrastructureDialog
             site={site}
-            canWrite={hasPermission(member, "sites.write") && !preview}
+            canWrite={hasPermission(member, "sites.write") && !preview && (!site.organizationId || site.organizationId === member.organizationId)}
           />
         </div>
       </header>
@@ -154,25 +162,26 @@ export default async function WebsiteDetailPage({
 
       <section className="site-detail-outcomes" aria-label="Бизнес-результаты">
         {[
-          ["Посетители", integerFormatter.format(site.visitors)],
-          ["Заявки", integerFormatter.format(site.leads)],
-          ["Заказы с оплатой", integerFormatter.format(site.paidOrders)],
-          ["Получено", formatMoneyMinor(site.paidRevenueMinor)],
-        ].map(([label, value]) => (
+          ["Посетители", hasTrafficData ? integerFormatter.format(site.visitors) : "—", `Просмотры: ${hasTrafficData ? integerFormatter.format(site.pageviews) : "нет счётчика"}`],
+          ["Заявки", integerFormatter.format(site.leads), `Конверсия: ${hasTrafficData ? `${site.conversionPercent}%` : "нет данных о трафике"}`],
+          ["Заказы с оплатой", integerFormatter.format(site.paidOrders), `Всего заказов: ${integerFormatter.format(site.orders)}`],
+          ["Получено", formatMoneyMinor(site.paidRevenueMinor), "По оплаченным заказам"],
+        ].map(([label, value, detail]) => (
           <article key={label}>
             <p>{label}</p>
             <strong>{value}</strong>
+            <small>{detail}</small>
           </article>
         ))}
       </section>
 
-      {site.hosting && health ? (
+      {health ? (
         <div className="site-detail-layout">
           <section className="figma-report-panel site-detail-resources">
             <header>
               <h2 className="figma-card-heading">Ресурсы сервера</h2>
               <p className="figma-card-caption">
-                Ручной замер · {formatDateTime(health.measuredAt)}
+                {health.source === "monitor" ? "Автоматический замер" : "Ручной замер"} · {formatDateTime(health.measuredAt)}
               </p>
             </header>
             <div>
@@ -184,13 +193,13 @@ export default async function WebsiteDetailPage({
               />
               <CapacityGauge
                 label="Память"
-                value={`${formatStorage(health.memoryUsedMb)} / ${formatStorage(site.hosting.memoryCapacityMb)}`}
+                value={`${formatStorage(health.memoryUsedMb)}${memoryCapacityMb ? ` / ${formatStorage(memoryCapacityMb)}` : ""}`}
                 percent={memoryPercent}
                 tone="gray"
               />
               <CapacityGauge
                 label="Диск"
-                value={`${formatStorage(health.diskUsedMb)} / ${formatStorage(site.hosting.diskCapacityMb)}`}
+                value={`${formatStorage(health.diskUsedMb)}${diskCapacityMb ? ` / ${formatStorage(diskCapacityMb)}` : ""}`}
                 percent={diskPercent}
                 tone="blue"
               />
@@ -202,7 +211,7 @@ export default async function WebsiteDetailPage({
               <div>
                 <h2 className="figma-card-heading">Время ответа</h2>
                 <p className="figma-card-caption">
-                  {site.healthHistory.length} контрольных замеров · миллисекунды
+                  {site.healthHistory.length} контрольных замеров · доступность по проверкам {health.uptimePercent}%
                 </p>
               </div>
               <strong>{health.responseTimeMs} мс</strong>
@@ -242,10 +251,10 @@ export default async function WebsiteDetailPage({
             <header>
               <h2 className="figma-card-heading">Паспорт хостинга</h2>
               <p className="figma-card-caption">
-                Профиль без реальных реквизитов
+                Договор и оплата заполняются отдельно
               </p>
             </header>
-            <dl>
+            {site.hosting ? <dl>
               {[
                 ["Провайдер", site.hosting.provider],
                 ["Тариф", site.hosting.planName],
@@ -257,8 +266,7 @@ export default async function WebsiteDetailPage({
                   <dd>{value}</dd>
                 </div>
               ))}
-            </dl>
-            <p>Ручной профиль не подключает автоматический мониторинг.</p>
+            </dl> : <p>Тариф, регион, стоимость и дата оплаты ещё не внесены. Замеры выше получены с рабочего VPS и не зависят от этого профиля.</p>}
           </section>
 
           <section className="figma-report-panel site-detail-dates">
@@ -267,39 +275,22 @@ export default async function WebsiteDetailPage({
                 Ближайшие контрольные даты
               </h2>
               <p className="figma-card-caption">
-                Сегодня · рабочий горизонт
+                Фактические и внесённые сроки
               </p>
             </header>
             <div>
               <article>
                 <span>Оплата хостинга</span>
-                <strong>{formatDate(site.hosting.renewalOn)}</strong>
-                <small>через 14 дней</small>
+                <strong>{site.hosting ? formatDate(site.hosting.renewalOn) : "—"}</strong>
+                <small>{dueLabel(site.hosting?.renewalOn ?? null)}</small>
               </article>
               <article>
                 <span>Срок SSL</span>
-                <strong>{formatDate(site.hosting.sslExpiresOn)}</strong>
-                <small>через 91 день</small>
+                <strong>{sslExpiresOn ? formatDate(sslExpiresOn) : "—"}</strong>
+                <small>{dueLabel(sslExpiresOn)}</small>
               </article>
             </div>
-            <div className="site-detail-timeline" aria-hidden="true">
-              <i /><i /><i />
-            </div>
-            <p>Длина шкалы = дни до окончания SSL</p>
-          </section>
-          <section className="site-detail-mobile-state">
-            <article className="figma-report-panel">
-              <h2>Нет замеров — нет графика.</h2>
-              <p>Текущий рабочий статус: мониторинг не настроен.</p>
-            </article>
-            <button
-              type="button"
-              className="figma-report-control"
-              disabled
-              title="Ручные замеры будут доступны после подключения мониторинга"
-            >
-              Добавить ручной замер
-            </button>
+            <p>{health.sslExpiresOn ? "Срок SSL считан с действующего сертификата сайта." : "Дата SSL берётся из профиля хостинга."}</p>
           </section>
         </div>
       ) : (
@@ -307,8 +298,8 @@ export default async function WebsiteDetailPage({
           <CalendarClock />
           <h2>Контрольные замеры ещё не настроены</h2>
           <p>
-            Добавьте параметры хостинга и первый фактический замер, чтобы
-            сформировать технический паспорт.
+            Автоматический мониторинг ещё не передал замеры. Параметры договора
+            и оплаты хостинга можно внести отдельно.
           </p>
         </section>
       )}

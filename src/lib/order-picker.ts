@@ -18,5 +18,13 @@ export type OrderPickerItem = {
   detail?: string;
   clientId?: string;
   isPrimary?: boolean;
+  catalogItem?: {
+    id: string;
+    kind: "service" | "product";
+    name: string;
+    unit: string;
+    priceMode: "fixed" | "variable";
+    defaultPriceMinor: number | null;
+  };
 };
 export type OrderPickerResult = { items: OrderPickerItem[]; hasMore: boolean };

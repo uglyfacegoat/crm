@@ -5,6 +5,8 @@ import type postgres from "postgres";
 // does not execute or interpret any Workflow graph.
 export async function publishOrderCreated(transaction: postgres.TransactionSql,
   organizationId: string, orderId: string) {
+  // Workflow is paused by default, including for any activation saved earlier.
+  if (process.env.CRM_WORKFLOW_ENABLED !== "true") return;
   await transaction`WITH active AS MATERIALIZED (
       SELECT activation.organization_id, activation.map_id,
         activation.activation_id, activation.version

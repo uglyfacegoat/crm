@@ -10,12 +10,16 @@ export function Dialog({
   onClose,
   title,
   description,
+  compact = false,
+  bodyClassName = "",
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   description?: string;
+  compact?: boolean;
+  bodyClassName?: string;
   children: React.ReactNode;
 }) {
   const titleId = useId();
@@ -95,7 +99,7 @@ export function Dialog({
           input.setSelectionRange(formatted.length, formatted.length);
         }}
         onMouseDown={(event) => event.stopPropagation()}
-        className="modal-panel animate-modal flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[780px] flex-col overflow-hidden rounded-[var(--radius-panel)] shadow-2xl sm:max-h-[calc(100dvh-3rem)]"
+        className={`modal-panel animate-modal flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[780px] flex-col overflow-hidden rounded-[var(--radius-panel)] shadow-2xl sm:max-h-[calc(100dvh-3rem)] ${compact ? "modal-panel-compact" : ""}`}
       >
         <header className="flex shrink-0 items-start gap-4 px-5 py-5 sm:px-7">
           <div className="min-w-0 flex-1">
@@ -123,7 +127,7 @@ export function Dialog({
             <X className="size-4" />
           </button>
         </header>
-        <div className="modal-body flex min-h-0 flex-col overflow-y-auto overscroll-contain">
+        <div className={`modal-body flex min-h-0 flex-col overflow-y-auto overscroll-contain ${bodyClassName}`}>
           {children}
         </div>
       </div>

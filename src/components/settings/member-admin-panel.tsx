@@ -2,7 +2,6 @@
 
 import {
   Check,
-  ChevronDown,
   KeyRound,
   Plus,
   Search,
@@ -18,7 +17,6 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -35,16 +33,17 @@ import {
 import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import { CustomSelect } from "@/components/ui/custom-select";
-import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 import { matchesSearchText } from "@/lib/search-normalization";
 import {
   hasPermission,
+  canRoleHavePermission,
   configurablePermissions,
   permissionSections,
   type Permission,
 } from "@/server/auth/permissions";
 import {
   assignableOrganizationRoles,
+  roleGrades,
   type AssignableOrganizationRole,
   type OrganizationRole,
 } from "@/server/auth/types";
@@ -59,7 +58,15 @@ const initialState: MemberMutationState = {
   fieldErrors: {},
 };
 const roleLabels: Record<OrganizationRole, string> = {
+  owner: "Владелец",
   developer: "Разработчик",
+  deputy: "Заместитель",
+  finance_controller: "Финконтроль",
+  sales_lead: "Руководитель продаж", sales_specialist: "Менеджер продаж",
+  regional_director: "Региональный директор",
+  crm_coordinator: "Координатор CRM",
+  tender_specialist: "Тендерный отдел",
+  foreman: "Бригадир",
   admin: "Администратор",
   dispatcher: "Диспетчер",
   manager: "Менеджер",
@@ -68,7 +75,7 @@ const roleLabels: Record<OrganizationRole, string> = {
 };
 const assignableRoleOptions = assignableOrganizationRoles.map((value) => ({
   value,
-  label: roleLabels[value],
+  label: `Уровень ${roleGrades[value]} · ${roleLabels[value]}`,
 }));
 
 function MutationStatus({ state }: { state: MemberMutationState }) {
@@ -95,66 +102,21 @@ const permissionChoiceOptions = [
 function PermissionChoice({
   label,
   value,
+  inheritedAllowed,
   onChange,
 }: {
   label: string;
   value: (typeof permissionChoiceOptions)[number]["value"];
+  inheritedAllowed: boolean;
   onChange: (value: (typeof permissionChoiceOptions)[number]["value"]) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const choiceRef = useRef<HTMLDivElement>(null);
-  const selected =
-    permissionChoiceOptions.find((option) => option.value === value) ??
-    permissionChoiceOptions[0];
-
-  useDismissableLayer(choiceRef, open, () => setOpen(false));
-
-  return (
-    <div
-      ref={choiceRef}
-      className={`relative shrink-0 ${open ? "z-[100]" : "z-0"}`}
-    >
-      <button
-        type="button"
-        aria-label={label}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="focus-ring flex h-9 min-w-28 items-center justify-between gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-raised)] px-3 text-[10px] text-[var(--text-secondary)] transition-colors hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]"
-      >
-        <span>{selected.label}</span>
-        <ChevronDown
-          className={`size-3 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open ? (
-        <div
-          role="listbox"
-          aria-label={label}
-          className="absolute right-0 top-[calc(100%+0.4rem)] z-30 w-32 overflow-hidden rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-1 shadow-[0_16px_36px_rgba(0,0,0,0.16)]"
-        >
-          {permissionChoiceOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="option"
-              aria-selected={option.value === value}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-              }}
-              className={`focus-ring flex min-h-9 w-full items-center justify-between rounded-[10px] px-2.5 text-left text-[10px] transition-colors ${option.value === value ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
-            >
-              {option.label}
-              {option.value === value ? (
-                <Check className="size-3.5 text-[var(--accent)]" />
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
+  const options = permissionChoiceOptions.map((option) => option.value === "inherit"
+    ? { ...option, label: `По роли — ${inheritedAllowed ? "разрешено" : "запрещено"}` }
+    : option);
+  return <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as typeof value)}
+    className="focus-ring h-9 min-w-40 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-raised)] px-3 text-[10px] text-[var(--text-secondary)]">
+    {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+  </select>;
 }
 
 function PermissionMatrix({
@@ -177,8 +139,8 @@ function PermissionMatrix({
             Детальные разрешения
           </h3>
           <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
-            Матрица охватывает рабочие окна, данные и действия. «По роли»
-            использует базовый набор, а исключения проверяются сервером.
+            Матрица охватывает рабочие окна, данные и действия. Статус «По роли»
+            показывает базовое разрешение, а исключения проверяются сервером.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-[9px]">
@@ -211,6 +173,7 @@ function PermissionMatrix({
             </div>
             <div className="divide-y divide-[var(--line)]">
               {section.permissions.map(([permission, label]) => {
+                const available = canRoleHavePermission(role, permission);
                 const explicit = overrides[permission];
                 const value =
                   explicit === undefined
@@ -228,17 +191,17 @@ function PermissionMatrix({
                         {label}
                       </span>
                       <span className="mt-0.5 block text-[9px] text-[var(--muted)]">
-                        По роли:{" "}
-                        {hasPermission(role, permission)
-                          ? "разрешено"
-                          : "запрещено"}
+                        Итог: {!available ? "недоступно на этом уровне" : explicit === undefined
+                          ? hasPermission(role, permission) ? "разрешено по роли" : "запрещено по роли"
+                          : explicit ? "разрешено вручную" : "запрещено вручную"}
                       </span>
                     </span>
-                    <PermissionChoice
+                    {available ? <PermissionChoice
                       label={`${section.label}: ${label}`}
                       value={value}
+                      inheritedAllowed={hasPermission(role, permission)}
                       onChange={(nextValue) => onChange(permission, nextValue)}
-                    />
+                    /> : null}
                   </div>
                 );
               })}
@@ -279,11 +242,13 @@ function RoleAndMasterFields({
           value={role}
           onChange={(value) => onRoleChange(value as AssignableOrganizationRole)}
           ariaLabel="Роль сотрудника"
-          options={assignableRoleOptions}
+          options={assignableRoleOptions.some((option) => option.value === role)
+            ? assignableRoleOptions
+            : [{ value: role, label: `Текущая роль · ${roleLabels[role]}` }, ...assignableRoleOptions]}
           className={orderInputClass}
         />
       </OrderField>
-      {role === "master" ? (
+      {role === "master" || role === "foreman" ? (
         <OrderField label="Карточка мастера" required errors={errors.masterId}>
           <CustomSelect
             name="masterId"
@@ -325,7 +290,7 @@ function CreateMemberForm({
     createMemberAction,
     initialState,
   );
-  const [role, setRole] = useState<OrganizationRole>("dispatcher");
+  const [role, setRole] = useState<AssignableOrganizationRole>("sales_specialist");
   const router = useRouter();
   useEffect(() => {
     if (state.status !== "success") return;
@@ -398,7 +363,7 @@ function CreateMemberForm({
           </OrderField>
           <RoleAndMasterFields
             role={role}
-            onRoleChange={setRole}
+            onRoleChange={(value) => setRole(value as AssignableOrganizationRole)}
             masterOptions={masterOptions}
             errors={state.fieldErrors}
           />
@@ -721,6 +686,11 @@ export function MemberAdminPanel({
           учётных записей отключено.
         </p>
       ) : null}
+      <div className="grid gap-2 text-xs sm:grid-cols-3">
+        <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-raised)] p-3"><strong className="block text-[var(--text)]">Уровень 1 · Владельцы</strong><span className="text-[var(--muted)]">Все экраны, права и системные настройки.</span></p>
+        <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-raised)] p-3"><strong className="block text-[var(--text)]">Уровень 2 · Руководители</strong><span className="text-[var(--muted)]">Рабочие разделы и финансы по специализации.</span></p>
+        <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-raised)] p-3"><strong className="block text-[var(--text)]">Уровень 3 · Сотрудники</strong><span className="text-[var(--muted)]">Операционная работа без финансов и администрирования.</span></p>
+      </div>
       <section className="surface-panel panel-stack overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--line)] p-4 sm:flex-row sm:items-center sm:p-5">
           <label className="focus-within:border-[var(--line-strong)] flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 sm:max-w-md">
@@ -758,6 +728,7 @@ export function MemberAdminPanel({
                   name={member.displayName}
                   size="sm"
                   tone={member.active ? "lime" : "violet"}
+                  src={`/api/v1/members/${member.id}/avatar`}
                 />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -785,6 +756,9 @@ export function MemberAdminPanel({
                   Роль и статус
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-[8px] border border-[var(--line)] bg-[var(--surface-inset)] px-2 py-1 text-[10px] text-[var(--text-secondary)]">
+                    Уровень {roleGrades[member.role]}
+                  </span>
                   <span className="rounded-[8px] border border-[var(--support-strong)]/20 bg-[var(--support-soft)] px-2 py-1 text-[10px] text-[var(--support-strong)]">
                     {roleLabels[member.role]}
                   </span>
@@ -807,7 +781,7 @@ export function MemberAdminPanel({
                 </p>
               </div>
               <div className="flex items-center gap-2 lg:justify-end">
-                {member.role === "developer" ? (
+                {member.role === "developer" || member.role === "owner" ? (
                   <span className="inline-flex h-10 items-center rounded-[9px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 text-[10px] text-[var(--muted)]">
                     Системная учётка
                   </span>

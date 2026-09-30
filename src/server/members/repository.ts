@@ -4,7 +4,7 @@ import { z } from "zod";
 import { normalizeLoginIdentity } from "@/server/auth/identity";
 import { permissions, requirePermission, type Permission } from "@/server/auth/permissions";
 import { hashPassword } from "@/server/auth/password";
-import { organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
+import { assignableOrganizationRoles, organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import type { CreateMemberInput, ResetMemberPasswordInput, UpdateMemberAccessInput } from "./schemas";
 import type { MemberMasterOption, OrganizationMemberListItem } from "./types";
@@ -55,6 +55,9 @@ export class MemberSelfPasswordResetError extends Error {
 export class MemberProtectedAccountError extends Error {
   constructor() { super("System developer accounts cannot be managed from organization settings."); this.name = "MemberProtectedAccountError"; }
 }
+export class MemberLegacyRoleChangeError extends Error {
+  constructor() { super("Legacy roles can only be retained on their existing accounts."); this.name = "MemberLegacyRoleChangeError"; }
+}
 
 function uniqueConstraint(error: unknown) {
   if (!error || typeof error !== "object" || !("code" in error) || error.code !== "23505") return null;
@@ -82,7 +85,7 @@ export async function listOrganizationMembers(member: AuthenticatedMember): Prom
   requirePermission(member, "settings.write");
   const sql = getDatabase();
   const rows = await sql`SELECT members.id, members.display_name, members.email, phone_identity.normalized_value AS phone,
-      CASE WHEN developer_accounts.email IS NOT NULL THEN 'developer' ELSE members.role END AS role,
+      CASE WHEN developer_accounts.email IS NOT NULL THEN developer_accounts.account_role ELSE members.role END AS role,
       members.active, members.master_id, masters.full_name AS master_name,
       last_session.last_login_at, members.version,
       COALESCE(permission_overrides.values, '{}'::jsonb) AS permission_overrides
@@ -142,6 +145,8 @@ export async function createOrganizationMember(member: AuthenticatedMember, inpu
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
+      const protectedIdentity = await transaction`SELECT 1 FROM developer_accounts WHERE email = ${emailIdentity.normalizedValue}`;
+      if (protectedIdentity.length) throw new MemberProtectedAccountError();
       const insertedRequest = await transaction`INSERT INTO idempotency_requests (organization_id, idempotency_key, operation)
         VALUES (${member.organizationId}, ${input.idempotencyKey}, 'organization_members.create')
         ON CONFLICT (organization_id, idempotency_key) DO NOTHING
@@ -201,6 +206,7 @@ export async function updateOrganizationMemberAccess(member: AuthenticatedMember
       const current = z.object({ role: z.enum(organizationRoles), active: z.boolean(), master_id: z.string().uuid().nullable(), version: z.number().int().positive(), protected_account: z.boolean(), permission_overrides: z.partialRecord(z.enum(permissions), z.boolean()) }).parse(existing);
       if (current.protected_account) throw new MemberProtectedAccountError();
       if (current.version !== input.expectedVersion) throw new MemberVersionConflictError();
+      if (!assignableOrganizationRoles.some((role) => role === input.role) && input.role !== current.role) throw new MemberLegacyRoleChangeError();
       if (input.masterId) await requireAvailableMaster(transaction, member.organizationId, input.masterId);
 
       const [updated] = await transaction`UPDATE organization_members SET role = ${input.role}, master_id = ${input.masterId},
@@ -267,6 +273,7 @@ export async function resetOrganizationMemberPassword(member: AuthenticatedMembe
 
     const [existingMember] = await transaction`SELECT version,
         EXISTS (SELECT 1 FROM developer_accounts WHERE email = organization_members.email) AS protected_account
+      FROM organization_members
       WHERE organization_id = ${member.organizationId} AND id = ${input.memberId}
       FOR UPDATE`;
     if (!existingMember) throw new MemberNotFoundError();

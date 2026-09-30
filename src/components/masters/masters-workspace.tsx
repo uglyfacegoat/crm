@@ -11,7 +11,8 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { formatMoneyMinor, getInitials } from "@/lib/format";
+import { formatMoneyMinor } from "@/lib/format";
+import { Avatar } from "@/components/ui/avatar";
 import { matchesSearchText } from "@/lib/search-normalization";
 import type { MasterListItem, MasterStatusCode } from "@/server/masters/types";
 
@@ -115,9 +116,8 @@ function MasterRosterRow({
         {String(index + 1).padStart(2, "0")}
       </span>
       <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] gap-x-3">
-          <span className="row-span-2 grid size-11 shrink-0 self-center place-items-center rounded-full border border-[var(--line-strong)] bg-[var(--surface-inset)] font-display text-xs font-medium text-[var(--text)]">
-            {getInitials(master.fullName)}
-          </span>
+          <Avatar name={master.fullName} size="md" tone="violet" className="row-span-2 !size-11 self-center border border-[var(--line-strong)]"
+            src={`/api/v1/masters/${master.id}/avatar`} />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-[var(--text)]">
               <Link href={`/masters/${master.id}`} aria-label={`Открыть карточку мастера ${master.fullName}`} className="focus-ring rounded hover:text-[var(--accent-ink)]">

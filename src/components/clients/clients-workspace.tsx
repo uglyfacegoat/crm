@@ -115,8 +115,8 @@ export function ClientsWorkspace({ clients, initialPage }: { clients: Client[]; 
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
       <section className="surface-panel panel-stack overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--line)] p-4 lg:flex-row lg:items-center">
-          <label className="soft-button flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl px-3 lg:max-w-md">
-            <Search className="size-4 text-[var(--muted)]" />
+          <label className="soft-button flex h-11 w-full min-w-0 shrink-0 items-center gap-2 rounded-xl px-3 lg:max-w-md lg:flex-1">
+            <Search className="size-4 shrink-0 text-[var(--muted)]" />
             <input value={query} maxLength={100} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Клиент, ИНН, телефон или e-mail" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]" />
           </label>
           <button type="button" onClick={openAdvancedFilters} className={`focus-ring flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs ${advancedCount ? "border-[var(--accent)]/45 bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}>

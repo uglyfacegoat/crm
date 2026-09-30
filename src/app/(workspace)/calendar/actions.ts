@@ -44,6 +44,7 @@ export type RescheduleVisitResult = {
   version: number | null;
   scheduledStartAt: string | null;
   scheduledEndAt: string | null;
+  arrivalMode?: "fixed" | "window" | null;
 };
 
 const previewMessage = "Предпросмотр не записывает выезды. Для сохранения включите рабочий режим и PostgreSQL.";
@@ -68,6 +69,8 @@ export async function createVisitAction(_previous: CreateVisitState, formData: F
     orderId: formData.get("orderId"),
     localDate: formData.get("localDate"),
     localTime: formData.get("localTime"),
+    arrivalMode: formData.get("arrivalMode") ?? undefined,
+    endTime: formData.get("endTime") ?? undefined,
     durationMinutes: formData.get("durationMinutes"),
     assignedMasterId: formData.get("assignedMasterId"),
     notes: formData.get("notes"),
@@ -83,7 +86,7 @@ export async function createVisitAction(_previous: CreateVisitState, formData: F
   } catch (error) {
     if (error instanceof VisitDuplicateError) return { status: "error", message: "У этого заказа уже есть выезд на выбранную дату и время.", fieldErrors: { localTime: ["Выберите другое время"] }, visitId: null };
     if (error instanceof VisitScheduleConflictError) return { status: "error", message: "У мастера уже есть другой выезд в это время.", fieldErrors: { assignedMasterId: ["Выберите другого мастера или время"] }, visitId: null };
-    if (error instanceof VisitReferenceError) return { status: "error", message: error.field === "order" ? "Заказ больше не существует или недоступен." : "Мастер больше недоступен.", fieldErrors: {}, visitId: null };
+    if (error instanceof VisitReferenceError) return { status: "error", message: error.field === "order" ? "Заказ больше не существует или недоступен." : error.field === "object" ? "Сначала добавьте объект и адрес в заказ." : "Мастер больше недоступен.", fieldErrors: {}, visitId: null };
     logUnexpected("service_visits.create", member.memberId, error);
     return { status: "error", message: "Не удалось создать выезд. Изменения не сохранены.", fieldErrors: {}, visitId: null };
   }
@@ -266,9 +269,13 @@ export async function createVisitSeriesAction(_previous: CreateVisitSeriesState,
   const parsed = createVisitSeriesSchema.safeParse({
     idempotencyKey: formData.get("idempotencyKey"),
     orderId: formData.get("orderId"),
+    scheduleMode: formData.get("scheduleMode") ?? "interval",
+    selectedDates: (() => { try { return JSON.parse(String(formData.get("selectedDates") ?? "[]")); } catch { return null; } })(),
     startsOn: formData.get("startsOn"),
     endsOn: formData.get("endsOn"),
     localTime: formData.get("localTime"),
+    arrivalMode: formData.get("arrivalMode") ?? undefined,
+    endTime: formData.get("endTime") ?? undefined,
     durationMinutes: formData.get("durationMinutes"),
     frequencyUnit: formData.get("frequencyUnit"),
     frequencyInterval: formData.get("frequencyInterval"),
@@ -300,6 +307,8 @@ export async function updateVisitAction(_previous: UpdateVisitState, formData: F
     expectedVersion: formData.get("expectedVersion"),
     localDate: formData.get("localDate"),
     localTime: formData.get("localTime"),
+    arrivalMode: formData.get("arrivalMode") ?? undefined,
+    endTime: formData.get("endTime") ?? undefined,
     durationMinutes: formData.get("durationMinutes"),
     status: formData.get("status"),
     assignedMasterId: formData.get("assignedMasterId"),
@@ -329,18 +338,18 @@ export async function updateVisitAction(_previous: UpdateVisitState, formData: F
   }
 }
 
-export async function rescheduleVisitAction(visitId: string, expectedVersion: number, localDate: string, localTime: string, rescheduleReason: string): Promise<RescheduleVisitResult> {
-  if (getAuthMode() === "preview") return { status: "error", message: previewMessage, version: null, scheduledStartAt: null, scheduledEndAt: null };
+export async function rescheduleVisitAction(visitId: string, expectedVersion: number, localDate: string, localTime: string, rescheduleReason: string, arrivalMode?: "fixed" | "window", endTime?: string): Promise<RescheduleVisitResult> {
+  if (getAuthMode() === "preview") return { status: "error", message: previewMessage, version: null, scheduledStartAt: null, scheduledEndAt: null, arrivalMode: null };
   const member = await requireSession();
-  const parsed = rescheduleVisitSchema.safeParse({ visitId, expectedVersion, localDate, localTime, rescheduleReason });
-  if (!parsed.success) return { status: "error", message: "Проверьте дату, время и причину переноса.", version: null, scheduledStartAt: null, scheduledEndAt: null };
+  const parsed = rescheduleVisitSchema.safeParse({ visitId, expectedVersion, localDate, localTime, rescheduleReason, arrivalMode, endTime });
+  if (!parsed.success) return { status: "error", message: "Проверьте дату, время и причину переноса.", version: null, scheduledStartAt: null, scheduledEndAt: null, arrivalMode: null };
   try {
     const result = await rescheduleVisit(member, parsed.data);
     revalidatePath("/");
     revalidatePath("/calendar");
     revalidatePath("/tasks");
     if (result.orderId) revalidatePath(`/orders/${result.orderId}`);
-    return { status: "success", message: "Выезд перенесён.", version: result.version, scheduledStartAt: result.scheduledStartAt, scheduledEndAt: result.scheduledEndAt };
+    return { status: "success", message: "Выезд перенесён.", version: result.version, scheduledStartAt: result.scheduledStartAt, scheduledEndAt: result.scheduledEndAt, arrivalMode: result.arrivalMode };
   } catch (error) {
     if (error instanceof VisitVersionConflictError) return { status: "error", message: "Выезд уже изменил другой сотрудник. Обновите календарь и повторите.", version: null, scheduledStartAt: null, scheduledEndAt: null };
     if (error instanceof VisitNotFoundError) return { status: "error", message: "Выезд больше не существует или недоступен.", version: null, scheduledStartAt: null, scheduledEndAt: null };

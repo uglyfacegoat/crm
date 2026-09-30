@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useState } from "react";
 import { createContractAction, getContractHistoryAction, linkContractAction, renewContractAction, updateContractAction, type ContractActionState } from "@/app/(workspace)/contracts/actions";
 import { Dialog } from "@/components/ui/dialog";
+import { OrderPicker } from "@/components/orders/order-form-parts";
 import { clientCrypto as crypto } from "@/lib/client-id";
 import type { ContractHistoryEvent, ContractListItem, ContractMasterOption, ContractObjectOption } from "@/server/contracts/types";
 
@@ -40,20 +41,21 @@ function CreateContractForm({ objectOptions, masterOptions, onClose }: { objectO
   const [state, action, pending] = useActionState(createContractAction, initialState);
   const [requestKey] = useState(() => crypto.randomUUID());
   const [objectId, setObjectId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [masterId, setMasterId] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(true);
-  const selectedObject = objectOptions.find((option) => option.id === objectId);
   useCloseAfterSuccess(state, onClose);
   return <form action={action} className="flex flex-1 flex-col">
-    <input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="clientId" value={selectedObject?.clientId ?? ""} />
+    <input type="hidden" name="idempotencyKey" value={requestKey} /><input type="hidden" name="clientId" value={clientId} /><input type="hidden" name="objectId" value={objectId} />
     <div className="flex-1 space-y-6 p-5 sm:p-7">
       <section className="space-y-4"><p className="eyebrow">Основание</p>
-        <label className={fieldLabelClass}><span>Клиент и объект *</span><select name="objectId" value={objectId} onChange={(event) => setObjectId(event.target.value)} required className={inputClass}><option value="">Выберите объект</option>{objectOptions.map((option) => <option key={option.id} value={option.id}>{option.clientName} · {option.name} · {option.address}</option>)}</select><FieldError errors={state.fieldErrors.objectId ?? state.fieldErrors.clientId} /></label>
+        <OrderPicker label="Клиент и объект" value={objectId} options={objectOptions.map((option) => ({ value: option.id, label: `${option.clientName} · ${option.name}`, detail: option.address, clientId: option.clientId }))} onChange={setObjectId} onSelected={(option) => setClientId(option.clientId ?? "")} placeholder="Выберите объект" searchPlaceholder="Клиент, объект или адрес" required remoteUrl="/api/v1/contracts/options?type=objects" errors={state.fieldErrors.objectId ?? state.fieldErrors.clientId} />
         <div className="grid gap-4 sm:grid-cols-2"><label className={fieldLabelClass}><span>Номер договора *</span><input name="contractNumber" required maxLength={120} placeholder="Д-2026/014" className={inputClass} /><FieldError errors={state.fieldErrors.contractNumber} /></label><label className={fieldLabelClass}><span>Стартовый статус</span><select name="status" defaultValue="active" className={inputClass}><option value="active">Действует</option><option value="draft">Черновик</option></select></label></div>
       </section>
       <section className="space-y-4"><p className="eyebrow">Неизменяемый период</p><div className="grid gap-4 sm:grid-cols-2"><label className={fieldLabelClass}><span>Начало *</span><DateInput name="startsOn" required className={inputClass} /><FieldError errors={state.fieldErrors.startsOn} /></label><label className={fieldLabelClass}><span>Окончание *</span><DateInput name="endsOn" required className={inputClass} /><FieldError errors={state.fieldErrors.endsOn} /></label></div><label className={fieldLabelClass}><span>Напомнить о продлении за, дней</span><input type="number" name="renewalNoticeDays" min={1} max={365} defaultValue={30} className={inputClass} /></label></section>
-      <section className="rounded-[15px] border border-[var(--line)] bg-[var(--surface-inset)] p-4"><label className="flex min-h-11 cursor-pointer items-center gap-3"><input type="checkbox" name="scheduleEnabled" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} className="size-4 accent-[var(--accent)]" /><span className="min-w-0 flex-1"><strong className="block text-xs text-[var(--text)]">Сразу создать плановые выезды</strong><span className="mt-1 block text-[10px] leading-4 text-[var(--muted)]">Даты попадут в общий календарь и создадут задачи подготовки.</span></span></label>{scheduleEnabled ? <div className="mt-4 grid gap-4 border-t border-[var(--line)] pt-4 sm:grid-cols-2"><label className={fieldLabelClass}><span>Повтор</span><select name="frequencyUnit" defaultValue="month" className={inputClass}><option value="month">По месяцам</option><option value="week">По неделям</option></select></label><label className={fieldLabelClass}><span>Каждые</span><input type="number" name="frequencyInterval" min={1} max={12} defaultValue={1} className={inputClass} /></label><label className={fieldLabelClass}><span>Время</span><TimeInput name="localTime" defaultValue="10:00" className={inputClass} /></label><label className={fieldLabelClass}><span>Длительность, минут</span><input type="number" name="durationMinutes" min={15} max={1440} step={15} defaultValue={120} className={inputClass} /></label><label className={`${fieldLabelClass} sm:col-span-2`}><span>Мастер по умолчанию</span><select name="defaultMasterId" defaultValue="" className={inputClass}><option value="">Назначить позже</option>{masterOptions.map((master) => <option key={master.id} value={master.id}>{master.name} · {master.region}</option>)}</select><FieldError errors={state.fieldErrors.defaultMasterId} /></label></div> : <><input type="hidden" name="frequencyUnit" value="month" /><input type="hidden" name="frequencyInterval" value="1" /><input type="hidden" name="localTime" value="10:00" /><input type="hidden" name="durationMinutes" value="120" /><input type="hidden" name="defaultMasterId" value="" /></>}</section>
+      <section className="rounded-[15px] border border-[var(--line)] bg-[var(--surface-inset)] p-4"><label className="flex min-h-11 cursor-pointer items-center gap-3"><input type="checkbox" name="scheduleEnabled" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} className="size-4 accent-[var(--accent)]" /><span className="min-w-0 flex-1"><strong className="block text-xs text-[var(--text)]">Сразу создать плановые выезды</strong><span className="mt-1 block text-[10px] leading-4 text-[var(--muted)]">Даты попадут в общий календарь и создадут задачи подготовки.</span></span></label>{scheduleEnabled ? <div className="mt-4 grid gap-4 border-t border-[var(--line)] pt-4 sm:grid-cols-2"><label className={fieldLabelClass}><span>Повтор</span><select name="frequencyUnit" defaultValue="month" className={inputClass}><option value="month">По месяцам</option><option value="week">По неделям</option></select></label><label className={fieldLabelClass}><span>Каждые</span><input type="number" name="frequencyInterval" min={1} max={12} defaultValue={1} className={inputClass} /></label><label className={fieldLabelClass}><span>Время</span><TimeInput name="localTime" defaultValue="10:00" className={inputClass} /></label><label className={fieldLabelClass}><span>Длительность, минут</span><input type="number" name="durationMinutes" min={15} max={1440} step={15} defaultValue={120} className={inputClass} /></label><div className="sm:col-span-2"><input type="hidden" name="defaultMasterId" value={masterId} /><OrderPicker label="Мастер по умолчанию" value={masterId} options={[{ value: "", label: "Назначить позже" }, ...masterOptions.map((master) => ({ value: master.id, label: master.name, detail: master.region }))]} onChange={setMasterId} placeholder="Назначить позже" remoteUrl="/api/v1/contracts/options?type=masters" searchPlaceholder="ФИО, телефон или регион" placement="top" errors={state.fieldErrors.defaultMasterId} /></div></div> : <><input type="hidden" name="frequencyUnit" value="month" /><input type="hidden" name="frequencyInterval" value="1" /><input type="hidden" name="localTime" value="10:00" /><input type="hidden" name="durationMinutes" value="120" /><input type="hidden" name="defaultMasterId" value="" /></>}</section>
       <label className={fieldLabelClass}><span>Условия и заметки</span><textarea name="notes" maxLength={4000} rows={4} placeholder="Состав регулярных работ, доступ, ограничения" className="focus-ring resize-none rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] p-3.5 text-sm leading-6 text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]" /></label><ResultMessage state={state} />
-    </div><SubmitFooter pending={pending} success={state.status === "success"} label="Создать договор" onClose={onClose} />
+    </div><SubmitFooter pending={pending} disabled={!objectId || !clientId} success={state.status === "success"} label="Создать договор" onClose={onClose} />
   </form>;
 }
 
@@ -77,23 +79,23 @@ function RenewContractForm({ contract, onClose }: { contract: ContractListItem; 
 
 function LinkContractForm({ contract, contractOptions, onClose }: { contract: ContractListItem; contractOptions: ContractListItem[]; onClose: () => void }) {
   const [state, action, pending] = useActionState(linkContractAction, initialState);
+  const [relatedContractId, setRelatedContractId] = useState("");
   useCloseAfterSuccess(state, onClose);
   const linkedIds = new Set(contract.relations.map((relation) => relation.contractId));
   const availableContracts = contractOptions.filter((option) => option.id !== contract.id && !linkedIds.has(option.id));
   return <form action={action} className="flex flex-1 flex-col">
-    <input type="hidden" name="contractId" value={contract.id} />
+    <input type="hidden" name="contractId" value={contract.id} /><input type="hidden" name="relatedContractId" value={relatedContractId} />
     <div className="flex-1 space-y-5 p-5 sm:p-7">
       <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface-inset)] p-4">
         <p className="text-xs font-semibold text-[var(--text)]">{contract.contractNumber}</p>
         <p className="mt-1 text-[10px] text-[var(--muted)]">{contract.clientName} · {contract.objectName}</p>
       </div>
-      <label className={fieldLabelClass}><span>Связанный договор *</span><select name="relatedContractId" required defaultValue="" className={inputClass}><option value="" disabled>Выберите договор</option>{availableContracts.map((option) => <option key={option.id} value={option.id}>{option.contractNumber} · {option.clientName}</option>)}</select><FieldError errors={state.fieldErrors.relatedContractId} /></label>
+      <OrderPicker label="Связанный договор" value={relatedContractId} options={availableContracts.map((option) => ({ value: option.id, label: option.contractNumber, detail: option.clientName }))} onChange={setRelatedContractId} placeholder="Выберите договор" searchPlaceholder="Номер договора или клиент" required remoteUrl={`/api/v1/contracts/options?type=contracts&sourceContractId=${contract.id}`} errors={state.fieldErrors.relatedContractId} />
       <label className={fieldLabelClass}><span>Тип связи</span><select name="relationType" defaultValue="related" className={inputClass}><option value="related">Связанный договор</option><option value="supplement">Дополнительное соглашение</option><option value="framework">Рамочный договор</option></select></label>
       <label className={fieldLabelClass}><span>Комментарий</span><textarea name="note" maxLength={1000} rows={4} placeholder="Что объединяет эти договоры" className="focus-ring resize-none rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] p-3.5 text-sm leading-6 text-[var(--text)] outline-none" /></label>
-      {!availableContracts.length ? <p className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] p-3 text-xs text-[var(--muted)]">Все доступные договоры уже связаны с текущим.</p> : null}
       <ResultMessage state={state} />
     </div>
-    <SubmitFooter pending={pending} disabled={!availableContracts.length} success={state.status === "success"} label="Связать договоры" onClose={onClose} />
+    <SubmitFooter pending={pending} disabled={!relatedContractId} success={state.status === "success"} label="Связать договоры" onClose={onClose} />
   </form>;
 }
 

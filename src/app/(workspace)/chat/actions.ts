@@ -2,6 +2,7 @@
 
 import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { FileWriteLeaseLostError, FileWritesPausedError, markFileWriteUncertain, withFileWriteLease } from "../../../server/file-writes/gate.mjs";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
@@ -33,6 +34,7 @@ import { MAX_CHAT_ATTACHMENT_BYTES, MAX_CHAT_AVATAR_BYTES, validateChatAttachmen
 import { DocumentFileValidationError } from "@/server/documents/file-validation";
 import { createChatAttachmentStorageKey, createChatChannelAvatarStorageKey, removeDocumentFile, writeDocumentFile } from "@/server/documents/storage";
 import { assertReadableAudio, InvalidAudioError } from "@/server/file-scan/audio-check.mjs";
+import { sendChatPush } from "@/server/chat/push";
 
 export type ChatMutationState = {
   status: "idle" | "success" | "error";
@@ -114,10 +116,11 @@ async function sendChatMessageActionImpl(_previous: ChatMutationState, formData:
     idempotencyKey: formData.get("idempotencyKey"),
     channelId: formData.get("channelId"),
     body,
+    hasAttachment,
     sharedEntityType: formData.get("sharedEntityType"),
     sharedEntityId: formData.get("sharedEntityId"),
   });
-  if (!parsed.success) return { status: "error", message: "Введите сообщение или выберите объект системы.", fieldErrors: fieldErrors(parsed.error), entityId: null };
+  if (!parsed.success) return { status: "error", message: "Введите сообщение или приложите файл.", fieldErrors: fieldErrors(parsed.error), entityId: null };
   let storageKey: string | null = null;
   let fileWritten = false;
   let persisted = false;
@@ -147,10 +150,14 @@ async function sendChatMessageActionImpl(_previous: ChatMutationState, formData:
       fileWritten = true;
       attachment = { id: parsed.data.idempotencyKey, ...file, storageKey };
     }
-    const messageId = await sendChatMessage(member, parsed.data, attachment);
+    const sent = await sendChatMessage(member, parsed.data, attachment);
     persisted = true;
+    if (sent.created) after(async () => {
+      try { await sendChatPush(member, parsed.data.channelId, sent.id, body || "Новое сообщение"); }
+      catch (error) { logUnexpected("chat.push.dispatch", member.memberId, error); }
+    });
     revalidatePath("/chat");
-    return { status: "success", message: null, fieldErrors: {}, entityId: messageId };
+    return { status: "success", message: null, fieldErrors: {}, entityId: sent.id };
   } catch (error) {
     if (persisted) {
       logUnexpected("chat.message.revalidate", member.memberId, error);

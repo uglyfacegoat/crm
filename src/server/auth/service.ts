@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { getThrottleSecret } from "./config";
+import { emailOtpEnabled, getThrottleSecret } from "./config";
+import { beginEmailChallenge, completeEmailChallenge, emailOtpDeliveryReady } from "./email-otp-repository";
 import { normalizeLoginIdentity } from "./identity";
 import { DUMMY_PASSWORD_HASH, verifyPassword } from "./password";
 import { consumeRateLimit, createSession, findCredential, findSessionByTokenHash, recordFailedLogin, revokeSession } from "./repository";
@@ -16,7 +17,8 @@ const loginInputSchema = z.object({
 
 export type AuthenticationResult =
   | { ok: true; session: SessionCookie }
-  | { ok: false; reason: "invalid_credentials" | "rate_limited" | "account_locked" };
+  | { ok: true; challengeToken: string }
+  | { ok: false; reason: "invalid_credentials" | "rate_limited" | "account_locked" | "mail_unavailable" };
 
 export async function authenticateMember(input: z.input<typeof loginInputSchema>): Promise<AuthenticationResult> {
   const parsed = loginInputSchema.safeParse(input);
@@ -41,11 +43,25 @@ export async function authenticateMember(input: z.input<typeof loginInputSchema>
     return { ok: false, reason: accountLocked ? "account_locked" : "invalid_credentials" };
   }
 
+  if (credential.email_otp_enabled) {
+    if (!emailOtpEnabled() || !(await emailOtpDeliveryReady())) return { ok: false, reason: "mail_unavailable" };
+    return { ok: true, challengeToken: await beginEmailChallenge(credential, parsed.data.remember) };
+  }
+
   const token = createSessionToken();
   const expiresAt = new Date(Date.now() + (parsed.data.remember ? 14 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000));
   const clientFingerprintHash = parsed.data.clientAddress ? createPrivateBucketHash(secret, `session-client:${parsed.data.clientAddress}`) : null;
   await createSession({ credential, tokenHash: hashSessionToken(token), clientFingerprintHash, expiresAt });
   return { ok: true, session: { token, expiresAt } };
+}
+
+export async function verifyMemberEmailCode(input: { token: string; code: string; clientAddress: string | null }) {
+  if (!emailOtpEnabled()) return null;
+  const allowed = await consumeRateLimit([
+    createPrivateBucketHash(getThrottleSecret(), `email-otp:${input.token}`),
+  ], 8, 15);
+  if (!allowed) return null;
+  return completeEmailChallenge(input.token, input.code, input.clientAddress);
 }
 
 export async function resolveSession(token: string): Promise<AuthenticatedMember | null> {

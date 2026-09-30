@@ -17,6 +17,8 @@ export type WebsiteIntegrationListItem = {
 
 export type WebsiteListItem = {
   id: string;
+  organizationId?: string;
+  organizationName?: string;
   name: string;
   domain: string;
   status: WebsiteStatus;
@@ -72,6 +74,9 @@ export type WebsiteHealthSnapshot = {
   cpuLoadPercent: number;
   memoryUsedMb: number;
   diskUsedMb: number;
+  memoryCapacityMb?: number | null;
+  diskCapacityMb?: number | null;
+  sslExpiresOn?: string | null;
   source: "manual" | "monitor";
 };
 

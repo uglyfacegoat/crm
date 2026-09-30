@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { FinanceWorkspace } from "@/components/finance/finance-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getAuthMode } from "@/server/auth/config";
@@ -11,6 +12,7 @@ export const metadata: Metadata = { title: "Финансы" };
 
 export default async function FinancePage() {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "finance.read");
   const snapshot = getAuthMode() === "preview" ? getPreviewFinanceSnapshot() : await getFinanceSnapshot(member);
   return <div><PageHeading eyebrow="Денежный поток" title="Финансы" description="Счета, частичные оплаты, дебиторская задолженность и выплаты мастерам в едином неизменяемом реестре." /><FinanceWorkspace snapshot={snapshot} canWrite={hasPermission(member, "finance.write")} /></div>;
 }

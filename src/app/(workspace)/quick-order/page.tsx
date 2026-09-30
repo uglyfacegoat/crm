@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import { QuickOrderWorkspace } from "@/components/quick-order/quick-order-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
-import { getIncomingLeadPrefill, IncomingLeadNotFoundError } from "@/server/incoming-leads/repository";
+import { getIncomingLeadPrefill, getOrderCreatedFromIncomingLead, IncomingLeadNotFoundError } from "@/server/incoming-leads/repository";
+import type { IncomingLeadPrefill } from "@/server/incoming-leads/types";
 import { getPreviewOrderCreationOptions } from "@/server/orders/preview";
 import { listOrderCreationOptions } from "@/server/orders/repository";
 
@@ -28,26 +29,33 @@ export default async function QuickOrderPage({ searchParams }: PageProps<"/quick
   const member = await requireOfficeSession();
   const query = await searchParams;
   const sourceLeadId = z.string().uuid().safeParse(query.sourceLead).data;
-  const canCreate = hasPermission(member, "clients.write")
-    && hasPermission(member, "orders.write")
-    && hasPermission(member, "visits.write");
+  const canCreate = hasPermission(member, "clients.write") && hasPermission(member, "orders.write");
+  const canScheduleVisit = hasPermission(member, "visits.write");
   const preview = getAuthMode() === "preview";
-  const prefill = await (sourceLeadId && !preview && canCreate ? getIncomingLeadPrefill(member, sourceLeadId) : Promise.resolve(undefined)).catch((error: unknown) => {
-    if (error instanceof IncomingLeadNotFoundError) notFound();
-    throw error;
-  });
+  if (sourceLeadId && !hasPermission(member, "leads.write")) notFound();
+  let prefill: IncomingLeadPrefill | undefined;
+  if (sourceLeadId && !preview && canCreate) {
+    try {
+      prefill = await getIncomingLeadPrefill(member, sourceLeadId);
+    } catch (error) {
+      if (!(error instanceof IncomingLeadNotFoundError)) throw error;
+      const createdOrderId = await getOrderCreatedFromIncomingLead(member, sourceLeadId);
+      if (createdOrderId) redirect(`/orders/${createdOrderId}`);
+      notFound();
+    }
+  }
   const options = preview ? getPreviewOrderCreationOptions() : canCreate ? await listOrderCreationOptions(member, prefill?.possibleClientId ?? undefined) : null;
 
   if (canCreate && options) {
-    return <QuickOrderWorkspace options={options} idempotencyKey={randomUUID()} defaultVisitDate={dateInMoscow()} prefill={prefill} />;
+    return <QuickOrderWorkspace options={options} idempotencyKey={randomUUID()} defaultVisitDate={dateInMoscow()} prefill={prefill} canScheduleVisit={canScheduleVisit} canWriteFinance={hasPermission(member, "finance.write")} />;
   }
 
   return <div className="max-w-3xl">
-    <PageHeading eyebrow="Доступ ограничен" title="Оформить заказ" description="Для единого сценария нужны права на клиентов, заказы и выезды." />
+    <PageHeading eyebrow="Доступ ограничен" title="Оформить заказ" description="Для оформления нужны права на клиентов и заказы." />
     <section className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] border-y border-[var(--line)] py-6">
       <p className="eyebrow">Доступ ограничен</p>
-      <h2 className="mt-3 font-display text-xl font-semibold text-[var(--text)]">Нужны права на клиентов, заказы и выезды</h2>
-      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">Полный сценарий доступен администраторам и диспетчерам. Это защищает CRM от частично созданных заказов.</p>
+      <h2 className="mt-3 font-display text-xl font-semibold text-[var(--text)]">Нужны права на клиентов и заказы</h2>
+      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">Доступ к оформлению заказа можно запросить у владельца CRM.</p>
     </section>
   </div>;
 }

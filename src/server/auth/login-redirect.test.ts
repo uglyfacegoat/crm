@@ -13,3 +13,9 @@ test("login rejects external and browser-normalized external destinations", () =
     assert.equal(safeLoginRedirect(value), "/");
   }
 });
+
+test("login returns home when a copied password or unknown path follows the URL", () => {
+  for (const value of ["/0123456789abcdef0123456789abcdef", "/unknown-page", "/login?next=/unknown-page"]) {
+    assert.equal(safeLoginRedirect(value), "/");
+  }
+});

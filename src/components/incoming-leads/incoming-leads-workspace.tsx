@@ -8,7 +8,6 @@ import {
   Ban,
   CircleAlert,
   ExternalLink,
-  Globe2,
   Inbox,
   Link2,
   LoaderCircle,
@@ -20,6 +19,7 @@ import {
 import { useActionState, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { rejectIncomingLeadAction, type IncomingLeadMutationState } from "@/app/(workspace)/inbox/actions";
 import { Dialog } from "@/components/ui/dialog";
+import { OrderPicker } from "@/components/orders/order-form-parts";
 import { PageHeading } from "@/components/ui/page-heading";
 import type { IncomingLeadListFilter } from "@/server/incoming-leads/schemas";
 import { incomingLeadStatusLabels, type IncomingLead, type IncomingLeadSnapshot, type IncomingLeadStatus } from "@/server/incoming-leads/types";
@@ -147,6 +147,7 @@ function LeadDetails({
 }) {
   const actionable = canWrite && (lead.status === "new" || lead.status === "reviewing");
   const landingUrl = safeExternalUrl(lead.landingUrl);
+  const referrerUrl = safeExternalUrl(lead.referrerUrl);
 
   return (
     <article id="incoming-lead-details" aria-live="polite" className="flex min-h-full min-w-0 flex-col">
@@ -167,6 +168,11 @@ function LeadDetails({
           <section>
             <DetailLabel>Запрос клиента</DetailLabel>
             <p className="mt-3 max-w-2xl text-[clamp(1rem,0.96rem+0.15vw,1.12rem)] leading-7 text-[var(--text-secondary)]">{lead.serviceInterest || "Услуга не указана — уточните перед оформлением."}</p>
+            {lead.objectAddress || lead.objectSize || lead.comment ? <dl className="mt-5 grid gap-3 text-sm text-[var(--text-secondary)]">
+              {lead.objectAddress ? <div><dt className="text-xs text-[var(--muted)]">Адрес объекта</dt><dd className="mt-1 whitespace-pre-wrap">{lead.objectAddress}</dd></div> : null}
+              {lead.objectSize ? <div><dt className="text-xs text-[var(--muted)]">Площадь / объём</dt><dd className="mt-1 whitespace-pre-wrap">{lead.objectSize}</dd></div> : null}
+              {lead.comment ? <div><dt className="text-xs text-[var(--muted)]">Комментарий</dt><dd className="mt-1 whitespace-pre-wrap">{lead.comment}</dd></div> : null}
+            </dl> : null}
           </section>
 
           <section className="grid gap-7 sm:grid-cols-2 sm:gap-8">
@@ -186,13 +192,16 @@ function LeadDetails({
                   <dd className="mt-1 text-[var(--text-secondary)]">{lead.websiteName}</dd>
                   <dd className="mt-1 text-xs text-[var(--muted)]">{lead.websiteDomain}</dd>
                 </div>
-                <div>
-                  <dt className="text-[var(--muted)]">UTM</dt>
-                  <dd className="mt-1 text-[var(--text-secondary)]">{lead.utmSource || "Без метки"}</dd>
-                  <dd className="mt-1 text-xs text-[var(--muted)]">{lead.utmCampaign || "Кампания не указана"}</dd>
-                </div>
+                {lead.utmSource || lead.utmMedium || lead.utmCampaign || lead.utmContent || lead.utmTerm ? <div>
+                  <dt className="text-[var(--muted)]">Метки перехода</dt>
+                  <dd className="mt-1 break-words text-[var(--text-secondary)]">{[
+                    ["Источник", lead.utmSource], ["Канал", lead.utmMedium], ["Кампания", lead.utmCampaign],
+                    ["Объявление", lead.utmContent], ["Запрос", lead.utmTerm],
+                  ].filter((item) => item[1]).map((item) => `${item[0]}: ${item[1]}`).join(" · ")}</dd>
+                </div> : <div className="text-[var(--muted)]">Без UTM-меток</div>}
               </dl>
               {landingUrl ? <a href={landingUrl} target="_blank" rel="noreferrer" className="focus-ring mt-5 inline-flex min-h-10 items-center gap-2 rounded-full px-1 text-xs text-[var(--accent-ink)] transition-colors hover:text-[var(--accent)]"><ExternalLink className="size-3.5" />Открыть страницу заявки</a> : null}
+              {referrerUrl ? <a href={referrerUrl} target="_blank" rel="noreferrer" className="focus-ring mt-2 inline-flex min-h-10 items-center gap-2 rounded-full px-1 text-xs text-[var(--accent-ink)] transition-colors hover:text-[var(--accent)]"><ExternalLink className="size-3.5" />Страница перехода</a> : null}
             </div>
           </section>
 
@@ -259,69 +268,36 @@ function LeadDetails({
   );
 }
 
-function LeadQueue({
-  leads,
-  selectedId,
-  onSelect,
-}: {
-  leads: IncomingLead[];
-  selectedId: string | null;
-  onSelect: (leadId: string) => void;
-}) {
-  return (
-    <div className="grid gap-2 p-3">
-      {leads.map((lead) => {
-        const selected = selectedId === lead.id;
-        return (
-          <button
-            key={lead.id}
-            type="button"
-            onClick={() => onSelect(lead.id)}
-            aria-current={selected ? "true" : undefined}
-            aria-controls="incoming-lead-details"
-            className={"focus-ring block min-h-32 w-full rounded-[15px] border p-4 text-left transition-[background-color,border-color,transform] active:translate-y-px " + (selected ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-soft)]")}
-          >
-            <span className="flex min-h-16 flex-col items-start gap-2">
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <span className={"size-1.5 shrink-0 rounded-full " + statusDotTone[lead.status]} />
-                  <strong className="line-clamp-2 text-sm font-medium leading-5 text-[var(--text)]">{lead.contactName || lead.phone || lead.email || "Без имени"}</strong>
-                </span>
-                <span className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{lead.serviceInterest || "Услуга не указана"}</span>
-              </span>
-              <time dateTime={lead.receivedAt} className="shrink-0 text-[11px] text-[var(--muted)]">{dateFormatter.format(new Date(lead.receivedAt))}</time>
-            </span>
-            <span className="mt-3 flex items-center justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-[var(--muted)]"><Globe2 className="size-3 shrink-0" />{lead.websiteDomain}</span>
-              {lead.possibleClientId ? <span className="shrink-0 rounded-full bg-[var(--support-soft)] px-2 py-1 text-[10px] text-[var(--support-strong)]">Совпадение</span> : null}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 export function IncomingLeadsWorkspace({
   snapshot,
   filter,
   canWrite,
   preview,
+  initialSelectedId,
 }: {
   snapshot: IncomingLeadSnapshot;
   filter: IncomingLeadListFilter;
   canWrite: boolean;
   preview: boolean;
+  initialSelectedId: string | null;
 }) {
-  const [selectedId, setSelectedId] = useState(snapshot.leads[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState(
+    snapshot.leads.find((lead) => lead.id === initialSelectedId)?.id ?? snapshot.leads[0]?.id ?? null,
+  );
+  const router = useRouter();
   const [rejectingLead, setRejectingLead] = useState<IncomingLead | null>(null);
-  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(Boolean(initialSelectedId && snapshot.leads.some((lead) => lead.id === initialSelectedId)));
   const closeRejectDialog = useCallback(() => setRejectingLead(null), []);
-  const selectedLead = useMemo(() => snapshot.leads.find((lead) => lead.id === selectedId) ?? snapshot.leads[0] ?? null, [selectedId, snapshot.leads]);
+  const selectedLead = useMemo(() => snapshot.leads.find((lead) => lead.id === selectedId) ?? (selectedId ? null : snapshot.leads[0] ?? null), [selectedId, snapshot.leads]);
 
   function selectLead(leadId: string) {
     setSelectedId(leadId);
     setMobileDetailOpen(true);
+    if (!snapshot.leads.some((lead) => lead.id === leadId)) {
+      const url = new URL(inboxHref(filter.status, filter.query), window.location.origin);
+      url.searchParams.set("lead", leadId);
+      router.push(`${url.pathname}${url.search}`);
+    }
   }
 
   return (
@@ -359,19 +335,35 @@ export function IncomingLeadsWorkspace({
 
         {snapshot.leads.length ? (
           <div className="mt-5 grid min-w-0 items-start gap-4 lg:grid-cols-[18rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)]">
-            <section aria-label="Список входящих заявок" className={(mobileDetailOpen ? "hidden lg:flex " : "flex ") + "surface-panel min-w-0 flex-col overflow-hidden"}>
+            <section aria-label="Выбор входящей заявки" className={(mobileDetailOpen ? "hidden lg:flex " : "flex ") + "surface-panel relative z-20 min-w-0 flex-col overflow-visible"}>
               <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4 sm:px-6">
                 <div>
                   <p className="text-sm font-semibold text-[var(--text)]">Очередь проверки</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">Выберите обращение для разбора</p>
                 </div>
-                <span className="inline-flex min-h-8 shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--surface-inset)] px-3 text-[11px] text-[var(--text-secondary)]">{snapshot.leads.length} из {snapshot.counts[filter.status]}</span>
+                <span className="inline-flex min-h-8 shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--surface-inset)] px-3 text-[11px] text-[var(--text-secondary)]">Показано {snapshot.leads.length}{filter.query ? "" : ` из ${snapshot.counts[filter.status]}`}</span>
               </div>
-              <div className="min-h-0 overflow-y-auto overscroll-contain lg:max-h-[calc(100dvh-20rem)]"><LeadQueue leads={snapshot.leads} selectedId={selectedLead?.id ?? null} onSelect={selectLead} /></div>
+              <div className="min-w-0 p-4 sm:p-5">
+                <OrderPicker
+                  label="Обращение"
+                  value={selectedLead?.id ?? ""}
+                  onChange={selectLead}
+                  options={snapshot.leads.map((lead) => ({
+                    value: lead.id,
+                    label: lead.contactName || lead.phone || lead.email || "Без имени",
+                    detail: `${lead.websiteName} · ${lead.serviceInterest || incomingLeadStatusLabels[lead.status]} · ${dateFormatter.format(new Date(lead.receivedAt))}`,
+                  }))}
+                  placeholder="Выберите заявку"
+                  searchable
+                  searchPlaceholder="Имя, телефон, сайт или услуга"
+                  remoteUrl={`/api/v1/inbox/options?status=${filter.status}`}
+                />
+                <p className="mt-3 text-xs leading-5 text-[var(--muted)]">Поиск в списке находит заявки за пределами показанной очереди.</p>
+              </div>
             </section>
 
             <section className={(mobileDetailOpen ? "flex " : "hidden lg:flex ") + "surface-panel min-h-[32rem] min-w-0 flex-col overflow-hidden"}>
-              {selectedLead ? <LeadDetails lead={selectedLead} canWrite={canWrite} onReject={() => setRejectingLead(selectedLead)} onBack={() => setMobileDetailOpen(false)} /> : <div className="grid min-h-[20rem] flex-1 place-items-center px-8 text-center"><div><Link2 className="mx-auto size-7 text-[var(--muted)]" /><p className="mt-3 text-sm text-[var(--muted)]">Выберите заявку в очереди</p></div></div>}
+              {selectedLead ? <LeadDetails lead={selectedLead} canWrite={canWrite} onReject={() => setRejectingLead(selectedLead)} onBack={() => setMobileDetailOpen(false)} /> : <div className="grid min-h-[20rem] flex-1 place-items-center px-8 text-center"><div><Link2 className="mx-auto size-7 text-[var(--muted)]" /><p className="mt-3 text-sm text-[var(--muted)]">{selectedId ? "Загружаем заявку…" : "Выберите заявку в очереди"}</p><button type="button" onClick={() => setMobileDetailOpen(false)} className="focus-ring mt-5 rounded-[12px] border border-[var(--line)] px-4 py-2 text-xs text-[var(--text-secondary)] lg:hidden">К списку заявок</button></div></div>}
             </section>
           </div>
         ) : (

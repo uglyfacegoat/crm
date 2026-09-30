@@ -18,10 +18,17 @@ const findCredential = mock.fn();
 const verifyPassword = mock.fn();
 const recordFailedLogin = mock.fn();
 const createSession = mock.fn();
+const beginEmailChallenge = mock.fn();
+const completeEmailChallenge = mock.fn();
+const emailOtpDeliveryReady = mock.fn();
+let otpEnabled = false;
 const dummyHash = "dummy-password-hash-for-service-test";
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("../src/server/auth/config.ts", import.meta.url), {
-  namedExports: { getThrottleSecret: () => "test-only-throttle-secret-at-least-32-characters" },
+  namedExports: { getThrottleSecret: () => "test-only-throttle-secret-at-least-32-characters", emailOtpEnabled: () => otpEnabled },
+});
+mock.module(new URL("../src/server/auth/email-otp-repository.ts", import.meta.url), {
+  namedExports: { beginEmailChallenge, completeEmailChallenge, emailOtpDeliveryReady },
 });
 mock.module(new URL("../src/server/auth/password.ts", import.meta.url), {
   namedExports: { DUMMY_PASSWORD_HASH: dummyHash, verifyPassword },
@@ -29,7 +36,7 @@ mock.module(new URL("../src/server/auth/password.ts", import.meta.url), {
 mock.module(new URL("../src/server/auth/repository.ts", import.meta.url), {
   namedExports: { consumeRateLimit, findCredential, recordFailedLogin, createSession, findSessionByTokenHash: mock.fn(), revokeSession: mock.fn() },
 });
-const { authenticateMember } = await import(serviceUrl.href);
+const { authenticateMember, verifyMemberEmailCode } = await import(serviceUrl.href);
 
 const input = { identity: "member@example.invalid", password: "test-password", remember: false, clientAddress: "192.0.2.1" };
 const credential = {
@@ -39,11 +46,14 @@ const credential = {
   failed_login_attempts: 0,
   locked_until: null,
   active: true,
+  email_otp_enabled: false,
 };
 
 test("password authentication enforces the throttle before expensive work", async (t) => {
   t.beforeEach(() => {
+    otpEnabled = false;
     for (const fn of [consumeRateLimit, findCredential, verifyPassword, recordFailedLogin, createSession]) fn.mock.resetCalls();
+    for (const fn of [beginEmailChallenge, completeEmailChallenge, emailOtpDeliveryReady]) fn.mock.resetCalls();
     consumeRateLimit.mock.mockImplementation(async () => true);
     findCredential.mock.mockImplementation(async () => credential);
     verifyPassword.mock.mockImplementation(async () => true);
@@ -103,6 +113,32 @@ test("password authentication enforces the throttle before expensive work", asyn
     await assert.rejects(authenticateMember(input), (error) => error === failure);
     assert.equal(findCredential.mock.callCount(), 0);
     assert.equal(verifyPassword.mock.callCount(), 0);
+    assert.equal(createSession.mock.callCount(), 0);
+  });
+  await t.test("email code mode never creates a session after password alone", async () => {
+    otpEnabled = true;
+    findCredential.mock.mockImplementation(async () => ({ ...credential, email_otp_enabled: true }));
+    emailOtpDeliveryReady.mock.mockImplementation(async () => true);
+    beginEmailChallenge.mock.mockImplementation(async () => "pending-challenge-token");
+    assert.deepEqual(await authenticateMember(input), { ok: true, challengeToken: "pending-challenge-token" });
+    assert.equal(createSession.mock.callCount(), 0);
+    assert.equal(beginEmailChallenge.mock.callCount(), 1);
+    completeEmailChallenge.mock.mockImplementation(async () => ({ token: "verified-session", expiresAt: new Date() }));
+    const result = await verifyMemberEmailCode({ token: "pending-challenge-token", code: "1234567", clientAddress: input.clientAddress });
+    assert.equal(result?.token, "verified-session");
+    assert.equal(completeEmailChallenge.mock.callCount(), 1);
+  });
+  await t.test("email code mode fails closed when outgoing mail is unavailable", async () => {
+    otpEnabled = true;
+    findCredential.mock.mockImplementation(async () => ({ ...credential, email_otp_enabled: true }));
+    emailOtpDeliveryReady.mock.mockImplementation(async () => false);
+    assert.deepEqual(await authenticateMember(input), { ok: false, reason: "mail_unavailable" });
+    assert.equal(createSession.mock.callCount(), 0);
+    assert.equal(beginEmailChallenge.mock.callCount(), 0);
+  });
+  await t.test("an enrolled account fails closed when the server toggle is off", async () => {
+    findCredential.mock.mockImplementation(async () => ({ ...credential, email_otp_enabled: true }));
+    assert.deepEqual(await authenticateMember(input), { ok: false, reason: "mail_unavailable" });
     assert.equal(createSession.mock.callCount(), 0);
   });
   t.after(() => { mock.restoreAll(); hooks.deregister(); });

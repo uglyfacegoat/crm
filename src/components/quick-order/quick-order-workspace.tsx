@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useActionState, useEffect, useMemo, useState } from "react";
 import {
-  createQuickOrderAction,
+  createUnifiedOrderAction,
   type QuickOrderState,
 } from "@/app/(workspace)/quick-order/actions";
 import {
@@ -26,14 +26,20 @@ import {
 } from "@/components/orders/order-form-parts";
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
+import { ServiceChoice, resolveServiceChoice } from "@/components/catalog/service-choice";
 import { formatMoney } from "@/lib/format";
 import type { OrderPickerResult } from "@/lib/order-picker";
 import { formatPhoneInput } from "@/lib/phone-input";
 import type { IncomingLeadPrefill } from "@/server/incoming-leads/types";
 import type { OrderCreationOptions } from "@/server/orders/types";
+import type { ObjectServiceProfile } from "@/server/catalog/object-service-profiles";
 
 type ClientMode = "existing" | "new";
 type ReferenceMode = "existing" | "new";
+type ExtraOrderItem = { id: string; catalogItemId: string | null; name: string; quantity: string; unitPrice: string };
+type ExtraContact = { id: string; name: string; position: string; phone: string; email: string; phones: ExtraPhone[] };
+type ExtraPhone = { id: string; label: string; phone: string };
+type ExtraObject = typeof emptyObject & { id: string };
 
 const steps = [
   {
@@ -59,10 +65,10 @@ const steps = [
 ] as const;
 
 const validationMessages = [
-  "Укажите клиента и контактные данные, чтобы продолжить.",
-  "Выберите объект или заполните данные нового адреса.",
-  "Добавьте работу и укажите её стоимость.",
-  "Проверьте дату, время и длительность первого выезда.",
+  "Укажите имя или название заказчика и проверьте заполненные поля.",
+  "Проверьте заполненные данные объекта или оставьте шаг пустым.",
+  "Проверьте заполненные услуги и выплату мастеру.",
+  "Проверьте дату и время выбранного выезда или оставьте его на потом.",
 ] as const;
 
 const initialQuickOrderState: QuickOrderState = {
@@ -164,24 +170,26 @@ function SectionIntro({
 function ObjectFields({
   value,
   onChange,
+  testIds = true,
 }: {
   value: typeof emptyObject;
   onChange: (value: typeof emptyObject) => void;
+  testIds?: boolean;
 }) {
   const set = (field: keyof typeof emptyObject, fieldValue: string) =>
     onChange({ ...value, [field]: fieldValue });
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      <OrderField label="Название объекта" required>
+      <OrderField label="Название объекта">
         <input
-          data-testid="quick-object-name"
+          data-testid={testIds ? "quick-object-name" : undefined}
           value={value.name}
           onChange={(event) => set("name", event.target.value)}
           className={orderInputClass}
           placeholder="Склад на Лесной"
         />
       </OrderField>
-      <OrderField label="Тип объекта" required>
+      <OrderField label="Тип объекта">
         <input
           value={value.objectType}
           onChange={(event) => set("objectType", event.target.value)}
@@ -190,9 +198,9 @@ function ObjectFields({
         />
       </OrderField>
       <div className="sm:col-span-2">
-        <OrderField label="Адрес" required>
+        <OrderField label="Адрес">
           <input
-            data-testid="quick-object-address"
+            data-testid={testIds ? "quick-object-address" : undefined}
             value={value.address}
             onChange={(event) => set("address", event.target.value)}
             className={orderInputClass}
@@ -260,12 +268,17 @@ export function QuickOrderWorkspace({
   idempotencyKey,
   defaultVisitDate,
   prefill,
+  canScheduleVisit = true,
+  canWriteFinance = false,
 }: {
   options: OrderCreationOptions;
   idempotencyKey: string;
   defaultVisitDate: string;
   prefill?: IncomingLeadPrefill;
+  canScheduleVisit?: boolean;
+  canWriteFinance?: boolean;
 }) {
+  const workflowSteps = canScheduleVisit ? steps : [...steps.slice(0, 3), { id: "quick-visit-section", title: "Проверка", description: "Проверьте заказ перед сохранением" }];
   const suggestedClientId =
     prefill?.possibleClientId &&
     options.clients.some((client) => client.id === prefill.possibleClientId)
@@ -283,7 +296,7 @@ export function QuickOrderWorkspace({
     options.objects.find((object) => object.clientId === initialClientId)?.id ??
     "";
   const [state, formAction, pending] = useActionState(
-    createQuickOrderAction,
+    createUnifiedOrderAction,
     initialQuickOrderState,
   );
   const [step, setStep] = useState(0);
@@ -329,6 +342,8 @@ export function QuickOrderWorkspace({
     formatPhoneInput(prefill?.phone ?? ""),
   );
   const [contactEmail, setContactEmail] = useState(prefill?.email ?? "");
+  const [extraContacts, setExtraContacts] = useState<ExtraContact[]>([]);
+  const [extraPhones, setExtraPhones] = useState<ExtraPhone[]>([]);
   const [contactMode, setContactMode] = useState<ReferenceMode>(
     initialContactId ? "existing" : "new",
   );
@@ -338,19 +353,52 @@ export function QuickOrderWorkspace({
   );
   const [objectId, setObjectId] = useState(initialObjectId);
   const [newObject, setNewObject] = useState(emptyObject);
+  const [extraObjects, setExtraObjects] = useState<ExtraObject[]>([]);
+  const [secondaryObjectIds, setSecondaryObjectIds] = useState<string[]>([]);
   const [serviceName, setServiceName] = useState(
-    prefill?.serviceInterest || "Дезинсекция и контроль вредителей",
+    prefill?.serviceInterest ?? "",
   );
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
+  const [catalogItemId, setCatalogItemId] = useState<string | null>(null);
+  const [extraOrderItems, setExtraOrderItems] = useState<ExtraOrderItem[]>([]);
+  const [contractProfile, setContractProfile] = useState<ObjectServiceProfile | null>(null);
   const [masterId, setMasterId] = useState("");
   const [selectedMasterRecord, setSelectedMasterRecord] = useState<OrderCreationOptions["masters"][number] | null>(null);
   const [masterPayment, setMasterPayment] = useState("");
   const [orderNotes, setOrderNotes] = useState(prefill?.orderNotes ?? "");
   const [visitDate, setVisitDate] = useState(defaultVisitDate);
   const [visitTime, setVisitTime] = useState("10:00");
-  const [durationMinutes, setDurationMinutes] = useState("120");
+  const [visitEndTime, setVisitEndTime] = useState("12:00");
+  const [scheduleVisit, setScheduleVisit] = useState(false);
+  const [arrivalMode, setArrivalMode] = useState<"fixed" | "window">("fixed");
   const [visitNotes, setVisitNotes] = useState("");
+
+  useEffect(() => {
+    if (objectMode !== "existing" || !objectId) { const timer = window.setTimeout(() => setContractProfile(null), 0); return () => window.clearTimeout(timer); }
+    const controller = new AbortController();
+    fetch(`/api/v1/services/object/${objectId}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => response.ok ? (await response.json() as { data: ObjectServiceProfile }).data : null)
+      .then((profile) => { if (!controller.signal.aborted) setContractProfile(profile); })
+      .catch(() => { if (!controller.signal.aborted) setContractProfile(null); });
+    return () => controller.abort();
+  }, [objectId, objectMode]);
+
+  function applyContractServices() {
+    if (!contractProfile) return;
+    const rows = contractProfile.rates.filter((rate) => rate.lineKind === "contract").map((rate) => {
+      return { catalogItemId: rate.catalogItemId,
+        name: rate.name,
+        quantity: rate.billingBasis === "area" ? (contractProfile.areaSquareMeters ?? contractProfile.objectAreaSquareMeters ?? "") : rate.billingBasis === "quantity" ? rate.quantity || "1" : "1",
+        unitPrice: rate.unitPriceMinor === null ? "" : (rate.unitPriceMinor / 100).toFixed(2) };
+    });
+    if (!rows.length) return;
+    setCatalogItemId(rows[0].catalogItemId);
+    setServiceName(rows[0].name);
+    setQuantity(rows[0].quantity);
+    setUnitPrice(rows[0].unitPrice);
+    setExtraOrderItems(rows.slice(1).map((row) => ({ ...row, id: crypto.randomUUID() })));
+  }
 
   useEffect(() => {
     if (!options.remote || clientMode !== "existing") return;
@@ -448,6 +496,12 @@ export function QuickOrderWorkspace({
   const contactEmailValid = isValidOptionalEmail(contactEmail);
 
   function selectClient(nextClientId: string) {
+    if (nextClientId !== clientId) {
+      setExtraContacts([]);
+      setExtraPhones([]);
+      setExtraObjects([]);
+      setSecondaryObjectIds([]);
+    }
     if (options.remote) {
       setSelectedClientRecord(clientMatches.find((client) => client.id === nextClientId) ?? options.clients.find((client) => client.id === nextClientId));
       setClientId(nextClientId);
@@ -481,36 +535,28 @@ export function QuickOrderWorkspace({
     clientMode === "existing" && availableContacts.length ? contactMode : "new";
   const effectiveObjectMode =
     clientMode === "existing" && availableObjects.length ? objectMode : "new";
+  const hasNewObject = effectiveObjectMode === "new" && Boolean(newObject.name.trim() || newObject.address.trim() || newObject.areaSquareMeters.trim() || newObject.floorCount.trim() || newObject.onsiteContact.trim() || newObject.accessInstructions.trim() || newObject.parkingNotes.trim() || newObject.restrictions.trim());
+  const extraObjectRows = extraObjects.filter((item) => item.name.trim() || item.address.trim() || item.areaSquareMeters.trim() || item.floorCount.trim() || item.onsiteContact.trim());
+  const validObject = (item: typeof emptyObject) => Boolean(item.name.trim().length >= 2 || item.address.trim().length >= 5) && (!item.address.trim() || item.address.trim().length >= 5) && (!item.areaSquareMeters.trim() || /^\d{1,10}(?:[.,]\d{1,2})?$/.test(item.areaSquareMeters.trim())) && (!item.floorCount.trim() || /^\d{1,3}$/.test(item.floorCount.trim()));
+  const validPhone = (value: string) => !value.trim() || value.replace(/\D/g, "").length >= 10;
+  const hasObject = effectiveObjectMode === "existing" ? Boolean(objectId) : hasNewObject && Boolean(newObject.name.trim() || newObject.address.trim());
+  const serviceRows = [{ catalogItemId, name: serviceName, quantity, unitPrice, note: "" }, ...extraOrderItems.map(({ catalogItemId: id, name, quantity: count, unitPrice: price }) => ({ catalogItemId: id, name, quantity: count, unitPrice: price, note: "" }))].filter((item) => item.name.trim());
+  const validServiceRow = (item: typeof serviceRows[number]) => item.name.trim().length >= 2 && parseAmount(item.quantity) > 0 && (!item.unitPrice.trim() || /^\d{1,11}(?:[.,]\d{1,2})?$/.test(item.unitPrice.trim().replace(/\s/g, "")));
   const sectionValidity = [
-    clientMode === "new"
-      ? clientName.trim().length >= 2 &&
-        contactName.trim().length >= 2 &&
-        contactPhone.trim().length >= 7 &&
-        contactEmailValid &&
-        (clientKind === "individual" || /^\d{10}(\d{2})?$/.test(taxId))
-      : Boolean(clientId) &&
-        (effectiveContactMode === "existing"
-          ? Boolean(contactId)
-          : contactName.trim().length >= 2 &&
-            contactPhone.trim().length >= 7 &&
-            contactEmailValid),
-    effectiveObjectMode === "existing"
-      ? Boolean(objectId)
-      : newObject.name.trim().length >= 2 &&
-        newObject.objectType.trim().length >= 2 &&
-        newObject.address.trim().length >= 5,
-    serviceName.trim().length >= 2 &&
-      parseAmount(quantity) > 0 &&
-      parseAmount(unitPrice) > 0 &&
-      (!masterId ||
-        (masterPayment.trim().length > 0 && parseAmount(masterPayment) >= 0)),
-    Boolean(visitDate) &&
-      /^\d{2}:\d{2}$/.test(visitTime) &&
-      Number(durationMinutes) >= 15,
+    (clientMode === "new" ? clientName.trim().length >= 2 : Boolean(clientId)) &&
+      contactEmailValid &&
+      validPhone(contactPhone) &&
+      extraContacts.every((item) => item.name.trim().length >= 2 && isValidOptionalEmail(item.email) && validPhone(item.phone) && item.phones.every((phone) => phone.phone.trim() && validPhone(phone.phone))) &&
+      extraPhones.every((item) => item.phone.trim() && validPhone(item.phone)) &&
+      (!taxId || /^\d{10}(\d{2})?$/.test(taxId)),
+    (!hasNewObject || validObject(newObject)) && extraObjects.every(validObject),
+    serviceRows.every(validServiceRow) && (!masterPayment.trim() || Boolean(masterId) && /^\d{1,11}(?:[.,]\d{1,2})?$/.test(masterPayment.trim().replace(/\s/g, ""))),
+    !canScheduleVisit || !scheduleVisit || (hasObject && Boolean(visitDate) && /^\d{2}:\d{2}$/.test(visitTime) &&
+      (arrivalMode === "fixed" || /^\d{2}:\d{2}$/.test(visitEndTime) && visitEndTime !== visitTime)),
   ] as const;
   const allSectionsValid = sectionValidity.every(Boolean);
   const completedSections = sectionValidity.filter(Boolean).length;
-  const serviceTotal = parseAmount(quantity) * parseAmount(unitPrice);
+  const serviceTotal = parseAmount(quantity) * parseAmount(unitPrice) + extraOrderItems.reduce((sum, item) => sum + parseAmount(item.quantity) * parseAmount(item.unitPrice), 0);
   const draftClientName =
     clientMode === "existing" ? (selectedClient?.name ?? "") : clientName;
   const draftContactName =
@@ -532,58 +578,24 @@ export function QuickOrderWorkspace({
 
   const payload = {
     idempotencyKey,
-    sourceLead: prefill
-      ? { id: prefill.sourceLeadId, expectedVersion: prefill.sourceLeadVersion }
-      : null,
-    client:
-      clientMode === "new"
-        ? {
-            mode: "new" as const,
-            details: {
-              kind: clientKind,
-              legalName: clientName,
-              taxId,
-              contactName,
-              contactPosition,
-              phone: contactPhone,
-              email: contactEmail,
-            },
-            object: newObject,
-          }
-        : {
-            mode: "existing" as const,
-            clientId,
-            contact:
-              effectiveContactMode === "existing"
-                ? { mode: "existing" as const, contactId }
-                : {
-                    mode: "new" as const,
-                    details: {
-                      fullName: contactName,
-                      position: contactPosition,
-                      phone: contactPhone,
-                      email: contactEmail,
-                    },
-                  },
-            object:
-              effectiveObjectMode === "existing"
-                ? { mode: "existing" as const, objectId }
-                : { mode: "new" as const, details: newObject },
-          },
-    order: {
-      assignedMasterId: masterId,
-      masterPayment,
-      notes: orderNotes,
-      services: [{ name: serviceName, quantity, unitPrice, note: "" }],
-      expenses: [],
-    },
-    visit: {
-      localDate: visitDate,
-      localTime: visitTime,
-      durationMinutes,
-      assignedMasterId: masterId,
-      notes: visitNotes,
-    },
+    sourceLead: prefill ? { id: prefill.sourceLeadId, expectedVersion: prefill.sourceLeadVersion } : null,
+    client: clientMode === "new" ? {
+      mode: "new" as const, kind: clientKind, name: clientName, taxId, email: contactEmail,
+      primaryPhone: contactPhone, primaryContactName: contactName, primaryContactPosition: contactPosition,
+    } : { mode: "existing" as const, clientId, existingContactId: effectiveContactMode === "existing" && contactId ? contactId : null },
+    phones: extraPhones.map(({ label, phone }) => ({ label, phone })),
+    contacts: [
+      ...(clientMode === "existing" && effectiveContactMode === "new" && (contactName.trim() || contactPhone.trim()) ? [{ name: contactName.trim() || draftClientName, position: contactPosition, phone: contactPhone, email: contactEmail, phones: [] }] : []),
+      ...extraContacts.map(({ name, position, phone, email, phones }) => ({ name, position, phone, email, phones: phones.map(({ label, phone: number }) => ({ label, phone: number })) })),
+    ],
+    objects: [...(effectiveObjectMode === "new" && hasNewObject ? [newObject] : []), ...extraObjectRows.map((item) => ({ name: item.name, objectType: item.objectType, address: item.address, areaSquareMeters: item.areaSquareMeters, floorCount: item.floorCount, onsiteContact: item.onsiteContact, accessInstructions: item.accessInstructions, parkingNotes: item.parkingNotes, restrictions: item.restrictions, riskLevel: item.riskLevel, infestationLevel: item.infestationLevel }))],
+    existingObjectIds: effectiveObjectMode === "existing" && objectId ? [objectId, ...secondaryObjectIds.filter((id) => id !== objectId)] : [],
+    services: serviceRows,
+    manualPrice: "",
+    assignedMasterId: masterId || null,
+    masterPayment: canWriteFinance ? masterPayment : "",
+    notes: orderNotes,
+    visit: canScheduleVisit && scheduleVisit ? { localDate: visitDate, localTime: visitTime, arrivalMode, endTime: arrivalMode === "window" ? visitEndTime : null, notes: visitNotes } : null,
   };
 
   function goToSection(index: number) {
@@ -606,10 +618,10 @@ export function QuickOrderWorkspace({
       return;
     }
     setStepError(null);
-    goToSection(Math.min(steps.length - 1, step + 1));
+    goToSection(Math.min(workflowSteps.length - 1, step + 1));
   }
 
-  const activeSectionId = steps[step].id;
+  const activeSectionId = workflowSteps[step].id;
 
   useEffect(() => {
     document.getElementById(activeSectionId)?.querySelector("h2")?.focus();
@@ -630,8 +642,8 @@ export function QuickOrderWorkspace({
             {state.result.orderNumber} готов к работе
           </h2>
           <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--muted)]">
-            Клиент, объект, заказ, выезд и напоминание сохранены. Теперь можно
-            открыть карточку и сразу отправить её мастеру.
+            Заказ сохранён. Заполненные сведения доступны в его карточке;
+            остальные можно добавить позже.
           </p>
         </div>
         <dl className="mt-6 grid gap-x-6 border-t border-[var(--line)] pt-4 sm:grid-cols-2">
@@ -640,34 +652,31 @@ export function QuickOrderWorkspace({
             label="Объект"
             value={[draftObjectName, draftAddress].filter(Boolean).join(" · ")}
           />
-          <SummaryLine
-            label="Первый выезд"
-            value={`${formatDraftDate(visitDate)} · ${visitTime} · ${durationMinutes} мин`}
-          />
+          {state.result.visitId ? <SummaryLine label="Первый выезд" value={`${formatDraftDate(visitDate)} · ${visitTime}${arrivalMode === "window" ? `–${visitEndTime}` : ""}`} /> : null}
           <SummaryLine
             label="Мастер"
             value={selectedMaster?.name ?? "Пока не назначен"}
           />
           <SummaryLine
             label="Согласовано"
-            value={formatMoney(serviceTotal)}
+            value={serviceRows.length && serviceRows.every((item) => item.unitPrice.trim()) ? formatMoney(serviceTotal) : "Цена уточняется"}
             strong
           />
         </dl>
         <div className="mt-6 grid gap-3 border-t border-[var(--line)] pt-5 sm:grid-cols-2">
-          <VisitDispatchCardButton
+          {state.result.visitId ? <VisitDispatchCardButton
             visitId={state.result.visitId}
             className="!border-0 h-12 rounded-[12px] bg-[var(--accent)] font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-strong)]"
-          />
+          /> : null}
           <Link
             href={`/orders/${state.result.orderId}`}
             className="focus-ring flex h-12 items-center justify-center rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"
           >
             Открыть заказ
           </Link>
-          <Link href="/calendar" className="back-link justify-center">
+          {state.result.visitId ? <Link href="/calendar" className="back-link justify-center">
             Открыть календарь
-          </Link>
+          </Link> : null}
           <a
             href={prefill ? "/inbox" : "/quick-order"}
             className="focus-ring flex h-11 items-center justify-center rounded-[12px] text-xs text-[var(--muted)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--accent-ink)] sm:col-span-2"
@@ -712,13 +721,13 @@ export function QuickOrderWorkspace({
         <div className="min-w-0">
           <p className="eyebrow">
             {prefill ? "Проверка входящей заявки" : "Оформление"} / шаг{" "}
-            {step + 1} из {steps.length}
+            {step + 1} из {workflowSteps.length}
           </p>
           <h1 className="mt-2 font-display text-[clamp(1.65rem,1.35rem+0.8vw,2.25rem)] font-medium tracking-[-0.045em] text-[var(--text)]">
             {prefill ? "Уточнить и принять заявку" : "Оформить заказ"}
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">
-            Четыре коротких шага: клиент, объект, работы и первый выезд.
+            Для создания заказа достаточно имени или названия заказчика. Остальные данные можно добавить позже.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
@@ -734,7 +743,7 @@ export function QuickOrderWorkspace({
 
       <nav aria-label="Маршрут оформления" className="border-b border-[var(--line)] pb-3">
         <ol aria-label="Этапы оформления" className="grid grid-cols-4 gap-1">
-          {steps.map((entry, index) => {
+          {workflowSteps.map((entry, index) => {
             const active = index === step;
             const done = index < step && sectionValidity[index];
             const available =
@@ -915,7 +924,7 @@ export function QuickOrderWorkspace({
                       </div>
                     ) : (
                       <div className="grid gap-4 sm:grid-cols-2">
-                        <OrderField label="Контактное лицо" required>
+                        <OrderField label="Контактное лицо">
                           <input
                             value={contactName}
                             onChange={(event) =>
@@ -925,7 +934,7 @@ export function QuickOrderWorkspace({
                             placeholder="Имя и фамилия"
                           />
                         </OrderField>
-                        <OrderField label="Телефон" required>
+                        <OrderField label="Телефон">
                           <input
                             inputMode="tel"
                             value={contactPhone}
@@ -1006,7 +1015,7 @@ export function QuickOrderWorkspace({
                       />
                     </OrderField>
                     {clientKind === "legal_entity" ? (
-                      <OrderField label="ИНН" required>
+                      <OrderField label="ИНН">
                         <input
                           data-testid="quick-tax-id"
                           inputMode="numeric"
@@ -1015,11 +1024,11 @@ export function QuickOrderWorkspace({
                             setTaxId(event.target.value.replace(/\D/g, ""))
                           }
                           className={orderInputClass}
-                          placeholder="10 или 12 цифр"
+                          placeholder="10 или 12 цифр, если есть"
                         />
                       </OrderField>
                     ) : null}
-                    <OrderField label="Контактное лицо" required>
+                    <OrderField label="Контактное лицо">
                       <input
                         data-testid="quick-contact-name"
                         value={contactName}
@@ -1028,7 +1037,7 @@ export function QuickOrderWorkspace({
                         placeholder="Имя и фамилия"
                       />
                     </OrderField>
-                    <OrderField label="Телефон" required>
+                    <OrderField label="Телефон">
                       <input
                         data-testid="quick-contact-phone"
                         inputMode="tel"
@@ -1063,6 +1072,22 @@ export function QuickOrderWorkspace({
                 )}
               </div>
             </div>
+            <div className="mt-6 border-t border-[var(--line)] pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><h3 className="text-sm font-semibold text-[var(--text)]">Ещё контакты и номера</h3><p className="mt-1 text-xs text-[var(--muted)]">Сохраняются вместе с заказом и появляются в карточке клиента.</p></div>
+                <div className="flex flex-wrap gap-2"><button type="button" disabled={extraContacts.length >= 19} onClick={() => setExtraContacts((current) => [...current, { id: crypto.randomUUID(), name: "", position: "", phone: "", email: "", phones: [] }])} className="focus-ring inline-flex min-h-10 items-center gap-1 rounded-xl border border-[var(--line)] px-3 text-xs disabled:opacity-40"><Plus className="size-4" /> Контакт</button><button type="button" disabled={extraPhones.length >= 20} onClick={() => setExtraPhones((current) => [...current, { id: crypto.randomUUID(), label: "", phone: "" }])} className="focus-ring inline-flex min-h-10 items-center gap-1 rounded-xl border border-[var(--line)] px-3 text-xs disabled:opacity-40"><Plus className="size-4" /> Номер</button></div>
+              </div>
+              {extraContacts.map((item, index) => <div key={item.id} className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-3"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold">Контакт {index + 2}</span><button type="button" aria-label={`Удалить дополнительный контакт ${index + 1}`} onClick={() => setExtraContacts((current) => current.filter((entry) => entry.id !== item.id))} className="focus-ring grid size-9 place-items-center rounded-lg"><X className="size-4" /></button></div><div className="grid gap-3 sm:grid-cols-2"><OrderField label="Имя"><input value={item.name} onChange={(event) => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value } : entry))} className={orderInputClass} /></OrderField><OrderField label="Телефон"><input value={item.phone} inputMode="tel" onChange={(event) => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, phone: formatPhoneInput(event.target.value) } : entry))} className={orderInputClass} /></OrderField><OrderField label="Должность"><input value={item.position} onChange={(event) => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, position: event.target.value } : entry))} className={orderInputClass} /></OrderField><OrderField label="Email"><input type="email" value={item.email} onChange={(event) => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, email: event.target.value } : entry))} className={orderInputClass} /></OrderField></div>
+                {item.phones.map((phone, phoneIndex) => <div key={phone.id} className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto]">
+                  <OrderField label="Тип номера"><input value={phone.label} onChange={(event) => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, phones: entry.phones.map((number) => number.id === phone.id ? { ...number, label: event.target.value } : number) } : entry))} className={orderInputClass} placeholder="Рабочий, личный" /></OrderField>
+                  <OrderField label="Дополнительный номер"><input value={phone.phone} inputMode="tel" onChange={(event) => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, phones: entry.phones.map((number) => number.id === phone.id ? { ...number, phone: formatPhoneInput(event.target.value) } : number) } : entry))} className={orderInputClass} /></OrderField>
+                  <button type="button" aria-label={`Удалить номер контакта ${phoneIndex + 1}`} onClick={() => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, phones: entry.phones.filter((number) => number.id !== phone.id) } : entry))} className="focus-ring grid size-10 place-items-center self-end rounded-lg"><X className="size-4" /></button>
+                </div>)}
+                <button type="button" disabled={item.phones.length >= 10} onClick={() => setExtraContacts((current) => current.map((entry) => entry.id === item.id ? { ...entry, phones: [...entry.phones, { id: crypto.randomUUID(), label: "", phone: "" }] } : entry))} className="focus-ring mt-3 inline-flex min-h-10 items-center gap-1 rounded-xl border border-[var(--line)] px-3 text-xs disabled:opacity-40"><Plus className="size-4" /> Ещё номер контакта</button>
+              </div>)}
+              {extraPhones.map((item, index) => <div key={item.id} className="mt-3 grid gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto]"><OrderField label="Тип номера"><input value={item.label} onChange={(event) => setExtraPhones((current) => current.map((entry) => entry.id === item.id ? { ...entry, label: event.target.value } : entry))} className={orderInputClass} placeholder="Рабочий, личный" /></OrderField><OrderField label="Номер"><input value={item.phone} inputMode="tel" onChange={(event) => setExtraPhones((current) => current.map((entry) => entry.id === item.id ? { ...entry, phone: formatPhoneInput(event.target.value) } : entry))} className={orderInputClass} /></OrderField><button type="button" aria-label={`Удалить дополнительный номер ${index + 1}`} onClick={() => setExtraPhones((current) => current.filter((entry) => entry.id !== item.id))} className="focus-ring grid size-10 place-items-center self-end rounded-lg"><X className="size-4" /></button></div>)}
+            </div>
+            <p className="mt-6 text-xs text-[var(--muted)]">Для заказа достаточно имени или названия. Контактные данные можно добавить позже.</p>
           </section>
 
           <section
@@ -1116,12 +1141,18 @@ export function QuickOrderWorkspace({
                       <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
                         {selectedObject.address}
                       </p>
+                      {contractProfile?.rates.some((rate) => rate.lineKind === "contract") ? <div className="mt-4 border-t border-[var(--line)] pt-4"><p className="text-xs text-[var(--muted)]">По договору: {contractProfile.rates.filter((rate) => rate.lineKind === "contract").map((rate) => rate.name).join(" · ")}</p><button type="button" onClick={applyContractServices} className="focus-ring mt-3 min-h-10 rounded-xl border border-[var(--line)] bg-white px-3 text-xs font-semibold">Подставить услуги и цены по договору</button></div> : null}
                     </div>
                   ) : null}
                 </div>
               ) : (
                 <ObjectFields value={newObject} onChange={setNewObject} />
               )}
+            </div>
+            <div className="mt-6 border-t border-[var(--line)] pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-[var(--text)]">Другие объекты заказа</h3><p className="mt-1 text-xs text-[var(--muted)]">Можно привязать несколько объектов сразу.</p></div><button type="button" disabled={extraObjects.length >= 19} onClick={() => setExtraObjects((current) => [...current, { ...emptyObject, id: crypto.randomUUID() }])} className="focus-ring inline-flex min-h-10 items-center gap-1 rounded-xl border border-[var(--line)] px-3 text-xs disabled:opacity-40"><Plus className="size-4" /> Новый объект</button></div>
+              {effectiveObjectMode === "existing" && availableObjects.filter((item) => item.id !== objectId).length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{availableObjects.filter((item) => item.id !== objectId).map((item) => <label key={item.id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] px-3 text-xs"><input type="checkbox" checked={secondaryObjectIds.includes(item.id)} onChange={(event) => setSecondaryObjectIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} className="size-4 accent-[var(--accent)]" /><span className="min-w-0 truncate">{item.name}{item.address ? ` · ${item.address}` : ""}</span></label>)}</div> : null}
+              {extraObjects.map((item, index) => <div key={item.id} className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-3"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold">Объект {index + 2}</span><button type="button" aria-label={`Удалить дополнительный объект ${index + 1}`} onClick={() => setExtraObjects((current) => current.filter((entry) => entry.id !== item.id))} className="focus-ring grid size-9 place-items-center rounded-lg"><X className="size-4" /></button></div><ObjectFields value={item} testIds={false} onChange={(next) => setExtraObjects((current) => current.map((entry) => entry.id === item.id ? { ...next, id: item.id } : entry))} /></div>)}
             </div>
           </section>
 
@@ -1139,18 +1170,31 @@ export function QuickOrderWorkspace({
               title="Что нужно сделать"
               description="Зафиксируйте работу, стоимость и исполнителя. Финансовые значения сохранятся снимком."
             />
+            <div className="mb-4 flex flex-wrap items-end gap-3">
+              <div className="min-w-60 flex-1"><ServiceChoice value={catalogItemId ?? ""} items={options.catalogItems ?? []} profile={contractProfile} onChange={(value, selectedItem) => {
+                const item = selectedItem ?? options.catalogItems?.find((candidate) => candidate.id === value);
+                setCatalogItemId(item?.id ?? null);
+                if (!item) return;
+                const choice = resolveServiceChoice(item, contractProfile);
+                setCatalogItemId(choice.catalogItemId);
+                setServiceName(choice.name);
+                setQuantity(choice.quantity);
+                setUnitPrice(choice.unitPrice);
+              }} /></div>
+              <Link href="/services" target="_blank" className="inline-flex min-h-11 items-center rounded-xl border border-[var(--line)] px-4 text-sm">Открыть услуги</Link>
+            </div>
             <div className="grid gap-4 border-b border-[var(--line)] pb-6 sm:grid-cols-[minmax(0,2fr)_minmax(4rem,0.5fr)_minmax(6rem,0.8fr)_minmax(6rem,0.8fr)]">
               <div>
-                <OrderField label="Услуга" required>
+                <OrderField label="Товар или услуга">
                   <input
                     data-testid="quick-service-name"
                     value={serviceName}
-                    onChange={(event) => setServiceName(event.target.value)}
+                    onChange={(event) => { setServiceName(event.target.value); setCatalogItemId(null); }}
                     className={orderInputClass}
                   />
                 </OrderField>
               </div>
-              <OrderField label="Количество" required>
+              <OrderField label="Количество">
                 <input
                   inputMode="decimal"
                   value={quantity}
@@ -1158,22 +1202,34 @@ export function QuickOrderWorkspace({
                   className={orderInputClass}
                 />
               </OrderField>
-              <OrderField label="Цена, ₽" required>
+              <OrderField label="Цена за единицу, ₽">
                 <input
                   data-testid="quick-unit-price"
                   inputMode="decimal"
                   value={unitPrice}
                   onChange={(event) => setUnitPrice(event.target.value)}
                   className={orderInputClass}
-                  placeholder="25000"
+                    placeholder="Уточняется"
                 />
               </OrderField>
+              {options.catalogItems?.find((item) => item.id === catalogItemId)?.priceMode === "variable" && !unitPrice && <p className="text-xs text-[var(--muted)] sm:col-span-4">Для этой позиции цена уточняется. Если у объекта сохранена ставка, она подставится при выборе.</p>}
               <div className="self-end pb-3">
                 <p className="mb-3 text-xs text-[var(--muted)]">Сумма</p>
                 <output className="text-lg font-semibold text-[var(--text)]">
-                  {formatMoney(serviceTotal)}
+                  {serviceRows.length && serviceRows.every((item) => item.unitPrice.trim()) ? formatMoney(serviceTotal) : "Цена уточняется"}
                 </output>
               </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {extraOrderItems.map((item, index) => <div key={item.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-3">
+                <div className="mb-3 flex items-center justify-between"><span className="text-sm font-medium">Дополнительная позиция {index + 1}</span><button type="button" onClick={() => setExtraOrderItems((current) => current.filter((candidate) => candidate.id !== item.id))} className="text-sm text-[var(--muted)]">Удалить</button></div>
+                <div className="mb-3"><ServiceChoice label={`Позиция из каталога ${index + 2}`} value={item.catalogItemId ?? ""} items={options.catalogItems ?? []} profile={contractProfile} onChange={(value, selectedItem) => {
+                  const selected = selectedItem ?? options.catalogItems?.find((candidate) => candidate.id === value);
+                  setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? selected ? { ...candidate, ...resolveServiceChoice(selected, contractProfile) } : { ...candidate, catalogItemId: null } : candidate));
+                }} /></div>
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_6rem_8rem]"><input aria-label={`Название позиции ${index + 2}`} value={item.name} onChange={(event) => setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, name: event.target.value, catalogItemId: null } : candidate))} placeholder="Название" className={orderInputClass} /><input aria-label={`Количество позиции ${index + 2}`} value={item.quantity} onChange={(event) => setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, quantity: event.target.value } : candidate))} inputMode="decimal" placeholder="Кол-во" className={orderInputClass} /><input aria-label={`Цена позиции ${index + 2}`} value={item.unitPrice} onChange={(event) => setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, unitPrice: event.target.value } : candidate))} inputMode="decimal" placeholder="Цена, ₽" className={orderInputClass} /></div>
+              </div>)}
+              {extraOrderItems.length < 99 && <button type="button" onClick={() => setExtraOrderItems((current) => [...current, { id: crypto.randomUUID(), catalogItemId: null, name: "", quantity: "1", unitPrice: "" }])} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--line)] px-4 text-sm"><Plus className="size-4" /> Добавить товар или услугу</button>}
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <OrderPicker
@@ -1197,7 +1253,7 @@ export function QuickOrderWorkspace({
                   })),
                 ]}
               />
-              <OrderField label="Выплата мастеру" required={Boolean(masterId)}>
+              {canWriteFinance ? <OrderField label="Выплата мастеру" required={Boolean(masterId)}>
                 <input
                   inputMode="decimal"
                   disabled={!masterId}
@@ -1206,7 +1262,7 @@ export function QuickOrderWorkspace({
                   className={orderInputClass}
                   placeholder="4000"
                 />
-              </OrderField>
+              </OrderField> : null}
               <div className="sm:col-span-2">
                 <OrderField label="Комментарий к заказу">
                   <textarea
@@ -1231,40 +1287,39 @@ export function QuickOrderWorkspace({
           >
             <SectionIntro
               number="04"
-              title="Когда выезжать"
-              description="Назначьте первый выезд. Он сразу появится в календаре и создаст напоминание."
+              title={canScheduleVisit ? "Когда выезжать" : "Проверьте заказ"}
+              description={canScheduleVisit ? "Первый выезд можно назначить сейчас или добавить позже из заказа." : "Сохраните заказ. Сотрудник с доступом к календарю сможет назначить выезд позже."}
             />
-            <div className="grid gap-4 sm:grid-cols-3">
-              <OrderField label="Дата" required>
+            {canScheduleVisit ? <>
+            <label className="mb-5 flex cursor-pointer items-center gap-3 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] p-4 text-sm font-medium">
+              <input type="checkbox" checked={scheduleVisit} onChange={(event) => setScheduleVisit(event.target.checked)} className="size-4 accent-[var(--accent)]" />
+              Запланировать первый выезд
+            </label>
+            {scheduleVisit ? <div className="grid gap-4 sm:grid-cols-3">
+              <div className="flex gap-2 sm:col-span-3" role="group" aria-label="Тип времени выезда">
+                <button type="button" aria-pressed={arrivalMode === "fixed"} onClick={() => setArrivalMode("fixed")} className={`focus-ring min-h-11 rounded-xl border px-4 text-xs font-semibold ${arrivalMode === "fixed" ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "border-[var(--line)]"}`}>Точное время</button>
+                <button type="button" aria-pressed={arrivalMode === "window"} onClick={() => setArrivalMode("window")} className={`focus-ring min-h-11 rounded-xl border px-4 text-xs font-semibold ${arrivalMode === "window" ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "border-[var(--line)]"}`}>Интервал</button>
+              </div>
+              <OrderField label="Дата">
                 <DateInput
                   data-testid="quick-visit-date"
                   name="visitDate"
                   value={visitDate}
                   onChange={setVisitDate}
-                  required
                 />
               </OrderField>
-              <OrderField label="Время" required>
+              <OrderField label={arrivalMode === "fixed" ? "Время прибытия" : "Начало интервала"}>
                 <TimeInput
                   data-testid="quick-visit-time"
                   name="visitTime"
                   value={visitTime}
                   onChange={setVisitTime}
-                  required
                 />
               </OrderField>
-              <OrderField label="Длительность, мин" required>
-                <input
-                  inputMode="numeric"
-                  value={durationMinutes}
-                  onChange={(event) => setDurationMinutes(event.target.value)}
-                  className={orderInputClass}
-                />
-              </OrderField>
+              {arrivalMode === "window" ? <OrderField label="Окончание интервала"><TimeInput name="visitEndTime" value={visitEndTime} onChange={setVisitEndTime} /></OrderField> : null}
               <div className="rounded-[14px] bg-[var(--accent-soft)] p-5 sm:col-span-3">
                 <p className="text-lg font-semibold text-[var(--text)]">
-                  {formatDraftDate(visitDate)} · {visitTime} · {durationMinutes}{" "}
-                  мин
+                  {formatDraftDate(visitDate)} · {visitTime}{arrivalMode === "window" ? `–${visitEndTime}${visitEndTime < visitTime ? " · следующий день" : ""}` : ""}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
                   {selectedMaster
@@ -1282,7 +1337,13 @@ export function QuickOrderWorkspace({
                   />
                 </OrderField>
               </div>
-            </div>
+            </div> : <p className="text-sm text-[var(--muted)]">Выезд не создаётся. Его можно назначить в карточке заказа, когда дата станет известна.</p>}
+            </> : <div className="rounded-[14px] bg-[var(--surface-inset)] p-5 text-sm leading-6 text-[var(--text-secondary)]">
+              <p><strong className="text-[var(--text)]">Клиент:</strong> {draftClientName}</p>
+              <p><strong className="text-[var(--text)]">Объект:</strong> {draftObjectName || "Можно добавить позже"}</p>
+              <p><strong className="text-[var(--text)]">Услуги:</strong> {serviceRows.length ? serviceRows.map((item) => item.name).join(" · ") : "Можно добавить позже"}</p>
+              <p><strong className="text-[var(--text)]">Стоимость:</strong> {serviceRows.length && serviceRows.every((item) => item.unitPrice.trim()) ? formatMoney(serviceTotal) : "Уточняется"}</p>
+            </div>}
           </section>
 
           <footer className="relative border-t border-[var(--line)] p-5 sm:px-6">
@@ -1299,7 +1360,7 @@ export function QuickOrderWorkspace({
                   </span>
                 </span>
                 <strong className="shrink-0 text-base text-[var(--text)]">
-                  {formatMoney(serviceTotal)}
+                  {serviceRows.length && serviceRows.every((item) => item.unitPrice.trim()) ? formatMoney(serviceTotal) : "Цена уточняется"}
                 </strong>
               </summary>
               <dl className="mt-3 border-t border-[var(--line)] pt-2">
@@ -1309,14 +1370,14 @@ export function QuickOrderWorkspace({
                     .filter(Boolean)
                     .join(" · ")}
                 />
-                <SummaryLine label="Работа" value={serviceName} />
+                <SummaryLine label="Позиции" value={serviceRows.length ? serviceRows.map((item) => item.name).join(" · ") : "Пока не указаны"} />
                 <SummaryLine
                   label="Мастер"
                   value={selectedMaster?.name ?? "Назначить позже"}
                 />
                 <SummaryLine
                   label="Выезд"
-                  value={`${formatDraftDate(visitDate)} · ${visitTime}`}
+                  value={scheduleVisit ? `${formatDraftDate(visitDate)} · ${visitTime}${arrivalMode === "window" ? `–${visitEndTime}` : ""}` : "Пока не назначен"}
                 />
               </dl>
             </details>
@@ -1349,7 +1410,7 @@ export function QuickOrderWorkspace({
                 <ArrowLeft className="size-4" />
                 <span className="hidden sm:inline">Назад</span>
               </button>
-              {step < steps.length - 1 ? (
+              {step < workflowSteps.length - 1 ? (
                 <button
                   key="continue"
                   data-testid="quick-next"
@@ -1377,7 +1438,7 @@ export function QuickOrderWorkspace({
                   ) : (
                     <>
                       <Wrench className="size-4" />
-                      Создать заказ и выезд
+                      Создать заказ
                     </>
                   )}
                 </button>
@@ -1401,7 +1462,7 @@ export function QuickOrderWorkspace({
                   0{step + 1} / 04
                 </p>
                 <p className="mt-2 text-[10px] text-[var(--muted)]">
-                  {completedSections} из 4 разделов заполнено
+                  {completedSections} из 4 шагов проверено
                 </p>
               </div>
               <span
@@ -1425,7 +1486,7 @@ export function QuickOrderWorkspace({
                   .join(" · ")}
                 strong
               />
-              <SummaryLine label="Работа" value={serviceName} />
+              <SummaryLine label="Позиции" value={serviceRows.length ? serviceRows.map((item) => item.name).join(" · ") : "Пока не указаны"} />
               <SummaryLine
                 label="Мастер"
                 value={selectedMaster?.name ?? "Назначить позже"}
@@ -1440,7 +1501,7 @@ export function QuickOrderWorkspace({
                 Итого
               </span>
               <strong className="font-display text-xl font-semibold text-[var(--text)]">
-                {serviceTotal > 0 ? formatMoney(serviceTotal) : "0 ₽"}
+                {serviceRows.length && serviceRows.every((item) => item.unitPrice.trim()) ? formatMoney(serviceTotal) : "Цена уточняется"}
               </strong>
             </div>
             <p
@@ -1453,7 +1514,7 @@ export function QuickOrderWorkspace({
               )}
               {allSectionsValid
                 ? "Черновик готов к созданию."
-                : "Заполните обязательные данные на каждом шаге."}
+                : "Укажите заказчика и проверьте заполненные поля."}
             </p>
           </div>
         </aside>

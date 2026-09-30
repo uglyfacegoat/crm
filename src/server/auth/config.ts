@@ -15,6 +15,15 @@ export function getThrottleSecret() {
   return secretSchema.parse(process.env.AUTH_THROTTLE_SECRET);
 }
 
+export function emailOtpEnabled() {
+  const configuredValue = process.env.AUTH_EMAIL_OTP_ENABLED;
+  return configuredValue === undefined ? false : booleanEnvironmentSchema.parse(configuredValue) === "true";
+}
+
+export function getEmailOtpSecret() {
+  return secretSchema.parse(process.env.AUTH_EMAIL_OTP_SECRET);
+}
+
 export function shouldUseSecureSessionCookie() {
   const configuredValue = process.env.AUTH_COOKIE_SECURE;
   if (configuredValue) return booleanEnvironmentSchema.parse(configuredValue) === "true";

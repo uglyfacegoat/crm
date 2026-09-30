@@ -788,12 +788,14 @@ export function CalendarWorkspace({
   unassignedOrders,
   anchorDate,
   initialView,
+  focusedOrderId,
   canWrite,
 }: {
   visits: ServiceVisit[];
   unassignedOrders: OrderListItem[];
   anchorDate: string;
   initialView: CalendarView;
+  focusedOrderId?: string | null;
   canWrite: boolean;
 }) {
   const [calendarVisits, setCalendarVisits] = useState(visits);
@@ -820,6 +822,8 @@ export function CalendarWorkspace({
   const [ordersPanelOpen, setOrdersPanelOpen] = useState(true);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const calendarHref = (date: string, nextView: CalendarView) =>
+    `/calendar?date=${date}&view=${nextView}${focusedOrderId ? `&order=${focusedOrderId}` : ""}`;
   const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
   const days = useMemo(
     () =>
@@ -1065,7 +1069,7 @@ export function CalendarWorkspace({
           text: `Выезд перенесён на ${localDate}, ${localTime}. Напоминание обновлено.`,
         });
         if (!days.some((day) => day.date === localDate))
-          router.push(`/calendar?date=${localDate}&view=${view}`);
+          router.push(calendarHref(localDate, view));
       } else {
         setMessage({ tone: "error", text: result.message });
       }
@@ -1192,6 +1196,10 @@ export function CalendarWorkspace({
 
   return (
     <div className="mt-[clamp(1.2rem,0.9rem+0.7vw,2rem)]">
+      {focusedOrderId ? <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-xs">
+        <span>Календарь заказа {calendarVisits.find((visit) => visit.orderId === focusedOrderId)?.orderNumber ?? availableOrders.find((order) => order.id === focusedOrderId)?.number ?? ""}</span>
+        <Link href="/calendar" className="focus-ring font-semibold underline">Весь календарь</Link>
+      </div> : null}
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 flex-wrap gap-2">
           <div role="group" aria-label="Вид календаря" className="flex max-w-full overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--surface-raised)] p-1">
@@ -1202,7 +1210,7 @@ export function CalendarWorkspace({
                 aria-pressed={view === option}
                 onClick={() => {
                   setView(option);
-                  router.replace(`/calendar?date=${selectedDate}&view=${option}`, {
+                  router.replace(calendarHref(selectedDate, option), {
                     scroll: false,
                   });
                 }}
@@ -1220,7 +1228,7 @@ export function CalendarWorkspace({
           </div>
           <div className="flex items-center rounded-xl border border-[var(--line)] bg-[var(--surface)]">
             <Link
-              href={`/calendar?date=${navigation.previous}&view=${view}`}
+              href={calendarHref(navigation.previous, view)}
               aria-label={`Предыдущий ${navigation.unit}`}
               className="focus-ring grid size-10 place-items-center text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"
             >
@@ -1230,7 +1238,7 @@ export function CalendarWorkspace({
               {navigation.label}
             </span>
             <Link
-              href={`/calendar?date=${navigation.next}&view=${view}`}
+              href={calendarHref(navigation.next, view)}
               aria-label={`Следующий ${navigation.unit}`}
               className="focus-ring grid size-10 place-items-center text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"
             >
@@ -1408,7 +1416,7 @@ export function CalendarWorkspace({
                     onClick={() => {
                       setSelectedDate(day.date);
                       setView("day");
-                      router.replace(`/calendar?date=${day.date}&view=day`, {
+                      router.replace(calendarHref(day.date, "day"), {
                         scroll: false,
                       });
                     }}
@@ -1464,7 +1472,7 @@ export function CalendarWorkspace({
             onSelectDay={(date) => {
               setSelectedDate(date);
               setView("day");
-              router.replace(`/calendar?date=${date}&view=day`, {
+              router.replace(calendarHref(date, "day"), {
                 scroll: false,
               });
             }}

@@ -40,7 +40,7 @@ export async function createTaskAction(_previous: CreateTaskState, formData: For
     localDate: formData.get("localDate"),
     localTime: formData.get("localTime"),
   });
-  if (!parsed.success) return { status: "error", message: "Проверьте название и срок задачи.", fieldErrors: fieldErrors(parsed.error), taskId: null };
+  if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "Проверьте поля задачи.", fieldErrors: fieldErrors(parsed.error), taskId: null };
   try {
     const taskId = await createTask(member, parsed.data);
     revalidatePath("/");

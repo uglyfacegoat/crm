@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Building2, CalendarDays, ContactRound, Mail, MapPin, Phone, ShieldAlert, UserRound } from "lucide-react";
-import { ClientDetailActions } from "./client-detail-dialogs";
+import { ClientDetailActions, CompleteClientRecord } from "./client-detail-dialogs";
 import { BackLink } from "@/components/ui/back-link";
 import type { ClientDetail } from "@/server/clients/types";
 
@@ -17,7 +17,7 @@ function EmptySection({ children }: { children: React.ReactNode }) {
   return <div className="grid min-h-40 place-items-center rounded-[14px] border border-dashed border-[var(--line-strong)] p-6 text-center text-xs leading-5 text-[var(--muted)]">{children}</div>;
 }
 
-export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
+export function ClientDetailWorkspace({ client, notes }: { client: ClientDetail; notes?: React.ReactNode }) {
   const createdAt = new Intl.DateTimeFormat("ru-RU", { dateStyle: "long" }).format(new Date(client.createdAt));
 
   return (
@@ -45,6 +45,8 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
         <DetailStat label="Уровень риска" value={client.objects.length ? `${Math.max(...client.objects.map((object) => object.riskLevel ?? 0))}/5` : "—"} icon={ShieldAlert} />
       </section>
 
+      {notes ? <div className="mt-5">{notes}</div> : null}
+
       <div className="mt-5 grid gap-5 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.7fr)]">
         <section className="surface-panel p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3"><div><h2 className="font-display text-base font-semibold text-[var(--text)]">Объекты клиента</h2><p className="mt-1 text-[10px] text-[var(--muted)]">Адреса для заказов, выездов и договоров</p></div></div>
@@ -53,8 +55,9 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
               {client.objects.map((object) => (
                 <article key={object.id} className="inset-panel p-4">
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--text)]">{object.name}</p><p className="mt-1 text-[10px] text-[var(--muted)]">{object.objectType}</p></div><span className="shrink-0 rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[9px] text-[var(--muted)]">риск {object.riskLevel ?? "—"}/5</span></div>
-                  <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--text-secondary)]"><MapPin className="mt-0.5 size-3.5 shrink-0 text-[var(--accent)]" />{object.address}</p>
+                  <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-[var(--text-secondary)]"><MapPin className="mt-0.5 size-3.5 shrink-0 text-[var(--accent)]" />{object.address || "Адрес уточняется"}</p>
                   <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-3 text-[10px] text-[var(--muted)]"><span>{object.areaSquareMeters ? `${object.areaSquareMeters.toLocaleString("ru-RU")} м²` : "Площадь не указана"}</span><span>{object.floorCount ? `${object.floorCount} эт.` : "Этажи не указаны"}</span></div>
+                  <CompleteClientRecord clientId={client.id} object={object} />
                   {object.onsiteContact ? <p className="mt-3 text-[10px] text-[var(--muted)]">На объекте: {object.onsiteContact}</p> : null}
                 </article>
               ))}
@@ -69,11 +72,12 @@ export function ClientDetailWorkspace({ client }: { client: ClientDetail }) {
             <div className="mt-4 divide-y divide-[var(--line)]">
               {client.contacts.map((contact) => (
                 <article key={contact.id} className="py-4 first:pt-0 last:pb-0">
-                  <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--surface-soft)] text-[var(--support)]"><UserRound className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-xs font-semibold text-[var(--text)]">{contact.fullName}</p>{contact.isPrimary ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[8px] uppercase tracking-[0.08em] text-[var(--accent-ink)]">основной</span> : null}</div>{contact.position ? <p className="mt-1 text-[10px] text-[var(--muted)]">{contact.position}</p> : null}<a href={`tel:${contact.phone}`} className="focus-ring mt-3 flex w-fit items-center gap-2 rounded text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)]"><Phone className="size-3.5 text-[var(--support)]" />{contact.phone}</a>{contact.email ? <a href={`mailto:${contact.email}`} className="focus-ring mt-2 flex w-fit items-center gap-2 rounded text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)]"><Mail className="size-3.5 text-[var(--support)]" />{contact.email}</a> : null}</div></div>
+                  <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--surface-soft)] text-[var(--support)]"><UserRound className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-xs font-semibold text-[var(--text)]">{contact.fullName}</p>{contact.isPrimary ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[8px] uppercase tracking-[0.08em] text-[var(--accent-ink)]">основной</span> : null}</div>{contact.position ? <p className="mt-1 text-[10px] text-[var(--muted)]">{contact.position}</p> : null}{contact.phone ? <a href={`tel:${contact.phone}`} className="focus-ring mt-3 flex w-fit items-center gap-2 rounded text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)]"><Phone className="size-3.5 text-[var(--support)]" />{contact.phone}</a> : <p className="mt-3 text-[11px] text-[var(--muted)]">Телефон уточняется</p>}{contact.email ? <a href={`mailto:${contact.email}`} className="focus-ring mt-2 flex w-fit items-center gap-2 rounded text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)]"><Mail className="size-3.5 text-[var(--support)]" />{contact.email}</a> : null}{client.phoneNumbers?.filter((phone) => phone.contactId === contact.id).map((phone) => <a key={phone.id} href={`tel:${phone.phone}`} className="mt-2 flex w-fit items-center gap-2 text-[11px] text-[var(--text-secondary)]"><Phone className="size-3.5" />{phone.label}: {phone.phone}</a>)}<CompleteClientRecord clientId={client.id} contact={contact} /></div></div>
                 </article>
               ))}
             </div>
           ) : <div className="mt-4"><EmptySection>Контактов пока нет</EmptySection></div>}
+          {client.phoneNumbers?.some((phone) => !phone.contactId) ? <div className="mt-4 border-t border-[var(--line)] pt-4"><h3 className="text-xs font-semibold">Дополнительные номера заказчика</h3>{client.phoneNumbers.filter((phone) => !phone.contactId).map((phone) => <a key={phone.id} href={`tel:${phone.phone}`} className="mt-2 flex w-fit items-center gap-2 text-xs"><Phone className="size-3.5" />{phone.label}: {phone.phone}</a>)}</div> : null}
         </section>
       </div>
 

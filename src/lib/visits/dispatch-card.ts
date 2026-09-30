@@ -6,8 +6,10 @@ export const visitDispatchCardSchema = z.object({
   orderId: z.string().nullable(),
   orderNumber: z.string().nullable(),
   client: z.string(),
+  clientKind: z.enum(["legal_entity", "individual"]).nullable(),
   object: z.string(),
   address: z.string(),
+  areaSquareMeters: z.number().positive().nullable(),
   contactName: z.string().nullable(),
   contactPhone: z.string().nullable(),
   scheduledStartAt: z.iso.datetime(),
@@ -30,6 +32,14 @@ export type VisitDispatchCard = z.infer<typeof visitDispatchCardSchema>;
 function formatQuantity(quantity: string) {
   const numeric = Number(quantity);
   return Number.isFinite(numeric) ? numeric.toLocaleString("ru-RU", { maximumFractionDigits: 3 }) : quantity;
+}
+
+export function formatDispatchArea(area: number | null) {
+  return area === null ? "не указана" : `${area.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} м²`;
+}
+
+export function formatDispatchClientKind(kind: VisitDispatchCard["clientKind"]) {
+  return kind === "legal_entity" ? "Юридическое лицо" : kind === "individual" ? "Физическое лицо" : "Не указан";
 }
 
 export function formatVisitDispatchWindow(card: Pick<VisitDispatchCard, "scheduledStartAt" | "scheduledEndAt" | "timezone">) {
@@ -57,27 +67,29 @@ export function formatVisitDispatchWindow(card: Pick<VisitDispatchCard, "schedul
 
 export function formatVisitDispatchCardText(card: VisitDispatchCard) {
   const lines = [
-    "КАРТОЧКА ВЫЕЗДА",
-    `Заказ: ${card.orderNumber ?? "без номера"}`,
-    `Дата и время: ${formatVisitDispatchWindow(card)}`,
-    `Статус: ${card.status}`,
+    `ЗАКАЗ ${card.orderNumber ?? "без номера"}`,
+    `Тип заказа: ${formatDispatchClientKind(card.clientKind)}`,
     "",
-    `Юр. лицо: ${card.client}`,
-    `Объект: ${card.object}`,
-    `Адрес: ${card.address}`,
-    `Контакт: ${card.contactName ?? "не указан"}${card.contactPhone ? ` — ${card.contactPhone}` : ""}`,
+    "ПОКУПАТЕЛЬ",
+    `Заказчик: ${card.client}`,
+    `Название объекта: ${card.object}`,
+    `Имя: ${card.contactName || "не указано"}`,
+    `Телефон: ${card.contactPhone || "не указан"}`,
     "",
-    "РАБОТЫ",
+    "СОСТАВ ЗАКАЗА",
     ...(card.services.length
       ? card.services.map((service, index) => `${index + 1}. ${service.name} — ${formatQuantity(service.quantity)}${service.note ? ` (${service.note})` : ""}`)
-      : ["Не указаны"]),
+      : ["Состав не указан"]),
+    `Площадь объекта: ${formatDispatchArea(card.areaSquareMeters)}`,
     "",
-    `Мастер: ${card.master ?? "не назначен"}`,
+    "ДОСТАВКА",
+    `Адрес доставки: ${card.address || "не указан"}`,
+    `Имя мастера: ${card.master || "не назначен"}`,
+    `Номер мастера: ${card.masterPhone || "не указан"}`,
   ];
-  if (card.masterPhone) lines.push(`Телефон мастера: ${card.masterPhone}`);
   if (card.masterPaymentMinor !== undefined) {
-    lines.push(`Выплата мастеру: ${card.masterPaymentMinor === null ? "не указана" : formatMoneyMinor(card.masterPaymentMinor)}`);
+    lines.push(`Зарплата: ${card.masterPaymentMinor === null ? "не указана" : formatMoneyMinor(card.masterPaymentMinor)}`);
   }
-  if (card.notes) lines.push("", "КОММЕНТАРИЙ К ВЫЕЗДУ", card.notes);
+  lines.push("", "ДАТА ДОСТАВКИ", formatVisitDispatchWindow(card), "", `Примечание: ${card.notes || "нет"}`, "", "ОБЯЗАТЕЛЬНО: фотографии подписанных актов и журнала обработки.");
   return lines.join("\n");
 }
