@@ -20,6 +20,9 @@ mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", root), { namedExports: { getDatabase: () => sql } });
 const { listContracts, listContractPage, getContract, listContractHistory, updateContract, ContractNotFoundError } = await import("../src/server/contracts/repository.ts");
 const { listVisits, getVisitDispatchCard, rescheduleVisit, VisitNotFoundError } = await import("../src/server/visits/repository.ts");
+const { listMasterPage, getMasterDetail, updateMaster, MasterNotFoundError } = await import("../src/server/masters/repository.ts");
+const { masterListQuerySchema } = await import("../src/lib/master-list.ts");
+const { masterVisitHref } = await import("../src/lib/master-visit.ts");
 const { contractListQuerySchema } = await import("../src/lib/contract-list.ts");
 const { contractPickerQuerySchema, searchContractPicker } = await import("../src/server/contracts/option-picker.ts");
 
@@ -68,6 +71,25 @@ test("contract pickers find objects, masters and contracts beyond initial caps w
   await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
     SELECT ${other.id}, ${foreignClient.id}, client_objects.id, 'Чужой договор Ёж', 'draft', '2026-01-01', '2026-12-31', 30
     FROM client_objects WHERE organization_id = ${other.id} LIMIT 1`;
+
+  const masterDefaults = masterListQuerySchema.parse({});
+  const masterIds = [];
+  for (let page = 1; page <= 11; page++) {
+    const result = await listMasterPage(member, { ...masterDefaults, page });
+    assert.equal(result.total, 502); assert.equal(result.counts.all, 502);
+    assert.ok(result.items.length <= 50); masterIds.push(...result.items.map(item => item.id));
+  }
+  assert.equal(new Set(masterIds).size, 502); assert.ok(masterIds.includes(lastMaster.id));
+  assert.equal((await listMasterPage(member, { ...masterDefaults, page: 999 })).page, 11);
+  assert.deepEqual((await listMasterPage(member, { ...masterDefaults, q: 'янтарный мастер еж' })).items.map(item => item.id), [lastMaster.id]);
+  assert.equal((await listMasterPage(member, { ...masterDefaults, q: 'чужой' })).total, 0);
+  await sql`UPDATE masters SET skills = ARRAY['Поздняя специализация'], service_zone = 'Поздняя зона', daily_capacity = 2, base_payment_minor = 125000 WHERE id = ${lastMaster.id}`;
+  const masterFacets = await listMasterPage(member, masterDefaults);
+  assert.ok(masterFacets.facets.skills.includes('Поздняя специализация'));
+  assert.ok(masterFacets.facets.zones.includes('Поздняя зона'));
+  assert.equal((await listMasterPage(member, { ...masterDefaults, skill: 'Поздняя специализация' })).total, 1);
+  assert.equal((await listMasterPage(member, { ...masterDefaults, zone: 'Поздняя зона' })).total, 1);
+  assert.equal((await listMasterPage(member, { ...masterDefaults, region: 'Несуществующий регион' })).facets.zones.length, 0);
 
   const initial = await listContracts(member);
   assert.equal(initial.objectOptions.length, 1000);
@@ -129,10 +151,39 @@ test("contract pickers find objects, masters and contracts beyond initial caps w
     VALUES (${center.id}, ${principal.id}, ${organization.id}, ${person.id})`;
   const centerMember = { ...member, organizationId: center.id, memberId: principal.id, sessionId: session.id };
   await sql`INSERT INTO service_visits (organization_id, contract_id, object_id, scheduled_start_at, scheduled_end_at,
-      status, client_name_snapshot, object_name_snapshot, object_address_snapshot, created_by, updated_by)
+      status, cancellation_reason, client_name_snapshot, object_name_snapshot, object_address_snapshot, created_by, updated_by)
     SELECT ${organization.id}, ${lastContract.id}, ${lastObject.id}, '2027-01-01T00:00:00Z'::timestamptz + n * interval '1 hour',
-      '2027-01-01T00:00:00Z'::timestamptz + (n + 1) * interval '1 hour', 'planned', 'Наш клиент', 'Янтарный объект Ёж', 'Янтарный адрес 1002',
+      '2027-01-01T00:00:00Z'::timestamptz + (n + 1) * interval '1 hour', 'planned', NULL, 'Наш клиент', 'Янтарный объект Ёж', 'Янтарный адрес 1002',
       ${person.id}, ${person.id} FROM generate_series(1, 505) n`;
+  await sql`INSERT INTO service_visits (organization_id, contract_id, object_id, assigned_master_id, scheduled_start_at, scheduled_end_at,
+    status, cancellation_reason, client_name_snapshot, object_name_snapshot, object_address_snapshot, created_by, updated_by)
+    SELECT ${organization.id}, ${lastContract.id}, ${lastObject.id}, ${lastMaster.id},
+      (((now() AT TIME ZONE 'Europe/Moscow')::date + time '08:00') AT TIME ZONE 'Europe/Moscow') + n * interval '1 hour',
+      (((now() AT TIME ZONE 'Europe/Moscow')::date + time '09:00') AT TIME ZONE 'Europe/Moscow') + n * interval '1 hour',
+      CASE WHEN n = 4 THEN 'cancelled' ELSE 'planned' END, CASE WHEN n = 4 THEN 'Отменено для теста' ELSE NULL END,
+      'Наш клиент', 'Маршрут по договору', 'Адрес маршрута', ${person.id}, ${person.id} FROM generate_series(1, 5) n`;
+  const [completedRoute] = await sql`SELECT id FROM service_visits WHERE assigned_master_id = ${lastMaster.id} ORDER BY scheduled_start_at DESC LIMIT 1`;
+  const [actOrder] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${organization.id}, ${client.id}, ${lastObject.id}, 'TEST-ACT', 'new', 'RUB', 'Наш клиент', 'Объект', 'Адрес') RETURNING id`;
+  const [act] = await sql`INSERT INTO documents (id, organization_id, client_id, object_id, order_id, contract_id, visit_id, title, category, created_by)
+    VALUES (${randomUUID()}, ${organization.id}, ${client.id}, ${lastObject.id}, ${actOrder.id}, ${lastContract.id}, ${completedRoute.id}, 'Акт завершения теста', 'act', ${person.id}) RETURNING id`;
+  await sql`UPDATE service_visits SET status = 'completed', completion_document_id = ${act.id}, completion_notes = 'Проверено',
+    completed_at = now(), completed_by = ${person.id} WHERE id = ${completedRoute.id}`;
+  const centerMasters = await listMasterPage(centerMember, { ...masterDefaults, skill: 'Поздняя специализация' });
+  assert.equal(centerMasters.total, 1); assert.equal(centerMasters.counts.all, 502); assert.equal(centerMasters.counts.overloaded, 1);
+  const loadedMaster = centerMasters.items[0];
+  assert.equal(loadedMaster.todayVisitCount, 3); assert.equal(loadedMaster.todayVisits.length, 2);
+  assert.equal(loadedMaster.loadPercent, 150); assert.equal(loadedMaster.organizationId, organization.id);
+  assert.ok(loadedMaster.todayVisits.every(item => item.orderId === null && item.contractId === lastContract.id && masterVisitHref(item).startsWith('/calendar?')));
+  const masterDetail = await getMasterDetail(centerMember, lastMaster.id);
+  assert.equal(masterDetail.todayVisitCount, 3); assert.equal(masterDetail.totalVisits, 5); assert.equal(masterDetail.completedVisits, 1);
+  assert.equal(masterDetail.recentVisits.length, 5); assert.ok(masterDetail.recentVisits.every(item => item.contractId === lastContract.id));
+  assert.equal(masterDetail.basePaymentMinor, 125000);
+  const noFinance = await getMasterDetail({ ...centerMember, role: 'deputy', permissionOverrides: { 'finance.read': false } }, lastMaster.id);
+  assert.equal(noFinance.basePaymentMinor, undefined); assert.equal(noFinance.paidMinor, undefined);
+  await assert.rejects(updateMaster(centerMember, { masterId: lastMaster.id, expectedVersion: 1 }), MasterNotFoundError);
+  assert.equal((await getMasterDetail(member, lastMaster.id)).version, 1);
   const calendar = await listVisits({ ...centerMember, organizationId: organization.id }, '2027-01-01T00:00:00Z', '2027-04-01T00:00:00Z', null, lastContract.id);
   assert.equal(calendar.length, 505);
   assert.equal(new Set(calendar.map(item => item.id)).size, 505);
@@ -157,6 +208,8 @@ test("contract pickers find objects, masters and contracts beyond initial caps w
   assert.equal((await searchContractPicker(reader, contractPickerQuerySchema.parse({ type: "filter-masters", q: "еж" }))).items.length, 1);
   await assert.rejects(searchContractPicker(reader, contractPickerQuerySchema.parse({ type: "masters" })));
   await sql`DELETE FROM organization_access_grants WHERE principal_organization_id = ${center.id}`;
+  assert.equal((await listMasterPage(centerMember, masterDefaults)).total, 0);
+  await assert.rejects(getMasterDetail(centerMember, lastMaster.id), MasterNotFoundError);
   assert.equal((await listContractPage(centerMember, defaults)).total, 0);
   assert.equal((await listVisits(centerMember, '2027-01-01T00:00:00Z', '2027-04-01T00:00:00Z', null, null, true)).length, 0, 'Revoked company disappears from the general calendar');
   await assert.rejects(getVisitDispatchCard(centerMember, calendar[0].id), VisitNotFoundError);

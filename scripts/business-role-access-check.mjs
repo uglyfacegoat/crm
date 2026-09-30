@@ -111,6 +111,11 @@ try {
     return { masterId: record.id, memberId: person.id };
   }
   const grantedPhoto = await masterWithPhoto(target.id);
+  await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone, skills)
+    SELECT ${target.id}, 'Мастер ' || lpad(n::text, 4, '0'), '+7998' || lpad(n::text, 7, '0'), '+7998' || lpad(n::text, 7, '0'),
+      'Москва', 'Район ' || n, ARRAY['Обработка'] FROM generate_series(1, 501) n`;
+  const [lateMaster] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone, skills)
+    VALUES (${target.id}, 'Янтарный мастер центра', '+79998889999', '+79998889999', 'Москва', 'Поздний район', ARRAY['Поздняя специализация']) RETURNING id`;
   const hiddenPhoto = await masterWithPhoto(ungrantedCompany.id);
   const [ungrantedClient] = await sql`INSERT INTO clients (organization_id, legal_name, kind)
     VALUES (${ungrantedCompany.id}, 'Скрытый клиент', 'legal_entity') RETURNING id`;
@@ -324,6 +329,24 @@ try {
   const foundContract = (await contractResult.json()).data.results.find(item => item.id === companyContract.id);
   assert.equal(foundContract.href, `/contracts/${companyContract.id}`);
   assert.ok(foundContract.subtitle.includes('Second company'));
+  async function masterPage(params = '', cookie = developerCookie) {
+    const response = await fetch(`${baseUrl}/api/v1/masters${params}`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    return (await response.json()).data;
+  }
+  const masterIds = [];
+  for (let number = 1; number <= 11; number++) {
+    const result = await masterPage(`?page=${number}`); assert.equal(result.total, 504); assert.equal(result.counts.all, 504);
+    masterIds.push(...result.items.map(item => item.id));
+  }
+  assert.equal(new Set(masterIds).size, 504);
+  assert.equal((await masterPage('?skill=' + encodeURIComponent('Поздняя специализация'))).items[0].id, lateMaster.id);
+  assert.equal((await fetch(`${baseUrl}/api/v1/masters`)).status, 401);
+  assert.equal((await path(developerCookie, '/api/v1/masters?page=0')).status, 400);
+  assert.equal((await path(developerCookie, `/masters/${hiddenPhoto.masterId}`)).status, 404);
+  const foundMasterResponse = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Янтарный мастер центра')}`, { headers: { Cookie: developerCookie } });
+  const foundMaster = (await foundMasterResponse.json()).data.results.find(item => item.id === lateMaster.id);
+  assert.equal(foundMaster.href, `/masters/${lateMaster.id}`); assert.ok(foundMaster.subtitle.includes('Second company'));
   browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await context.addCookies([{ name: 'crm_session', value: developerCookie.slice('crm_session='.length), url: baseUrl }]);
@@ -426,6 +449,42 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ animations: 'disabled', path: `artifacts/business-roles/center-calendar-${width}.png`, fullPage: true });
   }
+  for (const width of [390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`${baseUrl}/masters`); await settledLayout();
+    const pager = page.getByRole('navigation', { name: 'Страницы мастеров', exact: true });
+    await pager.getByText('Страница 1 из 11', { exact: true }).waitFor();
+    assert.equal(await page.locator('article[role="link"]').count(), 50);
+    await pager.getByRole('button', { name: 'Далее', exact: true }).click();
+    await pager.getByText('Страница 2 из 11', { exact: true }).waitFor();
+    assert.equal(await page.locator('article[role="link"]').count(), 50);
+    const search = page.getByRole('textbox', { name: 'Поиск мастеров', exact: true });
+    await search.fill('Янтарный мастер центра');
+    await page.locator('a[aria-label="Открыть карточку мастера Янтарный мастер центра"]').waitFor();
+    assert.equal(await page.locator('article[role="link"]').count(), 1);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ animations: 'disabled', path: `artifacts/business-roles/center-masters-${width}.png`, fullPage: true });
+    await page.locator('a[aria-label="Открыть карточку мастера Янтарный мастер центра"]').click();
+    await page.getByRole('heading', { name: 'Янтарный мастер центра', exact: true }).waitFor();
+    await page.getByText('Second company · Просмотр из центра CRM', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Редактировать мастера/ }).count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  }
+  await page.goto(`${baseUrl}/masters`);
+  await page.route('**/api/v1/masters?**', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+  const masterSearch = page.getByRole('textbox', { name: 'Поиск мастеров', exact: true });
+  await masterSearch.fill('Янтарный мастер центра');
+  await page.getByText('Не удалось загрузить мастеров.', { exact: true }).waitFor();
+  assert.equal(await masterSearch.inputValue(), 'Янтарный мастер центра');
+  await page.unroute('**/api/v1/masters?**');
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await page.locator('a[aria-label="Открыть карточку мастера Янтарный мастер центра"]').waitFor();
+  await masterSearch.fill('');
+  await page.getByRole('navigation', { name: 'Страницы мастеров', exact: true }).waitFor();
+  await page.locator('summary[aria-label="Фильтр: Специализация"]').click();
+  await page.getByPlaceholder('Найти: специализация').fill('Поздняя');
+  await page.getByRole('button', { name: 'Поздняя специализация', exact: true }).click();
+  await page.locator('a[aria-label="Открыть карточку мастера Янтарный мастер центра"]').waitFor();
   const standaloneVisitSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Дополнительный выезд компании')}`, { headers: { Cookie: developerCookie } });
   const standaloneVisits = (await standaloneVisitSearch.json()).data.results.filter(item => item.entityType === 'visit');
   assert.ok(standaloneVisits.length > 0);
@@ -518,8 +577,13 @@ try {
   assert.match(companyDashboardHtml, /510 просроченные задачи/);
   const fieldCookie = await login(members.foreman.email);
   assert.equal((await path(fieldCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`)).status, 403);
+  assert.equal((await path(fieldCookie, '/api/v1/masters')).status, 403);
   await sql`DELETE FROM organization_access_grants WHERE principal_organization_id = ${home.organization_id}
     AND principal_member_id = ${home.id} AND target_organization_id = ${target.id}`;
+  assert.equal((await masterPage()).total, 1);
+  assert.equal((await path(developerCookie, `/masters/${lateMaster.id}`)).status, 404);
+  const removedMaster = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Янтарный мастер центра')}`, { headers: { Cookie: developerCookie } });
+  assert.deepEqual((await removedMaster.json()).data.results, []);
   assert.equal((await path(developerCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`)).status, 404, 'Revoked grant must remove master photo access');
   assert.equal((await path(developerCookie, `/api/v1/members/${grantedPhoto.memberId}/avatar`)).status, 404);
   assert.equal((await path(developerCookie, `/clients/${client.id}`)).status, 404, 'Revoked grant removes client card access');
@@ -543,7 +607,7 @@ try {
   assert.deepEqual((await revokedContractSearch.json()).data.results, []);
   const revokedSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Клиент другого контура')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await revokedSearch.json()).data.results, []);
-  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, 521 contracts with full search/pagination, contract documents/history/calendar/dispatch and a 75-visit center calendar with pagination and own-only rescheduling at four widths, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
+  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, 504 masters with full search/pagination, searchable facets, read-only granted cards and 503 retry, 521 contracts with full search/pagination, contract documents/history/calendar/dispatch and a 75-visit center calendar with pagination and own-only rescheduling at four widths, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
 } catch (error) {
   const failedPage = browser?.contexts()[0]?.pages()[0];
   if (failedPage) {

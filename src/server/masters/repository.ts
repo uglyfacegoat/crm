@@ -1,4 +1,6 @@
 import "server-only";
+import { MASTER_PAGE_SIZE, masterListQuerySchema, type MasterListPage, type MasterListQuery } from "@/lib/master-list";
+import { readableOrganizationIds } from "@/server/organizations/read-scope";
 import { z } from "zod";
 import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
@@ -11,6 +13,8 @@ import { visitStatusLabels } from "@/server/visits/types";
 import { masterOperationalStatuses, type MasterDetail, type MasterListItem, type MasterVisitSummary } from "./types";
 
 const masterRowSchema = z.object({
+  organization_id: z.string().uuid().optional(), organization_name: z.string().optional(), organization_timezone: z.string().optional(),
+  today_visit_count: z.number().int().nonnegative().optional(),
   id: z.string().uuid(),
   full_name: z.string(),
   phone: z.string(),
@@ -32,8 +36,9 @@ const masterRowSchema = z.object({
 const visitRowSchema = z.object({
   id: z.string().uuid(),
   assigned_master_id: z.string().uuid(),
-  order_id: z.string().uuid(),
-  order_number: z.union([z.string(), z.number(), z.bigint()]),
+  order_id: z.string().uuid().nullable(),
+  contract_id: z.string().uuid().nullable().optional(),
+  order_number: z.union([z.string(), z.number(), z.bigint()]).nullable(),
   client_name_snapshot: z.string(),
   object_address_snapshot: z.string(),
   scheduled_start_at: z.coerce.date(),
@@ -77,7 +82,8 @@ function groupVisits(rows: unknown[]) {
     entries.push({
       id: visit.id,
       orderId: visit.order_id,
-      orderNumber: String(visit.order_number),
+      orderNumber: visit.order_number === null ? null : String(visit.order_number),
+      contractId: visit.contract_id ?? null,
       clientName: visit.client_name_snapshot,
       objectAddress: visit.object_address_snapshot,
       scheduledStartAt: visit.scheduled_start_at.toISOString(),
@@ -88,38 +94,16 @@ function groupVisits(rows: unknown[]) {
   return grouped;
 }
 
-export async function listMasters(member: AuthenticatedMember): Promise<MasterListItem[]> {
-  requirePermission(member, "masters.read");
-  const sql = getDatabase();
-  const [masterRows, visitRows] = await Promise.all([
-    sql`SELECT id, full_name, phone, messenger, service_region, service_zone, base_payment_minor,
-      daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active, version
-      FROM masters
-      WHERE organization_id = ${member.organizationId}
-      ORDER BY active DESC, full_name ASC
-      LIMIT 500`,
-    sql`SELECT service_visits.id, service_visits.assigned_master_id, service_visits.order_id,
-      orders.order_number, service_visits.client_name_snapshot, service_visits.object_address_snapshot,
-      service_visits.scheduled_start_at, organizations.timezone
-      FROM service_visits
-      JOIN organizations ON organizations.id = service_visits.organization_id
-      JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
-      WHERE service_visits.organization_id = ${member.organizationId}
-        AND service_visits.assigned_master_id IS NOT NULL
-        AND service_visits.status NOT IN ('cancelled', 'completed')
-        AND (service_visits.scheduled_start_at AT TIME ZONE organizations.timezone)::date
-          = (now() AT TIME ZONE organizations.timezone)::date
-      ORDER BY service_visits.scheduled_start_at ASC`,
-  ]);
+function mapMasterListRows(member: AuthenticatedMember, masterRows: unknown[], visitRows: unknown[]): MasterListItem[] {
   const visitsByMaster = groupVisits(visitRows);
   const canReadFinance = hasPermission(member, "finance.read");
-
   return masterRows.map((row) => {
     const master = masterRowSchema.parse(row);
     const todayVisits = visitsByMaster.get(master.id) ?? [];
-    const status = getMasterStatus(master.operational_status, todayVisits.length, master.daily_capacity);
+    const status = getMasterStatus(master.operational_status, (master.today_visit_count ?? todayVisits.length), master.daily_capacity);
     return {
       id: master.id,
+      organizationId: master.organization_id, organizationName: master.organization_name, organizationTimezone: master.organization_timezone,
       fullName: master.full_name,
       phone: master.phone,
       messenger: master.messenger,
@@ -135,8 +119,8 @@ export async function listMasters(member: AuthenticatedMember): Promise<MasterLi
       statusNote: master.status_note,
       active: master.active,
       version: master.version,
-      todayVisitCount: todayVisits.length,
-      loadPercent: Math.round((todayVisits.length / master.daily_capacity) * 100),
+      todayVisitCount: master.today_visit_count ?? todayVisits.length,
+      loadPercent: Math.round(((master.today_visit_count ?? todayVisits.length) / master.daily_capacity) * 100),
       statusCode: status.code,
       statusLabel: status.label,
       todayVisits,
@@ -144,42 +128,102 @@ export async function listMasters(member: AuthenticatedMember): Promise<MasterLi
   });
 }
 
+export async function listMasterPage(member: AuthenticatedMember, input: MasterListQuery): Promise<MasterListPage> {
+  requirePermission(member, "masters.read");
+  const query = masterListQuerySchema.parse(input);
+  const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
+  const [result] = await sql`WITH today AS (
+    SELECT service_visits.organization_id, assigned_master_id, count(*)::int AS today_visit_count FROM service_visits
+    JOIN organizations ON organizations.id = service_visits.organization_id
+    WHERE service_visits.organization_id IN ${sql(organizationIds)} AND assigned_master_id IS NOT NULL
+      AND status NOT IN ('cancelled', 'completed')
+      AND (scheduled_start_at AT TIME ZONE organizations.timezone)::date = (now() AT TIME ZONE organizations.timezone)::date
+    GROUP BY service_visits.organization_id, assigned_master_id
+  ), base AS (
+    SELECT masters.*, organizations.name AS organization_name, organizations.timezone AS organization_timezone,
+      coalesce(today.today_visit_count, 0) AS today_visit_count,
+      CASE WHEN masters.operational_status <> 'working' THEN masters.operational_status
+        WHEN coalesce(today.today_visit_count, 0) > masters.daily_capacity THEN 'overloaded'
+        WHEN coalesce(today.today_visit_count, 0) > 0 THEN 'scheduled' ELSE 'available' END AS status_code
+    FROM masters JOIN organizations ON organizations.id = masters.organization_id
+    LEFT JOIN today ON today.organization_id = masters.organization_id AND today.assigned_master_id = masters.id
+    WHERE masters.organization_id IN ${sql(organizationIds)}
+  ), filtered AS (
+    SELECT * FROM base WHERE (${query.q} = '' OR crm_search_matches(concat_ws(' ', full_name, phone, normalized_phone,
+      messenger, service_region, service_zone, organization_name, array_to_string(skills, ' ')), ${query.q}))
+      AND (${query.status} = 'all' OR status_code = ${query.status})
+      AND (${query.region} = '' OR service_region = ${query.region})
+      AND (${query.zone} = '' OR service_zone = ${query.zone})
+      AND (${query.skill} = '' OR ${query.skill} = ANY(skills))
+  ), totals AS (SELECT count(*)::int total FROM filtered), paging AS (
+    SELECT total, least(${query.page}, greatest(1, ceil(total::numeric / ${MASTER_PAGE_SIZE})::int)) AS page FROM totals
+  ), selected AS (
+    SELECT * FROM filtered ORDER BY active DESC, full_name, id
+    LIMIT ${MASTER_PAGE_SIZE} OFFSET (SELECT (page - 1) * ${MASTER_PAGE_SIZE} FROM paging)
+  ) SELECT paging.total, paging.page, coalesce((SELECT jsonb_agg(to_jsonb(selected) ORDER BY selected.active DESC, selected.full_name, selected.id) FROM selected), '[]'::jsonb) AS items,
+    (SELECT coalesce(jsonb_object_agg(status_code, amount), '{}'::jsonb) || jsonb_build_object('all', (SELECT count(*)::int FROM base))
+      FROM (SELECT status_code, count(*)::int amount FROM base GROUP BY status_code) counts) AS counts,
+    jsonb_build_object('regions', ARRAY(SELECT DISTINCT service_region FROM base ORDER BY service_region),
+      'zones', ARRAY(SELECT DISTINCT service_zone FROM base WHERE ${query.region} = '' OR service_region = ${query.region} ORDER BY service_zone),
+      'skills', ARRAY(SELECT DISTINCT unnest(skills) AS skill FROM base ORDER BY skill)) AS facets FROM paging`;
+  const parsed = z.object({ total: z.number().int(), page: z.number().int(), items: z.array(z.unknown()),
+    counts: z.record(z.string(), z.number().int()), facets: z.object({ regions: z.array(z.string()), zones: z.array(z.string()), skills: z.array(z.string()) }) }).parse(result);
+  const ids = parsed.items.map(item => masterRowSchema.parse(item).id);
+  const visitRows = ids.length ? await sql`WITH routes AS (
+    SELECT service_visits.id, service_visits.assigned_master_id, service_visits.order_id, service_visits.contract_id,
+      orders.order_number, service_visits.client_name_snapshot, service_visits.object_address_snapshot,
+      service_visits.scheduled_start_at, organizations.timezone,
+      row_number() OVER (PARTITION BY service_visits.assigned_master_id ORDER BY service_visits.scheduled_start_at, service_visits.id) AS position
+    FROM service_visits JOIN organizations ON organizations.id = service_visits.organization_id
+    LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
+    WHERE service_visits.organization_id IN ${sql(organizationIds)} AND service_visits.assigned_master_id IN ${sql(ids)}
+      AND service_visits.status NOT IN ('cancelled', 'completed')
+      AND (service_visits.scheduled_start_at AT TIME ZONE organizations.timezone)::date = (now() AT TIME ZONE organizations.timezone)::date
+  ) SELECT * FROM routes WHERE position <= 2 ORDER BY scheduled_start_at, id` : [];
+  return { ...parsed, items: mapMasterListRows(member, parsed.items, visitRows), pageSize: MASTER_PAGE_SIZE };
+}
+
+export async function listMasters(member: AuthenticatedMember): Promise<MasterListItem[]> {
+  return (await listMasterPage(member, masterListQuerySchema.parse({}))).items;
+}
+
 export async function getMasterDetail(member: AuthenticatedMember, masterId: string): Promise<MasterDetail> {
   requirePermission(member, "masters.read");
   const parsedMasterId = z.string().uuid().parse(masterId);
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const canReadFinance = hasPermission(member, "finance.read");
   const [masterRows, todayVisitRows, recentVisitRows, statsRows, earningsRows] = await Promise.all([
-    sql`SELECT id, full_name, phone, messenger, service_region, service_zone, base_payment_minor,
-      daily_capacity, skills, notes, operational_status, working_days, status_until, status_note, active, version
-      FROM masters WHERE organization_id = ${member.organizationId} AND id = ${parsedMasterId}`,
-    sql`SELECT service_visits.id, service_visits.assigned_master_id, service_visits.order_id,
+    sql`SELECT masters.*, organizations.name AS organization_name, organizations.timezone AS organization_timezone
+      FROM masters JOIN organizations ON organizations.id = masters.organization_id WHERE masters.organization_id IN ${sql(organizationIds)} AND masters.id = ${parsedMasterId}`,
+    sql`SELECT service_visits.id, service_visits.assigned_master_id, service_visits.order_id, service_visits.contract_id,
       orders.order_number, service_visits.client_name_snapshot, service_visits.object_address_snapshot,
       service_visits.scheduled_start_at, organizations.timezone
       FROM service_visits
       JOIN organizations ON organizations.id = service_visits.organization_id
-      JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
-      WHERE service_visits.organization_id = ${member.organizationId}
+      LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
+      WHERE service_visits.organization_id IN ${sql(organizationIds)}
         AND service_visits.assigned_master_id = ${parsedMasterId}
         AND service_visits.status NOT IN ('cancelled', 'completed')
         AND (service_visits.scheduled_start_at AT TIME ZONE organizations.timezone)::date = (now() AT TIME ZONE organizations.timezone)::date
       ORDER BY service_visits.scheduled_start_at`,
-    sql`SELECT service_visits.id, service_visits.order_id, orders.order_number,
+    sql`SELECT service_visits.id, service_visits.order_id, service_visits.contract_id, orders.order_number,
       service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
       service_visits.scheduled_start_at, organizations.timezone, service_visits.status
       FROM service_visits
       JOIN organizations ON organizations.id = service_visits.organization_id
-      JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
-      WHERE service_visits.organization_id = ${member.organizationId} AND service_visits.assigned_master_id = ${parsedMasterId}
-      ORDER BY service_visits.scheduled_start_at DESC LIMIT 30`,
+      LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
+      WHERE service_visits.organization_id IN ${sql(organizationIds)} AND service_visits.assigned_master_id = ${parsedMasterId}
+      ORDER BY service_visits.scheduled_start_at DESC, service_visits.id DESC LIMIT 30`,
     sql`SELECT count(*)::integer AS total_visits,
       count(*) FILTER (WHERE status = 'completed')::integer AS completed_visits,
       count(*) FILTER (WHERE scheduled_start_at >= now() AND status NOT IN ('completed', 'cancelled'))::integer AS upcoming_visits,
       count(DISTINCT order_id)::integer AS total_orders
-      FROM service_visits WHERE organization_id = ${member.organizationId} AND assigned_master_id = ${parsedMasterId}`,
+      FROM service_visits WHERE organization_id IN ${sql(organizationIds)} AND assigned_master_id = ${parsedMasterId}`,
     canReadFinance ? sql`SELECT coalesce(sum(master_payment_snapshot_minor), 0) AS accrued_minor,
       coalesce(sum(master_paid_total_minor), 0) AS paid_minor
-      FROM orders WHERE organization_id = ${member.organizationId} AND assigned_master_id = ${parsedMasterId}` : Promise.resolve([]),
+      FROM orders WHERE organization_id IN ${sql(organizationIds)} AND assigned_master_id = ${parsedMasterId}` : Promise.resolve([]),
   ]);
   if (!masterRows.length) throw new MasterNotFoundError();
   const row = masterRowSchema.parse(masterRows[0]);
@@ -189,6 +233,7 @@ export async function getMasterDetail(member: AuthenticatedMember, masterId: str
   const earnings = canReadFinance ? masterEarningsRowSchema.parse(earningsRows[0]) : null;
   return {
     id: row.id,
+    organizationId: row.organization_id, organizationName: row.organization_name, organizationTimezone: row.organization_timezone,
     fullName: row.full_name,
     phone: row.phone,
     messenger: row.messenger,
@@ -219,7 +264,8 @@ export async function getMasterDetail(member: AuthenticatedMember, masterId: str
       return {
         id: visit.id,
         orderId: visit.order_id,
-        orderNumber: String(visit.order_number),
+        orderNumber: visit.order_number === null ? null : String(visit.order_number),
+        contractId: visit.contract_id ?? null,
         clientName: visit.client_name_snapshot,
         objectName: visit.object_name_snapshot,
         objectAddress: visit.object_address_snapshot,

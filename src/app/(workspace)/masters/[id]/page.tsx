@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { CalendarDays, MapPin, MessageCircle, Phone, Route } from "lucide-react";
 import { EditMasterButton } from "@/components/masters/master-dialog";
 import { BackLink } from "@/components/ui/back-link";
+import { masterVisitHref } from "@/lib/master-visit";
 import { formatMoneyMinor } from "@/lib/format";
 import { Avatar } from "@/components/ui/avatar";
 import { getAuthMode } from "@/server/auth/config";
@@ -83,7 +84,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
 
   if (!master) notFound();
 
-  const canWrite = hasPermission(member, "masters.write");
+  const canWrite = hasPermission(member, "masters.write") && (!master.organizationId || master.organizationId === member.organizationId);
   const canReadFinance = master.paidMinor !== undefined;
   const operationalStatus = operationalStatusStyle[master.operationalStatus];
 
@@ -102,6 +103,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
                 {master.statusLabel}
               </span>
             </div>
+            {master.organizationName ? <p className="mt-2 text-xs text-[var(--muted)]">{master.organizationName}{master.organizationId !== member.organizationId ? " · Просмотр из центра CRM" : ""}</p> : null}
             <p className="mt-2 flex items-center gap-1.5 text-sm text-[var(--muted)]">
               <MapPin className="size-3.5" />
               {master.serviceRegion} · {master.serviceZone}
@@ -197,10 +199,10 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
         </header>
 
         {master.recentVisits.length ? <div className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
-          {master.recentVisits.map((visit) => <Link key={visit.id} href={`/orders/${visit.orderId}`} className="focus-ring grid gap-3 px-5 py-4 transition-colors hover:bg-[var(--surface-raised)] sm:px-6 md:grid-cols-[10rem_minmax(0,1fr)_9rem] md:items-center">
+          {master.recentVisits.map((visit) => <Link key={visit.id} href={masterVisitHref(visit)} className="focus-ring grid gap-3 px-5 py-4 transition-colors hover:bg-[var(--surface-raised)] sm:px-6 md:grid-cols-[10rem_minmax(0,1fr)_9rem] md:items-center">
             <div>
               <p className="font-display text-xs text-[var(--text)]">{formatVisitDate(visit)}</p>
-              <p className="mt-1 text-[9px] text-[var(--accent)]">{visit.orderNumber}</p>
+              <p className="mt-1 text-[9px] text-[var(--accent)]">{visit.orderNumber ?? "По договору"}</p>
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-[var(--text-secondary)]">{visit.clientName}</p>

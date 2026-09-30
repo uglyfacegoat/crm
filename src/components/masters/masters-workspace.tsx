@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ChevronDown,
   MapPin,
   MessageCircle,
   Phone,
@@ -10,7 +9,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { OrderPicker } from "@/components/orders/order-form-parts";
+import { masterVisitHref } from "@/lib/master-visit";
+import type { MasterListPage } from "@/lib/master-list";
 import { formatMoneyMinor } from "@/lib/format";
 import { Avatar } from "@/components/ui/avatar";
 import { matchesSearchText } from "@/lib/search-normalization";
@@ -53,35 +55,9 @@ function FilterMenu({
   options: string[];
   onChange: (value: string) => void;
 }) {
-  return (
-    <details className="group relative shrink-0">
-      <summary
-        aria-label={`Фильтр: ${label}`}
-        className="focus-ring flex h-10 min-w-32 cursor-pointer list-none items-center justify-between gap-3 rounded-[11px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-raised)] [&::-webkit-details-marker]:hidden"
-      >
-        <span className="max-w-36 truncate">{value || label}</span>
-        <ChevronDown
-          aria-hidden
-          className="size-3.5 shrink-0 text-[var(--muted)] transition-transform group-open:rotate-180"
-        />
-      </summary>
-      <div className="absolute right-0 top-12 z-30 min-w-48 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] p-1.5 shadow-[var(--shadow-panel)]">
-        {["", ...options].map((option) => (
-          <button
-            key={option || "all"}
-            type="button"
-            onClick={(event) => {
-              onChange(option);
-              event.currentTarget.closest("details")?.removeAttribute("open");
-            }}
-            className={`focus-ring block w-full rounded-[8px] px-3 py-2 text-left text-xs ${value === option ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
-          >
-            {option || `Все: ${label.toLocaleLowerCase("ru")}`}
-          </button>
-        ))}
-      </div>
-    </details>
-  );
+  return <div className="w-44 min-w-0"><OrderPicker label={`Фильтр: ${label}`} hideLabel value={value} onChange={onChange}
+    options={[{ value: "", label: `Все: ${label.toLocaleLowerCase("ru")}` }, ...options.map(option => ({ value: option, label: option }))]}
+    placeholder={label} searchPlaceholder={`Найти: ${label.toLocaleLowerCase("ru")}`} /></div>;
 }
 
 function visitTime(iso: string, timezone: string) {
@@ -111,8 +87,8 @@ function MasterRosterRow({
   const href = `/masters/${master.id}`;
 
   return (
-    <article role="link" tabIndex={0} aria-label={`Открыть карточку мастера ${master.fullName}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return; router.push(href); }} onKeyDown={(event) => { if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); router.push(href); }} className="relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] md:grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem] md:items-center sm:px-5">
-      <span className="hidden font-display text-[10px] tabular-nums text-[var(--muted-subtle)] md:block">
+    <article role="link" tabIndex={0} aria-label={`Открыть карточку мастера ${master.fullName}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return; router.push(href); }} onKeyDown={(event) => { if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); router.push(href); }} className="relative grid min-w-0 cursor-pointer gap-5 border-b border-[var(--line)] bg-[var(--surface)] px-4 py-5 transition-colors last:border-b-0 hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] xl:grid-cols-[2.5rem_minmax(0,1.15fr)_minmax(0,0.8fr)_minmax(0,1fr)_7rem] xl:items-center sm:px-5">
+      <span className="hidden font-display text-[10px] tabular-nums text-[var(--muted-subtle)] xl:block">
         {String(index + 1).padStart(2, "0")}
       </span>
       <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] gap-x-3">
@@ -128,6 +104,7 @@ function MasterRosterRow({
               <MapPin className="size-3 shrink-0" />
               {master.serviceRegion} · {master.serviceZone}
             </p>
+            {master.organizationName ? <p className="mt-1 truncate text-[10px] text-[var(--muted)]">{master.organizationName}</p> : null}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span
                 className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-medium ${statusStyle[master.statusCode]}`}
@@ -190,14 +167,14 @@ function MasterRosterRow({
             {visits.map((visit) => (
               <Link
                 key={visit.id}
-                href={`/orders/${visit.orderId}`}
+                href={masterVisitHref(visit)}
                 className="focus-ring grid min-w-0 grid-cols-[3.1rem_minmax(0,1fr)] gap-2 rounded-[7px] py-0.5 text-[10px] leading-4 text-[var(--text-secondary)] hover:text-[var(--accent-ink)]"
               >
                 <span className="font-display tabular-nums text-[var(--accent-ink)]">
                   {visitTime(visit.scheduledStartAt, visit.timezone)}
                 </span>
                 <span className="truncate">
-                  №{visit.orderNumber} · {visit.clientName}
+                  {visit.orderNumber ? `№${visit.orderNumber}` : "По договору"} · {visit.clientName}
                 </span>
               </Link>
             ))}
@@ -207,7 +184,7 @@ function MasterRosterRow({
         )}
       </div>
 
-      <div className="md:text-right">
+      <div className="xl:text-right">
         <p className="text-[9px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">
           Ставка
         </p>
@@ -223,14 +200,14 @@ function MasterRosterRow({
   );
 }
 
-export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
+export function MastersWorkspace({ masters, initialPage }: { masters: MasterListItem[]; initialPage: MasterListPage | null }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | MasterStatusCode>("all");
   const [region, setRegion] = useState("");
   const [zone, setZone] = useState("");
   const [skill, setSkill] = useState("");
 
-  const facets = useMemo(
+  const localFacets = useMemo(
     () => ({
       regions: Array.from(
         new Set(masters.map((master) => master.serviceRegion)),
@@ -248,7 +225,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
     }),
     [masters, region],
   );
-  const counts = useMemo(
+  const localCounts = useMemo(
     () =>
       new Map(
         statusFilters.map((entry) => [
@@ -261,7 +238,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
       ),
     [masters],
   );
-  const filtered = useMemo(() => {
+  const localFiltered = useMemo(() => {
     return masters.filter((master) => {
       if (status !== "all" && master.statusCode !== status) return false;
       if (region && master.serviceRegion !== region) return false;
@@ -277,6 +254,35 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
       ]);
     });
   }, [masters, query, region, skill, status, zone]);
+  const [page, setPage] = useState(1);
+  const [remotePage, setRemotePage] = useState(initialPage);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const firstFetch = useRef(true);
+  const requestKey = new URLSearchParams({ q: query, status, region, zone, skill, page: String(page) }).toString();
+  const initialKey = "q=&status=all&region=&zone=&skill=&page=1";
+  const validRemote = remotePage && (loadedKey === requestKey || (!loadedKey && requestKey === initialKey));
+  useEffect(() => {
+    if (!initialPage) return;
+    if (firstFetch.current) { firstFetch.current = false; return; }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoadingKey(requestKey); setErrorKey(null);
+      try {
+        const response = await fetch(`/api/v1/masters?${requestKey}`, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Master list unavailable");
+        const payload = await response.json() as { data: MasterListPage };
+        if (!controller.signal.aborted) { setRemotePage(payload.data); setLoadedKey(requestKey); }
+      } catch { if (!controller.signal.aborted) setErrorKey(requestKey); }
+      finally { if (!controller.signal.aborted) setLoadingKey(null); }
+    }, query ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [initialPage, requestKey, retry, query]);
+  const facets = remotePage?.facets ?? localFacets;
+  const counts = initialPage ? new Map(Object.entries(remotePage?.counts ?? {})) : localCounts;
+  const filtered = initialPage ? validRemote ? remotePage!.items : [] : localFiltered;
   const filtersActive = Boolean(
     query || status !== "all" || region || zone || skill,
   );
@@ -286,7 +292,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
     setStatus("all");
     setRegion("");
     setZone("");
-    setSkill("");
+    setSkill(""); setPage(1);
   }
 
   return (
@@ -300,7 +306,7 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
             <button
               key={entry.value}
               type="button"
-              onClick={() => setStatus(entry.value)}
+              onClick={() => { setStatus(entry.value); setPage(1); }}
               aria-pressed={status === entry.value}
               className={`focus-ring flex h-10 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors ${status === entry.value ? "border-[var(--line-strong)] bg-[var(--text)] text-[var(--canvas)]" : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
             >
@@ -319,7 +325,8 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
             <span className="sr-only">Поиск мастеров</span>
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              maxLength={100}
+              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
               placeholder="ФИО, телефон, регион, зона…"
               className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
             />
@@ -330,20 +337,20 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
             options={facets.regions}
             onChange={(value) => {
               setRegion(value);
-              setZone("");
+              setZone(""); setPage(1);
             }}
           />
           <FilterMenu
             label="Зона"
             value={zone}
             options={facets.zones}
-            onChange={setZone}
+            onChange={(value) => { setZone(value); setPage(1); }}
           />
           <FilterMenu
             label="Специализация"
             value={skill}
             options={facets.skills}
-            onChange={setSkill}
+            onChange={(value) => { setSkill(value); setPage(1); }}
           />
           {filtersActive ? (
             <button
@@ -360,9 +367,9 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
       <div className="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-2 px-2 pb-1 pt-4">
         <p className="text-sm text-[var(--text-secondary)]">
           <strong className="font-display font-medium text-[var(--text)]">
-            {filtered.length}
+            {initialPage ? validRemote ? remotePage!.total : "…" : filtered.length}
           </strong>{" "}
-          из {masters.length} специалистов
+          из {counts.get("all") ?? masters.length} специалистов
         </p>
         <p className="text-[10px] text-[var(--muted)]">
           <span className="text-[var(--support-strong)]">
@@ -382,19 +389,20 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
           aria-label="Реестр мастеров"
           className="surface-panel panel-stack mt-4 min-w-0 overflow-hidden"
         >
-          <header className="hidden grid-cols-[2.5rem_minmax(13rem,1.15fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_7rem_1.5rem] gap-5 border-b border-[var(--line)] bg-[var(--surface-inset)] px-5 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] md:grid">
+          <header className="hidden grid-cols-[2.5rem_minmax(0,1.15fr)_minmax(0,0.8fr)_minmax(0,1fr)_7rem] gap-5 border-b border-[var(--line)] bg-[var(--surface-inset)] px-5 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] xl:grid">
             <span>№</span>
             <span>Специалист</span>
             <span>Загрузка</span>
             <span>Ближайший маршрут</span>
             <span className="text-right">Ставка</span>
-            <span />
           </header>
           {filtered.map((master, index) => (
-            <MasterRosterRow key={master.id} master={master} index={index} />
+            <MasterRosterRow key={master.id} master={master} index={index + (initialPage ? ((remotePage?.page ?? 1) - 1) * (remotePage?.pageSize ?? 50) : 0)} />
           ))}
         </section>
-      ) : (
+      ) : initialPage && !validRemote ? <div role="status" className="py-10 text-center text-sm text-[var(--muted)]">
+        {errorKey === requestKey ? <><p>Не удалось загрузить мастеров.</p><button className="focus-ring mt-3 underline" type="button" onClick={() => setRetry(value => value + 1)}>Повторить</button></> : "Загрузка мастеров…"}
+      </div> : (
         <section className="grid min-h-52 place-items-center border-b border-[var(--line)] py-8 text-center">
           <div>
             <UsersRound className="mx-auto size-8 text-[var(--muted)]" />
@@ -416,6 +424,11 @@ export function MastersWorkspace({ masters }: { masters: MasterListItem[] }) {
           </div>
         </section>
       )}
+      {initialPage && validRemote && remotePage!.total > remotePage!.pageSize ? <nav aria-label="Страницы мастеров" className="mt-4 flex items-center justify-between gap-2 text-xs">
+        <button type="button" disabled={remotePage!.page <= 1 || loadingKey === requestKey} onClick={() => setPage(remotePage!.page - 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Назад</button>
+        <span>Страница {remotePage!.page} из {Math.ceil(remotePage!.total / remotePage!.pageSize)}</span>
+        <button type="button" disabled={remotePage!.page * remotePage!.pageSize >= remotePage!.total || loadingKey === requestKey} onClick={() => setPage(remotePage!.page + 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Далее</button>
+      </nav> : null}
     </div>
   );
 }

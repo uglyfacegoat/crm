@@ -202,9 +202,9 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
   if (hasPermission(member, "masters.read")) {
     searches.push(sql`
       SELECT masters.id, 'master' AS entity_type, masters.full_name AS title,
-        concat_ws(' · ', masters.phone, masters.messenger) AS subtitle,
+        concat_ws(' · ', organizations.name, masters.phone, masters.messenger) AS subtitle,
         masters.service_region || ' · ' || masters.service_zone AS detail,
-        '/masters?master=' || masters.id::text AS href,
+        '/masters/' || masters.id::text AS href,
         CASE
           WHEN lower(masters.normalized_phone) LIKE ${containsPattern} ESCAPE '\' OR lower(masters.phone) LIKE ${containsPattern} ESCAPE '\'
             OR (${phonePattern}::text IS NOT NULL AND regexp_replace(masters.normalized_phone, '\D', '', 'g') LIKE ${phonePattern}) THEN 'Телефон'
@@ -217,8 +217,8 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
           WHEN lower(masters.full_name) LIKE ${prefixPattern} ESCAPE '\' THEN 88
           ELSE 64
         END AS score
-      FROM masters
-      WHERE masters.organization_id = ${member.organizationId}
+      FROM masters JOIN organizations ON organizations.id = masters.organization_id
+      WHERE masters.organization_id IN ${sql(organizationIds)}
         AND (
           crm_search_matches(concat_ws(' ', masters.full_name, masters.phone, masters.normalized_phone, masters.messenger, masters.service_region, masters.service_zone), ${query})
           OR (${phonePattern}::text IS NOT NULL AND regexp_replace(masters.normalized_phone, '\D', '', 'g') LIKE ${phonePattern})

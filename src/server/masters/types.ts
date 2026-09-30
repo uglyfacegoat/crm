@@ -6,8 +6,9 @@ export type MasterStatusCode = (typeof masterStatusCodes)[number];
 
 export type MasterVisitSummary = {
   id: string;
-  orderId: string;
-  orderNumber: string;
+  orderId: string | null;
+  orderNumber: string | null;
+  contractId?: string | null;
   clientName: string;
   objectAddress: string;
   scheduledStartAt: string;
@@ -16,6 +17,9 @@ export type MasterVisitSummary = {
 
 export type MasterListItem = {
   id: string;
+  organizationId?: string;
+  organizationName?: string;
+  organizationTimezone?: string;
   fullName: string;
   phone: string;
   messenger: string | null;

@@ -135,7 +135,7 @@ jobs:
   database-and-runtime:
     name: Migration safety and production HTTP checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
@@ -208,7 +208,11 @@ jobs:
       - run: npm run build
       - run: npx playwright-core install --with-deps chromium
       - name: Install audio conversion runtime for standalone HTTP checks
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends ffmpeg
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends ffmpeg
+          fi
       - name: Start production server and verify HTTP behavior
         run: |
           mkdir -p artifacts "$DOCUMENT_STORAGE_ROOT"
