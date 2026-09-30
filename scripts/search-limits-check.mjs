@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
@@ -38,12 +39,26 @@ try {
   }
   assert.equal((await search()).status, 401);
   assert.equal((await search(cookies[0], "x")).status, 400);
+  const restrictedEmail = `restricted-search-${randomUUID()}@example.invalid`;
+  const [restricted] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${member.organization_id}, 'Search permission tester', ${restrictedEmail}, 'dispatcher') RETURNING id`;
+  await sql`INSERT INTO member_login_identities (organization_id, member_id, kind, normalized_value, verified_at)
+    VALUES (${member.organization_id}, ${restricted.id}, 'email', ${restrictedEmail}, now())`;
+  await sql`INSERT INTO member_credentials (organization_id, member_id, password_hash)
+    SELECT ${member.organization_id}, ${restricted.id}, password_hash FROM member_credentials
+    WHERE organization_id = ${member.organization_id} AND member_id = ${member.id}`;
+  const restrictedLogin = await fetch(`${origin}/api/v1/auth/login`, {
+    method: "POST", headers: { origin, "content-type": "application/json" },
+    body: JSON.stringify({ identity: restrictedEmail, password }), signal: AbortSignal.timeout(15_000),
+  });
+  assert.equal(restrictedLogin.status, 200);
+  const restrictedCookie = restrictedLogin.headers.get("set-cookie").split(";")[0];
   await sql`INSERT INTO member_permission_overrides (organization_id, member_id, permission, allowed)
-    VALUES (${member.organization_id}, ${member.id}, 'search.use', false)`;
-  try { assert.equal((await search(cookies[0])).status, 403); }
+    VALUES (${member.organization_id}, ${restricted.id}, 'search.use', false)`;
+  try { assert.equal((await search(restrictedCookie)).status, 403); }
   finally {
     await sql`DELETE FROM member_permission_overrides WHERE organization_id = ${member.organization_id}
-      AND member_id = ${member.id} AND permission = 'search.use'`;
+      AND member_id = ${restricted.id} AND permission = 'search.use'`;
   }
   assert.equal((await budgetRows()).length, 0, "Invalid/unauthorized/forbidden requests must not consume search budgets");
 
