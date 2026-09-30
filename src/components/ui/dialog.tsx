@@ -79,7 +79,7 @@ export function Dialog({
   if (!open) return null;
   return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-black/76 p-3 sm:p-6"
+      className="crm-dialog-backdrop fixed inset-x-0 z-[70] flex items-center justify-center overflow-hidden bg-black/76"
       onMouseDown={onClose}
       role="presentation"
     >
@@ -99,7 +99,7 @@ export function Dialog({
           input.setSelectionRange(formatted.length, formatted.length);
         }}
         onMouseDown={(event) => event.stopPropagation()}
-        className={`modal-panel animate-modal flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[780px] flex-col overflow-hidden rounded-[var(--radius-panel)] shadow-2xl sm:max-h-[calc(100dvh-3rem)] ${compact ? "modal-panel-compact" : ""}`}
+        className={`modal-panel animate-modal flex max-h-full w-full max-w-[780px] flex-col overflow-hidden rounded-[var(--radius-panel)] shadow-2xl ${compact ? "modal-panel-compact" : ""}`}
       >
         <header className="flex shrink-0 items-start gap-4 px-5 py-5 sm:px-7">
           <div className="min-w-0 flex-1">

@@ -725,7 +725,6 @@ export function AppShell({
   const developerSupportActive = isActivePath(pathname, "/developer/support");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const chatShellRef = useRef<HTMLDivElement>(null);
   const { preferences: navigationState, setPreference } = useNavigationState();
   const sidebarCollapsed = navigationState.collapsed ?? false;
 
@@ -761,30 +760,44 @@ export function AppShell({
   }, []);
 
   useEffect(() => {
-    if (!standaloneActive) return;
-    const shell = chatShellRef.current;
-    if (!shell) return;
-    document.documentElement.classList.add("chat-screen-open");
+    const root = document.documentElement;
     const viewport = window.visualViewport;
     const syncViewport = () => {
-      shell.style.setProperty("--chat-viewport-height", `${viewport?.height ?? window.innerHeight}px`);
-      shell.style.setProperty("--chat-viewport-top", `${viewport?.offsetTop ?? 0}px`);
+      const height = viewport?.height ?? window.innerHeight;
+      root.style.setProperty("--crm-viewport-height", `${height}px`);
+      root.style.setProperty("--crm-viewport-top", `${viewport?.offsetTop ?? 0}px`);
+      const editing = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
+      root.toggleAttribute("data-keyboard-open", editing && window.innerHeight - height > 150);
     };
     syncViewport();
     viewport?.addEventListener("resize", syncViewport);
     viewport?.addEventListener("scroll", syncViewport);
-    window.addEventListener("orientationchange", syncViewport);
+    window.addEventListener("resize", syncViewport);
+    document.addEventListener("focusin", syncViewport);
+    document.addEventListener("focusout", syncViewport);
     return () => {
-      document.documentElement.classList.remove("chat-screen-open");
       viewport?.removeEventListener("resize", syncViewport);
       viewport?.removeEventListener("scroll", syncViewport);
-      window.removeEventListener("orientationchange", syncViewport);
+      window.removeEventListener("resize", syncViewport);
+      document.removeEventListener("focusin", syncViewport);
+      document.removeEventListener("focusout", syncViewport);
+      root.style.removeProperty("--crm-viewport-height");
+      root.style.removeProperty("--crm-viewport-top");
+      root.removeAttribute("data-keyboard-open");
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!standaloneActive) return;
+    document.documentElement.classList.add("chat-screen-open");
+    return () => {
+      document.documentElement.classList.remove("chat-screen-open");
     };
   }, [standaloneActive]);
 
   if (standaloneActive) {
     return (
-      <div ref={chatShellRef} className="chat-standalone-shell">
+      <div className="chat-standalone-shell">
         <ActivityTracker />
         <PushSessionRestore />
         <main className="chat-standalone-main">{children}</main>
@@ -798,7 +811,7 @@ export function AppShell({
       <ActivityTracker />
       <PushSessionRestore />
       <aside
-        className={`fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--sidebar-surface)] transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-20" : "w-56"}`}
+        className={`workspace-sidebar fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--sidebar-surface)] transition-[width] duration-200 md:flex ${sidebarCollapsed ? "w-20" : "w-56"}`}
       >
         <SidebarContent
           pathname={pathname}
@@ -818,7 +831,7 @@ export function AppShell({
           role="presentation"
         >
           <aside
-            className="flex h-full w-[min(19rem,88vw)] flex-col overflow-hidden border-r border-[var(--line-strong)] bg-[var(--sidebar-surface)] shadow-[0_20px_60px_rgba(0,0,0,0.24)]"
+            className="workspace-mobile-menu flex h-full w-[min(19rem,88vw)] flex-col overflow-hidden border-r border-[var(--line-strong)] bg-[var(--sidebar-surface)] shadow-[0_20px_60px_rgba(0,0,0,0.24)]"
             onClick={(event) => event.stopPropagation()}
           >
             <SidebarContent
@@ -910,7 +923,7 @@ export function AppShell({
 
       <nav
         aria-label="Мобильная навигация"
-        className={`fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-40 grid min-w-0 ${isFieldRole(currentUser.role) ? "grid-cols-3" : "grid-cols-5"} gap-0.5 rounded-[18px] border border-[var(--line-strong)] bg-[var(--surface-raised)]/94 p-1 shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl min-[380px]:inset-x-3 min-[380px]:gap-1 min-[380px]:p-1.5 md:hidden`}
+        className={`workspace-mobile-nav fixed inset-x-2 z-40 grid min-w-0 ${isFieldRole(currentUser.role) ? "grid-cols-3" : "grid-cols-5"} gap-0.5 rounded-[18px] border border-[var(--line-strong)] bg-[var(--surface-raised)]/94 p-1 shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl min-[380px]:inset-x-3 min-[380px]:gap-1 min-[380px]:p-1.5 md:hidden`}
       >
         {mobileNavigation.map((item) => {
           const active = isActivePath(pathname, item.href);

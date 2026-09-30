@@ -253,8 +253,8 @@ export default async function OrderDetailPage({
         <PersonalNotesPanel target={noteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} objectName={order.object} lizaDefaults={lizaDefaults} relatedLinks={relatedNoteLinks} />
       </div>
 
-      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)]">
-        <section aria-label="Детали заказа" className="space-y-5">
+      <div className="mt-5 grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)]">
+        <section aria-label="Детали заказа" className="min-w-0 space-y-5">
           <section
             className="surface-panel animate-rise p-5 sm:p-6"
             style={{ animationDelay: "80ms" }}
@@ -347,7 +347,7 @@ export default async function OrderDetailPage({
           </section>
         </section>
 
-        <aside className="space-y-5">
+        <aside className="min-w-0 space-y-5">
           <section
             className="surface-panel animate-rise p-5"
             style={{ animationDelay: "180ms" }}

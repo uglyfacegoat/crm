@@ -239,6 +239,8 @@ jobs:
         run: SESSION_CHECK_RUNTIME=.next/standalone/server.js npm run test:session-revocation
       - name: Exact arrival time and arrival window across visit forms
         run: VISIT_CHECK_RUNTIME=.next/standalone/server.js npm run test:visit-arrival-browser
+      - name: Mobile safe areas, keyboard viewport and shared dialogs
+        run: MOBILE_SHELL_CHECK_RUNTIME=.next/standalone/server.js npm run test:mobile-shell-browser
       - name: Private S3 upload, download and backup staging acceptance
         run: UPLOAD_CHECK_STORAGE=s3 UPLOAD_CHECK_ARTIFACTS=artifacts/uploads-s3 UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
       - uses: actions/upload-artifact@v4
@@ -252,4 +254,5 @@ jobs:
             artifacts/uploads/
             artifacts/uploads-s3/
             artifacts/visits/
+            artifacts/mobile-shell/
           retention-days: 7
