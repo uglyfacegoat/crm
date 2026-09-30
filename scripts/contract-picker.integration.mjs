@@ -19,7 +19,7 @@ let sql;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", root), { namedExports: { getDatabase: () => sql } });
 const { listContracts, listContractPage, getContract, listContractHistory, updateContract, ContractNotFoundError } = await import("../src/server/contracts/repository.ts");
-const { listVisits, getVisitDispatchCard, VisitNotFoundError } = await import("../src/server/visits/repository.ts");
+const { listVisits, getVisitDispatchCard, rescheduleVisit, VisitNotFoundError } = await import("../src/server/visits/repository.ts");
 const { contractListQuerySchema } = await import("../src/lib/contract-list.ts");
 const { contractPickerQuerySchema, searchContractPicker } = await import("../src/server/contracts/option-picker.ts");
 
@@ -138,6 +138,12 @@ test("contract pickers find objects, masters and contracts beyond initial caps w
   assert.equal(new Set(calendar.map(item => item.id)).size, 505);
   assert.ok(calendar.every(item => item.contractId === lastContract.id));
   assert.equal((await getVisitDispatchCard(centerMember, calendar[0].id)).client, 'Наш клиент');
+  const wholeCalendar = await listVisits(centerMember, '2027-01-01T00:00:00Z', '2027-04-01T00:00:00Z', null, null, true);
+  assert.equal(wholeCalendar.length, 505, 'The center calendar must include the whole granted range beyond 500');
+  assert.ok(wholeCalendar.every(item => item.organizationId === organization.id && item.organizationName === 'Contracts A'));
+  assert.equal((await listVisits(centerMember, '2027-01-01T00:00:00Z', '2027-04-01T00:00:00Z')).length, 0, 'Dashboard aggregation keeps its per-organization scope');
+  await assert.rejects(rescheduleVisit(centerMember, { visitId: calendar[0].id, expectedVersion: 1, localDate: '2027-01-10', localTime: '10:00', rescheduleReason: 'Denied company write', arrivalMode: 'fixed' }), VisitNotFoundError);
+
   assert.equal((await listContractPage(centerMember, defaults)).total, 502);
   assert.equal((await getContract(centerMember, lastContract.id)).organizationId, organization.id);
   assert.equal((await listContractHistory(centerMember, lastContract.id))[0].reason, 'История из центра');
@@ -152,6 +158,7 @@ test("contract pickers find objects, masters and contracts beyond initial caps w
   await assert.rejects(searchContractPicker(reader, contractPickerQuerySchema.parse({ type: "masters" })));
   await sql`DELETE FROM organization_access_grants WHERE principal_organization_id = ${center.id}`;
   assert.equal((await listContractPage(centerMember, defaults)).total, 0);
+  assert.equal((await listVisits(centerMember, '2027-01-01T00:00:00Z', '2027-04-01T00:00:00Z', null, null, true)).length, 0, 'Revoked company disappears from the general calendar');
   await assert.rejects(getVisitDispatchCard(centerMember, calendar[0].id), VisitNotFoundError);
   await assert.rejects(getContract(centerMember, lastContract.id), ContractNotFoundError);
   await assert.rejects(listContractHistory(centerMember, lastContract.id), ContractNotFoundError);

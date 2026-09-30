@@ -12,7 +12,7 @@ export type CalendarVisitFilters = {
 };
 
 function includesQuery(visit: ServiceVisit, query: string) {
-  return matchesSearchText(query, [visit.orderNumber, visit.client, visit.object, visit.address, visit.master, visit.masterRegion, visit.serviceSummary]);
+  return matchesSearchText(query, [visit.orderNumber, visit.client, visit.object, visit.address, visit.master, visit.masterRegion, visit.serviceSummary, visit.organizationName]);
 }
 
 function hasService(visit: ServiceVisit, service: string) {

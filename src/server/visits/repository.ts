@@ -15,6 +15,7 @@ const uuidSchema = z.string().uuid();
 const timestampRangeSchema = z.object({ start_at: z.coerce.date(), end_at: z.coerce.date() });
 const datedTimestampRangeSchema = timestampRangeSchema.extend({ local_date: z.string() });
 const visitRowSchema = z.object({
+  organization_id: uuidSchema.optional(), organization_name: z.string().optional(),
   id: uuidSchema,
   series_id: uuidSchema.nullable(),
   occurrence_number: z.number().int().positive().nullable(),
@@ -133,6 +134,7 @@ function mapVisit(row: unknown): ServiceVisit {
   const visit = visitRowSchema.parse(row);
   return {
     id: visit.id,
+    organizationId: visit.organization_id, organizationName: visit.organization_name,
     seriesId: visit.series_id,
     occurrenceNumber: visit.occurrence_number,
     orderId: visit.order_id,
@@ -219,14 +221,15 @@ export async function listOrderVisitHistory(member: AuthenticatedMember, orderId
   return buildVisitHistoryFeed(rows, orderVisitHistoryLimit);
 }
 
-export async function listVisits(member: AuthenticatedMember, rangeStart: string, rangeEnd: string, focusedOrderId: string | null = null, focusedContractId: string | null = null): Promise<ServiceVisit[]> {
+export async function listVisits(member: AuthenticatedMember, rangeStart: string, rangeEnd: string, focusedOrderId: string | null = null, focusedContractId: string | null = null, includeGrantedCompanies = false): Promise<ServiceVisit[]> {
   requireVisitRead(member);
   const bounds = z.object({ start: z.coerce.date(), end: z.coerce.date() }).parse({ start: rangeStart, end: rangeEnd });
   const contractId = focusedContractId ? z.string().uuid().parse(focusedContractId) : null;
   const orderId = focusedOrderId ? z.string().uuid().parse(focusedOrderId) : null;
   if (bounds.end <= bounds.start) throw new RangeError("Visit range end must be after its start.");
   const sql = getDatabase();
-  const rows = await sql`SELECT service_visits.contract_id, service_visits.id, service_visits.series_id, service_visits.occurrence_number, service_visits.order_id, orders.order_number,
+  const organizationIds = includeGrantedCompanies ? await readableOrganizationIds(member) : [member.organizationId];
+  const rows = await sql`SELECT service_visits.organization_id, organizations.name AS organization_name, service_visits.contract_id, service_visits.id, service_visits.series_id, service_visits.occurrence_number, service_visits.order_id, orders.order_number,
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
     service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
@@ -246,13 +249,12 @@ export async function listVisits(member: AuthenticatedMember, rangeStart: string
     ) services ON true
     LEFT JOIN documents AS completion_documents ON completion_documents.organization_id = service_visits.organization_id
       AND completion_documents.id = service_visits.completion_document_id
-    WHERE service_visits.organization_id = ${member.organizationId}
+    WHERE service_visits.organization_id IN ${sql(organizationIds)}
       AND (${contractId}::uuid IS NULL OR service_visits.contract_id = ${contractId}::uuid)
       AND (${orderId}::uuid IS NULL OR service_visits.order_id = ${orderId}::uuid)
       AND service_visits.scheduled_start_at < ${bounds.end}
       AND service_visits.scheduled_end_at > ${bounds.start}
-    ORDER BY service_visits.scheduled_start_at
-    LIMIT ${contractId ? null : 500}`;
+    ORDER BY service_visits.scheduled_start_at, service_visits.id`;
   return rows.map(mapVisit);
 }
 

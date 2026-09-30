@@ -234,7 +234,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
         'Выезд · ' || service_visits.client_name_snapshot AS title,
         to_char(service_visits.scheduled_start_at AT TIME ZONE organizations.timezone, 'DD.MM.YYYY HH24:MI') || CASE WHEN service_visits.organization_id <> ${member.organizationId} THEN ' · ' || organizations.name ELSE '' END AS subtitle,
         service_visits.object_address_snapshot || CASE WHEN service_visits.master_name_snapshot IS NOT NULL THEN ' · ' || service_visits.master_name_snapshot ELSE '' END AS detail,
-        CASE WHEN service_visits.order_id IS NOT NULL THEN '/orders/' || service_visits.order_id::text ELSE '/calendar?date=' || to_char(service_visits.scheduled_start_at AT TIME ZONE organizations.timezone, 'YYYY-MM-DD') END AS href,
+        CASE WHEN service_visits.order_id IS NOT NULL THEN '/orders/' || service_visits.order_id::text ELSE '/calendar?view=list&date=' || to_char(service_visits.scheduled_start_at AT TIME ZONE organizations.timezone, 'YYYY-MM-DD') || CASE WHEN service_visits.contract_id IS NOT NULL AND ${hasPermission(member, "contracts.read")} THEN '&contract=' || service_visits.contract_id::text ELSE '' END END AS href,
         CASE
           WHEN ${searchDate}::date IS NOT NULL THEN 'Дата выезда'
           WHEN lower(coalesce(orders.order_number, '')) LIKE ${containsPattern} ESCAPE '\' THEN 'Номер заказа'
@@ -252,7 +252,6 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       JOIN organizations ON organizations.id = service_visits.organization_id
       LEFT JOIN orders ON orders.organization_id = service_visits.organization_id AND orders.id = service_visits.order_id
       WHERE service_visits.organization_id IN ${sql(organizationIds)}
-        AND (service_visits.organization_id = ${member.organizationId} OR service_visits.order_id IS NOT NULL)
         AND (
           (${searchDate}::date IS NOT NULL
             AND service_visits.scheduled_start_at >= (${searchDate}::date::timestamp AT TIME ZONE organizations.timezone)

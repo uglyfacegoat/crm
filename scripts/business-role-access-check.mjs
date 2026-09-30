@@ -132,6 +132,20 @@ try {
   await sql`UPDATE documents SET contract_id = ${companyContract.id}, object_id = null WHERE id = ${grantedDocument.id}`;
   const [hiddenObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
     VALUES (${ungrantedCompany.id}, ${ungrantedClient.id}, 'Скрытый объект договора', 'Office', 'Тестовый адрес') RETURNING id`;
+  const [calendarContract] = await sql`SELECT id FROM contracts WHERE organization_id = ${target.id} AND contract_number = 'ДОГ-0001'`;
+  await sql`INSERT INTO service_visits (organization_id, contract_id, object_id, scheduled_start_at, scheduled_end_at, status,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot, created_by, updated_by)
+    SELECT ${target.id}, ${calendarContract.id}, ${clientObject.id}, '2030-01-06T00:00:00Z'::timestamptz + n * interval '1 hour',
+      '2030-01-06T00:00:00Z'::timestamptz + (n + 1) * interval '1 hour', 'planned', 'Дополнительный выезд компании',
+      'Объект календаря ' || n, 'Адрес календаря ' || n, ${developerShadow.id}, ${developerShadow.id} FROM generate_series(1, 73) n`;
+  const [centerCalendarOrder] = await sql`INSERT INTO orders (organization_id, client_id, order_number, status, currency, client_name_snapshot, object_name_snapshot, object_address_snapshot)
+    VALUES (${home.organization_id}, ${homeClient.id}, 'СВОЙ-901', 'new', 'RUB', 'Выезд центра для переноса', 'Собственный объект календаря', 'Адрес центра') RETURNING id`;
+  const [centerCalendarObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    VALUES (${home.organization_id}, ${homeClient.id}, 'Собственный объект календаря', 'Склад', 'Адрес центра') RETURNING id`;
+  const [centerVisit] = await sql`INSERT INTO service_visits (organization_id, order_id, object_id, scheduled_start_at, scheduled_end_at, status,
+    client_name_snapshot, object_name_snapshot, object_address_snapshot, created_by, updated_by)
+    VALUES (${home.organization_id}, ${centerCalendarOrder.id}, ${centerCalendarObject.id}, '2030-01-05T11:00:00Z', '2030-01-05T12:00:00Z', 'planned',
+      'Выезд центра для переноса', 'Собственный объект календаря', 'Адрес центра', ${home.id}, ${home.id}) RETURNING id`;
   const [hiddenContract] = await sql`INSERT INTO contracts (organization_id, client_id, object_id, contract_number, status, starts_on, ends_on, renewal_notice_days)
     VALUES (${ungrantedCompany.id}, ${ungrantedClient.id}, ${hiddenObject.id}, 'Скрытый договор центра', 'draft', '2030-01-01', '2030-12-31', 30) RETURNING id`;
   const [master] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
@@ -251,8 +265,8 @@ try {
   const nextClients = await clientPage(developerCookie, '?page=2');
   assert.equal(firstClients.total, 68);
   assert.equal(firstClients.summary.total, 68);
-  assert.equal(firstClients.summary.active, 1);
-  assert.equal(firstClients.summary.objects, 1);
+  assert.equal(firstClients.summary.active, 2);
+  assert.equal(firstClients.summary.objects, 2);
   assert.equal(firstClients.items.length, 50);
   assert.equal(nextClients.items.length, 18);
   assert.equal(new Set([...firstClients.items, ...nextClients.items].map(item => item.id)).size, 68);
@@ -393,6 +407,30 @@ try {
     await search.getByRole('option', { name: /Янтарный договор центра/ }).click();
     await page.getByRole('heading', { name: 'Янтарный договор центра', exact: true }).waitFor();
   }
+  for (const width of [390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`${baseUrl}/calendar?date=2030-01-05&view=list`);
+    const visitPages = page.getByRole('navigation', { name: 'Страницы выездов', exact: true });
+    await visitPages.getByText('Страница 1 из 2', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Открыть карточку мастеру', exact: true }).count(), 50);
+    assert.equal(await page.getByRole('button', { name: /Перенести выезд/ }).count(), 1, 'Only the own-center visit can be rescheduled');
+    await page.getByRole('link').filter({ hasText: 'Выезд выданной компании' }).waitFor();
+    await visitPages.getByRole('button', { name: 'Следующие выезды', exact: true }).click();
+    await visitPages.getByText('Страница 2 из 2', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Открыть карточку мастеру', exact: true }).count(), 25);
+    assert.equal(await page.getByRole('button', { name: /Перенести выезд/ }).count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Unfiltered visit pages must fit the viewport');
+    await page.getByPlaceholder('Номер, клиент, адрес, мастер или услуга').fill('Выезд центра для переноса');
+    assert.equal(await page.getByRole('button', { name: /Перенести выезд/ }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: 'Открыть карточку мастеру', exact: true }).count(), 1);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ animations: 'disabled', path: `artifacts/business-roles/center-calendar-${width}.png`, fullPage: true });
+  }
+  const standaloneVisitSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Дополнительный выезд компании')}`, { headers: { Cookie: developerCookie } });
+  const standaloneVisits = (await standaloneVisitSearch.json()).data.results.filter(item => item.entityType === 'visit');
+  assert.ok(standaloneVisits.length > 0);
+  assert.ok(standaloneVisits.every(item => item.href.startsWith('/calendar?view=list&date=') && item.subtitle.includes('Second company')));
+  assert.equal((await path(developerCookie, standaloneVisits[0].href)).status, 200);
   await page.goto(`${baseUrl}/contracts`);
   const contractSearch = page.getByPlaceholder('Номер, клиент, объект, адрес или мастер');
   await page.route('**/api/v1/contracts?**', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
@@ -488,17 +526,24 @@ try {
   assert.equal((await clientPage(developerCookie)).total, 1);
   for (const q of ['ЦЕНТР-101', 'Выезд выданной компании', '05.01.2030']) {
     const response = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent(q)}`, { headers: { Cookie: developerCookie } });
-    assert.deepEqual((await response.json()).data.results, [], 'Revoked grant removes order and visit search access');
+    const results = (await response.json()).data.results;
+    if (q === '05.01.2030') assert.deepEqual(results.map(item => item.id), [centerVisit.id], 'Revoking a grant must retain own-center visits');
+    else assert.deepEqual(results, [], 'Revoked grant removes order and visit search access');
   }
   assert.equal((await contractPage()).total, 0);
   assert.equal((await path(developerCookie, `/contracts/${companyContract.id}`)).status, 404);
   assert.equal((await path(developerCookie, `/calendar?contract=${companyContract.id}&date=2030-01-05`)).status, 404);
   assert.equal((await path(developerCookie, `/api/v1/visits/${companyVisit.id}/dispatch-card`)).status, 404);
+  const revokedCalendar = await fetch(`${baseUrl}/calendar?date=2030-01-05&view=list`, { headers: { Cookie: developerCookie } });
+  const revokedCalendarHtml = await revokedCalendar.text();
+  assert.doesNotMatch(revokedCalendarHtml, /Дополнительный выезд компании|Выезд выданной компании/);
+  assert.match(revokedCalendarHtml, /Выезд центра для переноса/);
+  assert.equal((await path(developerCookie, `/api/v1/visits/${centerVisit.id}/dispatch-card`)).status, 200);
   const revokedContractSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Янтарный договор центра')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await revokedContractSearch.json()).data.results, []);
   const revokedSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Клиент другого контура')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await revokedSearch.json()).data.results, []);
-  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, 521 contracts with full search/pagination, contract documents/history/calendar/dispatch at four widths, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
+  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, 521 contracts with full search/pagination, contract documents/history/calendar/dispatch and a 75-visit center calendar with pagination and own-only rescheduling at four widths, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
 } catch (error) {
   const failedPage = browser?.contexts()[0]?.pages()[0];
   if (failedPage) {

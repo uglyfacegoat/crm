@@ -324,12 +324,15 @@ function MoveVisitDialog({
 function CalendarList({
   visits,
   canWrite,
+  currentOrganizationId,
   onOpenMove,
 }: {
   visits: ServiceVisit[];
   canWrite: boolean;
+  currentOrganizationId?: string;
   onOpenMove: (visit: ServiceVisit) => void;
 }) {
+  const [page, setPage] = useState(1);
   const orderedVisits = useMemo(
     () =>
       visits.toSorted((left, right) =>
@@ -337,6 +340,9 @@ function CalendarList({
       ),
     [visits],
   );
+  const pages = Math.max(1, Math.ceil(orderedVisits.length / 50));
+  const currentPage = Math.min(page, pages);
+  const pageVisits = orderedVisits.slice((currentPage - 1) * 50, currentPage * 50);
   return (
     <section className="surface-panel mt-3 overflow-hidden">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--line)] px-4 py-4 sm:px-6">
@@ -354,7 +360,7 @@ function CalendarList({
       </header>
       {orderedVisits.length ? (
         <div className="divide-y divide-[var(--line)]">
-          {orderedVisits.map((visit) => (
+          {pageVisits.map((visit) => (
             <article
               key={visit.id}
               className="grid gap-3 px-4 py-4 hover:bg-[var(--surface-raised)] sm:px-6 xl:grid-cols-[10rem_7rem_minmax(0,1fr)_10rem_auto_auto] xl:items-center"
@@ -368,7 +374,7 @@ function CalendarList({
                 </p>
               </div>
               <strong className="font-display text-[11px] text-[var(--accent)]">
-                {visit.orderNumber ?? "Без заказа"}
+                {visit.orderNumber ?? (visit.contractId ? "По договору" : "Без заказа")}
               </strong>
               <Link
                 href={visit.orderId ? `/orders/${visit.orderId}` : visit.contractId ? `/contracts/${visit.contractId}` : "/calendar"}
@@ -380,6 +386,7 @@ function CalendarList({
                 <p className="mt-1 truncate text-[10px] text-[var(--muted)]">
                   {visit.address}
                 </p>
+                {visit.organizationId && visit.organizationId !== currentOrganizationId ? <p className="mt-1 text-[10px] text-[var(--muted)]">{visit.organizationName} · просмотр в центре CRM</p> : null}
               </Link>
               <p className="truncate text-[10px] text-[var(--text-secondary)]">
                 {visit.master ?? "Мастер не назначен"}
@@ -391,7 +398,7 @@ function CalendarList({
               </span>
               <div className="flex items-center gap-2">
                 <VisitDispatchCardButton visitId={visit.id} compact />
-                {canWrite && !terminalStatuses.has(visit.statusCode) ? (
+                {canWrite && (!visit.organizationId || visit.organizationId === currentOrganizationId) && !terminalStatuses.has(visit.statusCode) ? (
                   <button
                     type="button"
                     onClick={() => onOpenMove(visit)}
@@ -415,6 +422,11 @@ function CalendarList({
           </div>
         </div>
       )}
+      {pages > 1 ? <nav aria-label="Страницы выездов" className="flex items-center justify-between gap-3 border-t border-[var(--line)] p-4 text-xs">
+        <button type="button" aria-label="Предыдущие выезды" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Назад</button>
+        <span>Страница {currentPage} из {pages}</span>
+        <button type="button" aria-label="Следующие выезды" disabled={currentPage >= pages} onClick={() => setPage(currentPage + 1)} className="focus-ring rounded-lg border border-[var(--line)] px-3 py-2 disabled:opacity-40">Далее</button>
+      </nav> : null}
     </section>
   );
 }
@@ -505,6 +517,7 @@ function UnassignedOrdersPanel({
 }
 
 function ScheduleGrid({
+  currentOrganizationId,
   days,
   visitsByDate,
   selectedDate,
@@ -520,6 +533,7 @@ function ScheduleGrid({
   onDropDay,
   onOpenMove,
 }: {
+  currentOrganizationId?: string;
   days: CalendarDay[];
   visitsByDate: Map<string, CalendarEntry[]>;
   selectedDate: string;
@@ -574,6 +588,7 @@ function ScheduleGrid({
                     <p className="mt-1 truncate text-xs opacity-75">
                       {visit.address} · {visit.master ?? "не назначен"}
                     </p>
+                    {visit.organizationId && visit.organizationId !== currentOrganizationId ? <p className="mt-1 text-[10px] opacity-75">{visit.organizationName} · просмотр в центре CRM</p> : null}
                   </Link>
                   <div className="flex shrink-0 gap-2">
                     <VisitDispatchCardButton
@@ -581,7 +596,7 @@ function ScheduleGrid({
                       compact
                       className="size-10"
                     />
-                    {canWrite && !terminalStatuses.has(visit.statusCode) ? (
+                    {canWrite && (!visit.organizationId || visit.organizationId === currentOrganizationId) && !terminalStatuses.has(visit.statusCode) ? (
                       <button
                         type="button"
                         onClick={() => onOpenMove(visit)}
@@ -705,7 +720,7 @@ function ScheduleGrid({
                       ? "rounded-[10px] px-2"
                       : "rounded-md px-1.5";
                   const movable =
-                    canWrite && !terminalStatuses.has(entry.visit.statusCode);
+                    canWrite && (!entry.visit.organizationId || entry.visit.organizationId === currentOrganizationId) && !terminalStatuses.has(entry.visit.statusCode);
                   if (collapsedCluster)
                     return (
                       <article
@@ -744,7 +759,7 @@ function ScheduleGrid({
                         left: `calc(${position.lane * laneWidth}% + ${laneGap}px)`,
                         right: `calc(${100 - (position.lane + 1) * laneWidth}% + ${laneGap}px)`,
                       }}
-                      title={`${arrivalTime(entry.visit)} · ${entry.visit.client} · ${entry.visit.address}`}
+                      title={`${arrivalTime(entry.visit)} · ${entry.visit.client} · ${entry.visit.address}${entry.visit.organizationId !== currentOrganizationId && entry.visit.organizationName ? ` · ${entry.visit.organizationName}` : ""}`}
                     >
                       <div className="flex min-w-0 items-center gap-1">
                         <span className="min-w-0 flex-1 truncate font-display text-[9px] font-semibold">
@@ -759,7 +774,7 @@ function ScheduleGrid({
                           href={
                             entry.visit.orderId
                               ? `/orders/${entry.visit.orderId}`
-                              : "/calendar"
+                              : entry.visit.contractId ? `/contracts/${entry.visit.contractId}` : "/calendar"
                           }
                           draggable={false}
                           className="focus-ring mt-1 block min-w-0 rounded"
@@ -811,6 +826,7 @@ export function CalendarWorkspace({
   initialView,
   focusedOrderId,
   focusedContract,
+  currentOrganizationId,
   canWrite,
 }: {
   visits: ServiceVisit[];
@@ -819,6 +835,7 @@ export function CalendarWorkspace({
   initialView: CalendarView;
   focusedOrderId?: string | null;
   focusedContract?: { id: string; number: string; company?: string };
+  currentOrganizationId?: string;
   canWrite: boolean;
 }) {
   const [calendarVisits, setCalendarVisits] = useState(visits);
@@ -1031,6 +1048,7 @@ export function CalendarWorkspace({
     localDate?: string,
     localTime?: string,
   ) {
+    if (!canWrite || (visit.organizationId && visit.organizationId !== currentOrganizationId)) return;
     const current = localVisitEntry(visit);
     setMessage(null);
     setMoveDraft({
@@ -1058,7 +1076,7 @@ export function CalendarWorkspace({
     arrivalMode: "fixed" | "window",
     endTime?: string,
   ) {
-    if (!canWrite || isPending || terminalStatuses.has(visit.statusCode))
+    if (!canWrite || (visit.organizationId && visit.organizationId !== currentOrganizationId) || isPending || terminalStatuses.has(visit.statusCode))
       return;
     setPendingId(visit.id);
     setMessage(null);
@@ -1111,6 +1129,7 @@ export function CalendarWorkspace({
     visit: ServiceVisit,
     event: React.DragEvent<HTMLElement>,
   ) {
+    if (!canWrite || (visit.organizationId && visit.organizationId !== currentOrganizationId)) { event.preventDefault(); return; }
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-crm-visit", visit.id);
     setDraggingId(visit.id);
@@ -1425,6 +1444,8 @@ export function CalendarWorkspace({
 
       {view === "list" ? (
         <CalendarList
+          key={JSON.stringify([query, master, region, client, objectFilter, status, service])}
+          currentOrganizationId={currentOrganizationId}
           visits={visibleVisits}
           canWrite={canWrite}
           onOpenMove={openMoveDialog}
@@ -1491,6 +1512,7 @@ export function CalendarWorkspace({
           className={`mt-3 grid gap-3 ${ordersPanelOpen ? "2xl:grid-cols-[minmax(0,1fr)_20rem]" : "grid-cols-1"}`}
         >
           <ScheduleGrid
+            currentOrganizationId={currentOrganizationId}
             days={displayedDays}
             visitsByDate={visitsByDate}
             selectedDate={selectedDate}

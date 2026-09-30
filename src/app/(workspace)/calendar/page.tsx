@@ -41,7 +41,6 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     if (!contract) notFound();
   }
   const foreignContract = !preview && contract && contract.organizationId !== member.organizationId;
-  const readMember = foreignContract ? { ...member, organizationId: contract!.organizationId! } : member;
   const anchorDate = validAnchorDate(query.date);
   const initialView = validView(query.view);
   const anchor = new Date(`${anchorDate}T12:00:00Z`);
@@ -51,7 +50,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const rangeEnd = new Date(weekStart); rangeEnd.setUTCDate(weekStart.getUTCDate() + 46);
   const [visits, orders] = preview
     ? [getPreviewVisits().filter((visit) => (!focusedOrderId || visit.orderId === focusedOrderId) && (!focusedContractId || visit.contractId === focusedContractId)), focusedContractId ? [] : getPreviewOrders().filter((order) => !focusedOrderId || order.id === focusedOrderId)]
-    : await Promise.all([listVisits(readMember, rangeStart.toISOString(), rangeEnd.toISOString(), focusedOrderId, focusedContractId), !focusedContractId && hasPermission(member, "orders.read") ? listOrdersWithoutActiveVisit(member, focusedOrderId) : Promise.resolve([])]);
+    : await Promise.all([listVisits(member, rangeStart.toISOString(), rangeEnd.toISOString(), focusedOrderId, focusedContractId, true), !focusedContractId && hasPermission(member, "orders.read") ? listOrdersWithoutActiveVisit(member, focusedOrderId) : Promise.resolve([])]);
   const scheduledOrderIds = new Set(visits.filter((visit) => visit.statusCode !== "completed" && visit.statusCode !== "cancelled").flatMap((visit) => visit.orderId ? [visit.orderId] : []));
   const unassignedOrders = preview
     ? orders.filter((order) => order.status !== "Выполнен" && order.status !== "Отменён" && !scheduledOrderIds.has(order.id))
@@ -59,7 +58,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   return (
     <div>
       <PageHeading eyebrow="Планирование" title="Календарь выездов" description="Все заказы и даты выездов в одном расписании без ручных списков в комментариях." />
-      <CalendarWorkspace key={`${anchorDate}:${initialView}:${focusedOrderId}:${focusedContractId}:${visits.map((visit) => `${visit.id}:${visit.version}`).join(",")}`} visits={visits} unassignedOrders={unassignedOrders} anchorDate={anchorDate} initialView={initialView} focusedOrderId={focusedOrderId} focusedContract={contract ? { id: contract.id, number: contract.contractNumber, company: foreignContract ? contract.organizationName : undefined } : undefined} canWrite={hasPermission(member, "visits.write") && !foreignContract} />
+      <CalendarWorkspace key={`${anchorDate}:${initialView}:${focusedOrderId}:${focusedContractId}:${visits.map((visit) => `${visit.id}:${visit.version}`).join(",")}`} visits={visits} unassignedOrders={unassignedOrders} anchorDate={anchorDate} initialView={initialView} focusedOrderId={focusedOrderId} focusedContract={contract ? { id: contract.id, number: contract.contractNumber, company: foreignContract ? contract.organizationName : undefined } : undefined} currentOrganizationId={member.organizationId} canWrite={hasPermission(member, "visits.write") && !foreignContract} />
     </div>
   );
 }
