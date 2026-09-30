@@ -157,6 +157,7 @@ jobs:
       AUTH_BOOTSTRAP_TIMEZONE: Europe/Moscow
       AUTH_BOOTSTRAP_ADMIN_NAME: CI administrator
       AUTH_BOOTSTRAP_ADMIN_EMAIL: ci@example.invalid
+      AUTH_BOOTSTRAP_DEVELOPER: 'true'
       DOCUMENT_STORAGE_ROOT: /tmp/crm-ci-storage
       SMOKE_BASE_URL: http://127.0.0.1:3100
     steps:
