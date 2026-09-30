@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
-if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl || !process.env.PERSONAL_NOTES_CHECK_RUNTIME || !process.env.CHROME_PATH) {
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl || !process.env.PERSONAL_NOTES_CHECK_RUNTIME) {
   throw new Error("Run with isolated PostgreSQL, PERSONAL_NOTES_CHECK_RUNTIME and CHROME_PATH.");
 }
 const baseUrl = "http://127.0.0.1:3131";
@@ -48,7 +48,7 @@ try {
   const [owner] = await sql`SELECT organization_id FROM organization_members WHERE email = ${accounts.owner.email}`;
   const liza = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/create-member.ts"], {
     env: { ...environment, AUTH_MEMBER_ORGANIZATION_ID: owner.organization_id, AUTH_MEMBER_NAME: "Лиза QA",
-      AUTH_MEMBER_EMAIL: accounts.liza.email, AUTH_MEMBER_PASSWORD: accounts.liza.password, AUTH_MEMBER_ROLE: "admin" }, stdio: "inherit" });
+      AUTH_MEMBER_EMAIL: accounts.liza.email, AUTH_MEMBER_PASSWORD: accounts.liza.password, AUTH_MEMBER_ROLE: "crm_coordinator" }, stdio: "inherit" });
   assert.equal(liza.status, 0);
   const [seed] = await sql`SELECT template_kind FROM personal_note_templates templates
     JOIN organization_members members ON members.id = templates.owner_member_id
@@ -67,6 +67,11 @@ try {
     client_name_snapshot, object_name_snapshot, object_address_snapshot)
     VALUES (${owner.organization_id}, ${client.id}, ${object.id}, 'NOTE-001', 'new', 'RUB',
       'Клиент для заметок', 'Озон Истра', 'Московская область, Истра') RETURNING id`;
+  await sql`INSERT INTO clients (organization_id, legal_name, updated_at)
+    SELECT ${owner.organization_id}, 'Масштаб заметок ' || n, now() - n * interval '1 day' FROM generate_series(1, 67) n`;
+  const [lizaMember] = await sql`SELECT id FROM organization_members WHERE email = ${accounts.liza.email}`;
+  await sql`INSERT INTO personal_note_templates (owner_organization_id, owner_member_id, name, body)
+    SELECT ${owner.organization_id}, ${lizaMember.id}, 'Личный шаблон ' || n, 'Мой текст ' || n FROM generate_series(1, 67) n`;
   const visitStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
   visitStart.setUTCHours(10, 0, 0, 0);
   const visitEnd = new Date(visitStart.getTime() + 2 * 60 * 60 * 1000);
@@ -79,7 +84,7 @@ try {
       (${owner.organization_id}, 'Задача без заказа', NULL)`;
 
   const runtime = resolve(process.env.PERSONAL_NOTES_CHECK_RUNTIME);
-  await cp(resolve(".next/static"), join(dirname(runtime), ".next/static"), { recursive: true, force: true });
+  await cp(resolve(dirname(runtime), "..", "static"), join(dirname(runtime), basename(resolve(dirname(runtime), "..")), "static"), { recursive: true, force: true });
   await cp(resolve("public"), join(dirname(runtime), "public"), { recursive: true, force: true });
   server = spawn(process.execPath, [runtime], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   serverExit = once(server, "exit");
@@ -89,11 +94,17 @@ try {
     server.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`Standalone exited ${code}`)); });
     server.stdout.on("data", (chunk) => { if (chunk.toString().includes("Ready in")) { clearTimeout(timeout); resolveReady(); } });
   });
-  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
+  browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true });
   const lizaPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await login(lizaPage, accounts.liza);
   const panel = lizaPage.getByRole("region", { name: "Личные заметки" });
   await panel.getByRole("button", { name: "По шаблону" }).click();
+  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("Личный шаблон 67");
+  await panel.getByRole("button", { name: "Личный шаблон 67", exact: true }).waitFor();
+  assert.equal(await panel.getByRole("button", { name: "Личный шаблон 1", exact: true }).count(), 0);
+  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("нет такого шаблона");
+  await panel.getByRole("status").filter({ hasText: "Шаблоны не найдены" }).waitFor();
+  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("");
   await panel.getByRole("button", { name: "Изменить шаблон Объект и стоимость" }).click();
   const editedBody = "Название объекта: {{object}}\nПлощадь объекта: 150\nНаименование услуг: Дезинфекция\nЦена за кВ.м.: 0,07\nОбщий чек: 1050\nОбслуживание: два раза в месяц";
   await panel.getByRole("textbox", { name: "Текст шаблона" }).fill(editedBody);
@@ -126,13 +137,79 @@ try {
   await panel.getByRole("button", { name: "Новая заметка" }).click();
   await panel.getByRole("textbox", { name: "Заголовок (необязательно)" }).fill("Маршрут проверки");
   await panel.getByRole("textbox", { name: "Текст", exact: true }).fill("Заметка связана с заказом");
-  await panel.getByRole("button", { name: "Сохранить", exact: true }).click();
+  // A slow request must keep the editor locked and ignore a second immediate save.
+  let releaseSave; let notifySave;
+  const saveGate = new Promise((resolveGate) => { releaseSave = resolveGate; });
+  const saveStarted = new Promise((resolveStarted) => { notifySave = resolveStarted; });
+  let saveRequests = 0;
+  await lizaPage.route("**/*", async (route) => {
+    if (route.request().method() === "POST" && route.request().headers()["next-action"]) {
+      saveRequests += 1; notifySave(); await saveGate;
+    }
+    await route.continue();
+  });
+  await panel.getByRole("button", { name: "Сохранить", exact: true }).evaluate((button) => { button.click(); button.click(); });
+  await saveStarted;
+  assert.equal(await panel.getByRole("button", { name: "Сохранить", exact: true }).isDisabled(), true);
+  assert.equal(await panel.getByRole("textbox", { name: "Текст", exact: true }).isDisabled(), true);
+  assert.equal(await panel.getByRole("button", { name: "Закрыть редактор" }).isDisabled(), true);
+  assert.equal(saveRequests, 1);
+  releaseSave();
+  await panel.getByRole("status").filter({ hasText: "Заметка сохранена" }).waitFor();
+  await lizaPage.unroute("**/*");
+  const [createdNoteCount] = await sql`SELECT count(*) AS count FROM personal_notes
+    WHERE owner_member_id = ${lizaMember.id} AND target_kind = 'dashboard' AND title = 'Маршрут проверки'`;
+  assert.equal(Number(createdNoteCount.count), 1);
   const dashboardNote = panel.locator("article").filter({ hasText: "Маршрут проверки" });
   await dashboardNote.waitFor();
+  let failDestination = true;
+  await lizaPage.route("**/*", async (route) => {
+    if (failDestination && route.request().method() === "POST" && route.request().headers()["next-action"]) {
+      failDestination = false; await route.abort("failed"); return;
+    }
+    await route.continue();
+  });
   await dashboardNote.getByRole("button", { name: "Дублировать" }).click();
+  await panel.getByRole("alert").filter({ hasText: "Не удалось загрузить места назначения" }).waitFor();
+  await panel.getByRole("button", { name: "Повторить поиск" }).click();
+  await panel.getByRole("button", { name: "Главная · здесь", exact: true }).waitFor();
+  await lizaPage.unroute("**/*");
+  const destinationSearch = panel.getByPlaceholder("Номер заказа или имя клиента");
+  await destinationSearch.fill("Масштаб заметок");
+  await panel.getByRole("button", { name: "Клиент · Масштаб заметок 1", exact: true }).waitFor();
+  const destinationList = panel.locator('[aria-label="Места назначения заметки"]');
+  assert.equal(await destinationList.getByRole("button").filter({ hasText: "Клиент · Масштаб заметок" }).count(), 30);
+  await panel.getByRole("button", { name: "Показать ещё", exact: true }).click();
+  await panel.getByRole("button", { name: "Клиент · Масштаб заметок 60", exact: true }).waitFor();
+  await panel.getByRole("button", { name: "Показать ещё", exact: true }).click();
+  await panel.getByRole("button", { name: "Клиент · Масштаб заметок 67", exact: true }).waitFor();
+  assert.equal(await destinationList.getByRole("button").filter({ hasText: "Клиент · Масштаб заметок" }).count(), 67);
+  assert.equal(await panel.getByRole("button", { name: "Показать ещё", exact: true }).count(), 0);
+  for (const width of [390, 768, 1440]) {
+    await lizaPage.setViewportSize({ width, height: 900 });
+    assert.equal(await lizaPage.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    const bounds = await destinationList.boundingBox();
+    assert(bounds.height <= 241, `Destination list stays bounded at ${width}px`);
+    if (process.env.CRM_BROWSER_ARTIFACT_DIR) {
+      await mkdir(process.env.CRM_BROWSER_ARTIFACT_DIR, { recursive: true });
+      await destinationList.scrollIntoViewIfNeeded();
+      await lizaPage.screenshot({ path: join(process.env.CRM_BROWSER_ARTIFACT_DIR, `notes-destinations-${width}.png`) });
+    }
+  }
+  await destinationSearch.fill("не найдено");
+  // Results from the previous query disappear immediately; they cannot be selected while searching.
+  assert.equal(await panel.getByRole("button", { name: "Клиент · Масштаб заметок 67", exact: true }).count(), 0);
+  await panel.getByRole("status").filter({ hasText: "Заказы и клиенты не найдены" }).waitFor();
+  await panel.getByRole("button", { name: "Главная · здесь", exact: true }).waitFor();
+
   await panel.getByPlaceholder("Номер заказа или имя клиента").fill("Клиент для заметок");
   await panel.getByRole("button", { name: "Клиент · Клиент для заметок" }).click();
   await panel.getByRole("status").filter({ hasText: "Копия создана" }).waitFor();
+  await dashboardNote.getByRole("button", { name: "Перенести", exact: true }).click();
+  await panel.getByPlaceholder("Номер заказа или имя клиента").fill("не найдено");
+  await panel.getByRole("status").filter({ hasText: "Заказы и клиенты не найдены. Уточните поиск." }).waitFor();
+  assert.equal(await panel.getByRole("button", { name: "Главная · здесь", exact: true }).count(), 0);
+  await panel.getByRole("button", { name: "Закрыть выбор" }).click();
   await lizaPage.goto(`${baseUrl}/clients/${client.id}`);
   const clientPanel = lizaPage.getByRole("region", { name: "Личные заметки" });
   const clientNote = clientPanel.locator("article").filter({ hasText: "Маршрут проверки" });
@@ -170,6 +247,8 @@ try {
   await lizaPage.getByRole("link", { name: "Все задачи" }).click();
   await lizaPage.waitForURL((current) => current.pathname === "/tasks" && !current.searchParams.has("order"));
   await lizaPage.getByText("Задача без заказа").waitFor();
+  await sql`UPDATE personal_notes SET updated_at = now() - interval '3 days'
+    WHERE owner_member_id = ${lizaMember.id} AND target_kind = 'dashboard' AND title = 'Маршрут проверки'`;
   await lizaPage.goto(baseUrl);
   await panel.locator("article").filter({ hasText: "Маршрут проверки" }).waitFor();
   for (const width of [390, 768, 1440]) {
@@ -186,7 +265,7 @@ try {
   assert.equal(await ownerPanel.getByRole("button", { name: "Личное обслуживание" }).count(), 0);
   await ownerPage.goto(`${baseUrl}/orders/${order.id}`);
   assert.equal(await ownerPage.getByRole("region", { name: "Личные заметки" }).getByText("Маршрут проверки").count(), 0);
-  console.log("Personal notes UI passed: Liza templates, paired rates, dashboard/client/order transfer, contextual calendar/tasks, privacy and responsive widths.");
+  console.log("Personal notes UI passed: 67 destination pages, template search, failed lookup retry, stale-result hiding, older saved notes; Liza templates, paired rates, dashboard/client/order transfer, contextual calendar/tasks, privacy and responsive widths.");
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }

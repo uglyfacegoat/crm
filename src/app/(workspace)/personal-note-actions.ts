@@ -66,26 +66,29 @@ export async function transferPersonalNoteAction(input: { source: NoteTarget; de
   if (!await canAccessNoteTarget(member, destination)) throw new Error("Место назначения недоступно.");
   const id = uuid.parse(input.id);
   const sql = getDatabase();
-  const rows = await sql`SELECT title, body FROM personal_notes WHERE id = ${id}
-    AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
-    AND target_kind = ${source.kind} AND target_organization_id IS NOT DISTINCT FROM ${source.organizationId}
-    AND target_id IS NOT DISTINCT FROM ${source.id} LIMIT 1`;
-  if (!rows.length) throw new Error("Заметка не найдена.");
-  if (input.mode === "move") {
-    await sql`UPDATE personal_notes SET target_kind = ${destination.kind}, target_organization_id = ${destination.organizationId},
-      target_id = ${destination.id}, updated_at = now() WHERE id = ${id}
-      AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}`;
-  } else {
-    await sql`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, target_organization_id, target_id, title, body)
-      VALUES (${member.organizationId}, ${member.memberId}, ${destination.kind}, ${destination.organizationId}, ${destination.id}, ${rows[0].title}, ${rows[0].body})`;
-  }
+  const mode = z.enum(["copy", "move"]).parse(input.mode);
+  await sql.begin(async (transaction) => {
+    const rows = await transaction`SELECT title, body FROM personal_notes WHERE id = ${id}
+      AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
+      AND target_kind = ${source.kind} AND target_organization_id IS NOT DISTINCT FROM ${source.organizationId}
+      AND target_id IS NOT DISTINCT FROM ${source.id} FOR UPDATE`;
+    if (!rows.length) throw new Error("Заметка не найдена.");
+    if (mode === "move") {
+      await transaction`UPDATE personal_notes SET target_kind = ${destination.kind}, target_organization_id = ${destination.organizationId},
+        target_id = ${destination.id}, updated_at = now() WHERE id = ${id}
+        AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}`;
+    } else {
+      await transaction`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, target_organization_id, target_id, title, body)
+        VALUES (${member.organizationId}, ${member.memberId}, ${destination.kind}, ${destination.organizationId}, ${destination.id}, ${rows[0].title}, ${rows[0].body})`;
+    }
+  });
   return listPersonalNotes(member, source);
 }
 
-export async function searchPersonalNoteTargetsAction(query: string) {
-  if (getAuthMode() === "preview") return [];
+export async function searchPersonalNoteTargetsAction(query: string, offset = 0) {
+  if (getAuthMode() === "preview") return { items: [], total: 0, nextOffset: null };
   const member = await requireOfficeSession();
-  return searchNoteDestinations(member, z.string().trim().max(120).parse(query));
+  return searchNoteDestinations(member, z.string().trim().max(120).parse(query), z.number().int().min(0).max(1_000_000).parse(offset));
 }
 
 export async function savePersonalNoteTemplateAction(input: { id?: string; name: string; body: string }) {

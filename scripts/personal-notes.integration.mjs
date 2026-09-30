@@ -63,8 +63,50 @@ test('personal notes stay private, persist without a date key, and search scoped
   assert.equal(await canAccessNoteTarget(member(author.id), { kind: 'client', organizationId: org.id, id: client.id }), true);
   assert.equal(await canAccessNoteTarget(member(author.id), { kind: 'client', organizationId: otherOrg.id, id: otherClient.id }), false);
   const destinations = await searchNoteDestinations(member(author.id), 'Клиент заметки');
-  assert(destinations.some((item) => item.kind === 'client' && item.id === client.id));
-  assert(!destinations.some((item) => item.id === otherClient.id));
+  assert(destinations.items.some((item) => item.kind === 'client' && item.id === client.id));
+  assert(!destinations.items.some((item) => item.id === otherClient.id));
+  // No silent first-20 cutoff, stable pages, and search beyond recent records.
+  await sql`INSERT INTO clients (organization_id, legal_name, updated_at)
+    SELECT ${org.id}, 'Большая база ' || n, now() - n * interval '1 day' FROM generate_series(1, 67) n`;
+  await sql`INSERT INTO orders (organization_id, client_id, order_number, client_name_snapshot, object_name_snapshot, object_address_snapshot, status, currency)
+    SELECT ${org.id}, ${client.id}, 'LONG-' || n, 'Снимок заказчика ' || n, 'Объект поиска ' || n, 'Тестовый адрес', 'new', 'RUB'
+    FROM generate_series(1, 67) n`;
+  const pages = []; let offset = 0;
+  do {
+    const page = await searchNoteDestinations(member(author.id), '', offset);
+    pages.push(...page.items);
+    assert.equal(page.items.length <= 31, true);
+    offset = page.nextOffset;
+  } while (offset !== null);
+  assert.equal(pages.length, 136);
+  assert.equal(new Set(pages.map((item) => `${item.kind}:${item.id}`)).size, 136);
+  assert.equal(pages.filter((item) => item.kind === 'dashboard').length, 1);
+  const oldClient = await searchNoteDestinations(member(author.id), 'Большая база 67');
+  assert.equal(oldClient.items[1].label, 'Клиент · Большая база 67');
+  const snapshotOrder = await searchNoteDestinations(member(author.id), 'Объект поиска 67');
+  assert(snapshotOrder.items.some((item) => item.label === 'Заказ LONG-67 · Снимок заказчика 67'));
+  const blocked = await searchNoteDestinations({ ...member(author.id), permissionOverrides: { 'orders.read': false, 'clients.read': false } }, '');
+  assert.equal(blocked.total, 1);
+  assert.deepEqual(blocked.items.map((item) => item.kind), ['dashboard']);
+
+  // Searching must not disclose foreign names from expired/inactive center grants.
+  const [center] = await sql`INSERT INTO organizations (name, organization_kind, timezone) VALUES ('Центр заметок', 'center', 'Europe/Moscow') RETURNING id`;
+  const [principal] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${center.id}, 'Center owner', 'center@notes.invalid', 'admin') RETURNING id`;
+  const [session] = await sql`INSERT INTO auth_sessions (organization_id, member_id, token_hash, expires_at)
+    VALUES (${center.id}, ${principal.id}, ${'a'.repeat(64)}, now() + interval '1 day') RETURNING id`;
+  await sql`INSERT INTO organization_access_grants (principal_organization_id, principal_member_id, target_organization_id, target_member_id)
+    VALUES (${center.id}, ${principal.id}, ${org.id}, ${author.id})`;
+  const centerMember = { ...member(principal.id), organizationId: center.id, role: 'owner', sessionId: session.id };
+  let centerResults = await searchNoteDestinations(centerMember, 'LONG-67');
+  assert.equal(centerResults.items[1].detail, 'Notes Test');
+  assert.equal(await canAccessNoteTarget(centerMember, centerResults.items[1]), true);
+  await sql`UPDATE organization_members SET active = false WHERE id = ${author.id}`;
+  assert.equal((await searchNoteDestinations(centerMember, 'LONG-67')).total, 1);
+  await sql`UPDATE organization_members SET active = true WHERE id = ${author.id}`;
+  await sql`UPDATE auth_sessions SET created_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE id = ${session.id}`;
+  assert.equal((await searchNoteDestinations(centerMember, 'LONG-67')).total, 1);
+
   const clientTarget = { kind: 'client', organizationId: org.id, id: client.id };
   const foreignTarget = { kind: 'client', organizationId: otherOrg.id, id: otherClient.id };
   const saved = await savePersonalNoteAction({ target: clientTarget, title: 'Договор', body: 'Уточнить график',
@@ -97,4 +139,12 @@ test('personal notes stay private, persist without a date key, and search scoped
   const structured = await savePersonalNoteAction({ target: dashboard, title: 'Новый тариф', body: 'Услуга: Дератизация',
     template: { name: 'Тариф по м²', body: 'Название объекта: {{object}}\nПлощадь объекта: 50\nНаименование услуг: Дератизация\nЦена за кВ.м.: 0,23\nОбщий чек: 11,50\nОбслуживание: ежемесячно', kind: 'liza_order' } });
   assert.equal(structured.templates.find((item) => item.name === 'Тариф по м²')?.kind, 'liza_order');
+  const concurrent = await savePersonalNoteAction({ target: clientTarget, title: 'Одно место', body: 'Не потерять при двух переносах' });
+  const outcomes = await Promise.allSettled([0, 1].map(() => transferPersonalNoteAction({ source: clientTarget,
+    destination: dashboard, id: concurrent.notes[0].id, mode: 'move' })));
+  assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.filter((item) => item.status === 'rejected').length, 1);
+  await assert.rejects(() => transferPersonalNoteAction({ source: dashboard, destination: clientTarget,
+    id: concurrent.notes[0].id, mode: 'unknown' }), /Invalid option/);
+
 });

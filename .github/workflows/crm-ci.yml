@@ -198,6 +198,7 @@ jobs:
       - run: npm run test:mail-delivery
       - run: npm run test:mail-threads
       - run: npm run test:mail-protocol
+      - run: npm run test:personal-notes
       - run: npm run test:client-list-pagination
       - run: npm run test:order-picker
       - run: npm run test:finance-receipts
@@ -254,6 +255,8 @@ jobs:
         run: ROLE_CHECK_RUNTIME=.next/standalone/server.js npm run test:role-access
       - name: Company center grants and shared master photos
         run: npm run test:business-roles
+      - name: Check personal notes search, transfers and templates in browser
+        run: PERSONAL_NOTES_CHECK_RUNTIME=.next/standalone/server.js npm run test:personal-notes-browser
       - name: Private S3 upload, download and backup staging acceptance
         run: UPLOAD_CHECK_STORAGE=s3 UPLOAD_CHECK_ARTIFACTS=artifacts/uploads-s3 UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
       - uses: actions/upload-artifact@v4

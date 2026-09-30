@@ -3,13 +3,12 @@ import { hasPermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { centerRecordIsAccessible } from "@/server/organizations/center-feed";
-import { listAccessibleOrganizations } from "@/server/organizations/repository";
 
 export type NoteTarget = { kind: "dashboard"; organizationId: null; id: null } |
   { kind: "order" | "client"; organizationId: string; id: string };
 export type PersonalNote = { id: string; title: string; body: string; updatedAt: string };
 export type NoteTemplate = { id: string; name: string; body: string; kind: "plain" | "liza_order" };
-export type NoteDestination = NoteTarget & { label: string };
+export type NoteDestination = NoteTarget & { label: string; detail?: string };
 
 export const dashboardNoteTarget: NoteTarget = { kind: "dashboard", organizationId: null, id: null };
 export function fillNoteTemplate(template: string, objectName?: string) {
@@ -46,30 +45,61 @@ export async function listPersonalNoteTemplates(member: AuthenticatedMember): Pr
   return rows.map((row) => ({ id: row.id as string, name: row.name as string, body: row.body as string, kind: row.template_kind as NoteTemplate["kind"] }));
 }
 
-export async function searchNoteDestinations(member: AuthenticatedMember, query: string): Promise<NoteDestination[]> {
-  const sql = getDatabase();
-  const pattern = `%${query.trim().replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
-  const accessible = hasPermission(member, "companies.read") && member.sessionId
-    ? (await listAccessibleOrganizations(member)).map((org) => org.id)
-    : [member.organizationId];
-  const orderRows = hasPermission(member, "orders.read")
-    ? await sql`SELECT orders.id, orders.organization_id, orders.order_number, clients.legal_name
-        FROM orders JOIN clients ON clients.organization_id = orders.organization_id AND clients.id = orders.client_id
-        WHERE orders.organization_id IN ${sql(accessible)}
-          AND (orders.order_number ILIKE ${pattern} OR clients.legal_name ILIKE ${pattern})
-        ORDER BY orders.created_at DESC LIMIT 20`
-    : [];
-  const clientRows = hasPermission(member, "clients.read")
-    ? await sql`SELECT id, organization_id, legal_name FROM clients
-        WHERE organization_id = ${member.organizationId} AND legal_name ILIKE ${pattern}
-        ORDER BY updated_at DESC LIMIT 20`
-    : [];
-  return [dashboardNoteTargetWithLabel(),
-    ...orderRows.map((row) => ({ kind: "order" as const, organizationId: row.organization_id as string, id: row.id as string, label: `Заказ ${row.order_number} · ${row.legal_name}` })),
-    ...clientRows.map((row) => ({ kind: "client" as const, organizationId: row.organization_id as string, id: row.id as string, label: `Клиент · ${row.legal_name}` })),
-  ];
-}
+export type NoteDestinationPage = { items: NoteDestination[]; total: number; nextOffset: number | null };
+const destinationPageSize = 30;
 
-function dashboardNoteTargetWithLabel(): NoteDestination {
-  return { ...dashboardNoteTarget, label: "Главная" };
+export async function searchNoteDestinations(member: AuthenticatedMember, query: string, offset = 0): Promise<NoteDestinationPage> {
+  const sql = getDatabase();
+  const normalizedQuery = query.trim().slice(0, 120);
+  const safeOffset = Math.max(0, Math.trunc(offset));
+  // Foreign orders must use the same active center grant as the final transfer.
+  // Client destinations remain in the current organization, like canAccessNoteTarget.
+  const matches = sql`WITH readable_order_organizations AS (
+      SELECT ${member.organizationId}::uuid AS id
+      UNION
+      SELECT grants.target_organization_id FROM auth_sessions sessions
+      JOIN organizations center ON center.id = sessions.organization_id AND center.organization_kind = 'center'
+      JOIN organization_access_grants grants ON grants.principal_organization_id = sessions.organization_id
+        AND grants.principal_member_id = sessions.member_id
+      JOIN organizations company ON company.id = grants.target_organization_id AND company.organization_kind = 'company'
+      JOIN organization_members target ON target.organization_id = grants.target_organization_id
+        AND target.id = grants.target_member_id AND target.active AND target.deleted_at IS NULL
+      WHERE ${hasPermission(member, "companies.read")} AND sessions.id = ${member.sessionId}
+        AND sessions.organization_id = ${member.organizationId} AND sessions.member_id = ${member.memberId}
+        AND sessions.revoked_at IS NULL AND sessions.expires_at > now()
+    ), matches AS (
+      SELECT 'order' AS kind, orders.id, orders.organization_id,
+        concat('Заказ ', orders.order_number, ' · ', COALESCE(NULLIF(orders.client_name_snapshot, ''), clients.legal_name)) AS label,
+        companies.name AS organization_name, orders.created_at AS updated_at,
+        CASE WHEN lower(orders.order_number) = lower(${normalizedQuery}) THEN 0 ELSE 1 END AS rank
+      FROM orders JOIN clients ON clients.organization_id = orders.organization_id AND clients.id = orders.client_id
+      JOIN organizations companies ON companies.id = orders.organization_id
+      WHERE ${hasPermission(member, "orders.read")} AND orders.organization_id IN (SELECT id FROM readable_order_organizations)
+        AND (${normalizedQuery} = '' OR crm_search_matches(concat_ws(' ', orders.order_number,
+          clients.legal_name, orders.client_name_snapshot, orders.object_name_snapshot, companies.name), ${normalizedQuery}))
+      UNION ALL
+      SELECT 'client', clients.id, clients.organization_id, concat('Клиент · ', clients.legal_name),
+        companies.name, clients.updated_at,
+        CASE WHEN lower(clients.legal_name) = lower(${normalizedQuery}) THEN 0 ELSE 1 END
+      FROM clients JOIN organizations companies ON companies.id = clients.organization_id
+      WHERE ${hasPermission(member, "clients.read")} AND clients.organization_id = ${member.organizationId}
+        AND (${normalizedQuery} = '' OR crm_search_matches(clients.legal_name, ${normalizedQuery}))
+    )`;
+  const [rows, counts] = await Promise.all([
+    sql`${matches} SELECT * FROM matches ORDER BY rank, updated_at DESC, kind, id DESC
+      LIMIT ${destinationPageSize} OFFSET ${safeOffset}`,
+    sql`${matches} SELECT count(*) AS total FROM matches`,
+  ]);
+  const total = Number(counts[0].total);
+  const nextOffset = safeOffset + rows.length < total ? safeOffset + rows.length : null;
+  return {
+    items: [
+      ...(safeOffset === 0 ? [{ ...dashboardNoteTarget, label: "Главная" }] : []),
+      ...rows.map((row) => ({ kind: row.kind as "order" | "client", organizationId: row.organization_id as string,
+        id: row.id as string, label: row.label as string,
+        ...(row.organization_id !== member.organizationId ? { detail: row.organization_name as string } : {}) })),
+    ],
+    total: total + 1,
+    nextOffset,
+  };
 }
