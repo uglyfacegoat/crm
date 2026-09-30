@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
 import { hashPassword } from "../src/server/auth/password.ts";
@@ -34,6 +34,7 @@ const environment = {
   AUTH_THROTTLE_SECRET: randomBytes(32).toString("hex"), CRM_WEBSITE_WEBHOOK_SECRET: randomBytes(32).toString("hex"),
   AUTH_BOOTSTRAP_ADMIN_PASSWORD: adminPassword, AUTH_BOOTSTRAP_ADMIN_EMAIL: adminEmail,
   AUTH_BOOTSTRAP_ADMIN_NAME: "Session administrator", AUTH_BOOTSTRAP_ORGANIZATION_NAME: "Session test company",
+  AUTH_BOOTSTRAP_DEVELOPER: "true",
   AUTH_BOOTSTRAP_TIMEZONE: "Europe/Moscow", DOCUMENT_STORAGE_ROOT: directory,
   NEXT_TELEMETRY_DISABLED: "1", HOSTNAME: "127.0.0.1", PORT: "3100",
 };
@@ -79,7 +80,7 @@ try {
   const [organization] = await sql`SELECT organization_id FROM organization_members WHERE email = ${adminEmail}`;
   const passwordHash = await hashPassword(targetPassword);
   const [target] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
-    VALUES (${organization.organization_id}, 'Session target', ${targetEmail}, 'admin') RETURNING id`;
+    VALUES (${organization.organization_id}, 'Session target', ${targetEmail}, 'deputy') RETURNING id`;
   await sql`INSERT INTO member_login_identities (organization_id, member_id, kind, normalized_value, verified_at)
     VALUES (${organization.organization_id}, ${target.id}, 'email', ${targetEmail}, now())`;
   await sql`INSERT INTO member_credentials (organization_id, member_id, password_hash)
@@ -97,6 +98,9 @@ try {
     VALUES (${otherOrganization.id}, ${principal.id}, ${hashSessionToken(crossCompanyToken)},
       ${organization.organization_id}, ${target.id}, now() + interval '1 day')`;
 
+  const buildDirectory = dirname(dirname(resolve(runtime)));
+  await cp(join(buildDirectory, "static"), join(dirname(resolve(runtime)), basename(buildDirectory), "static"), { recursive: true, force: true });
+  await cp(resolve("public"), join(dirname(resolve(runtime)), "public"), { recursive: true, force: true });
   server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   serverExit = once(server, "exit");
   server.stderr.on("data", (chunk) => process.stderr.write(chunk));
@@ -123,7 +127,7 @@ try {
   });
   assert.equal((await crossCompanySession()).status, 200);
 
-  await saveAccess(actorPage, target.id, { role: "Диспетчер", active: true });
+  await saveAccess(actorPage, target.id, { role: "Уровень 3 · Координатор CRM", active: true });
   assert.equal((await crossCompanySession()).status, 401, "An active cross-company session must also be revoked");
   for (const page of targetPages) {
     assert.equal(await sessionStatus(page), 401, "An already open tab must lose its server-side session");
@@ -135,9 +139,13 @@ try {
 
   await login(targetPages[0], targetEmail, targetPassword);
   const currentRole = await targetPages[0].evaluate(async () => (await (await fetch("/api/v1/auth/session")).json()).data.role);
-  assert.equal(currentRole, "dispatcher", "A fresh login must receive the changed role");
+  assert.equal(currentRole, "crm_coordinator", "A fresh login must receive the changed role");
   await targetPages[0].goto(`${baseUrl}/settings`);
-  await targetPages[0].waitForURL((url) => url.pathname === "/");
+  await targetPages[0].getByRole("heading", { name: "Настройки", exact: true }).waitFor();
+  assert.deepEqual(await targetPages[0].getByRole("tab").allTextContents(), ["Уведомления", "Безопасность"], "The coordinator must only see personal settings");
+  await targetPages[0].goto(`${baseUrl}/settings/users/${target.id}`);
+  await targetPages[0].waitForURL((url) => url.pathname === "/profile");
+  assert.equal(await sessionStatus(targetPages[0]), 200, "Denying system settings must not revoke an otherwise valid session");
 
   await saveAccess(actorPage, target.id, { role: null, active: false });
   assert.equal(await sessionStatus(targetPages[0]), 401, "Deactivation must revoke the current open tab");
