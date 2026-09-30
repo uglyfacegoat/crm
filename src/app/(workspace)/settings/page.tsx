@@ -20,7 +20,7 @@ import { APPEARANCE_THEME_COOKIE, DIGIT_STYLE_COOKIE, FONT_SCALE_COOKIE, parseAp
 
 export const metadata: Metadata = { title: "Настройки" };
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+export default async function SettingsPage() {
   const cookieStore = await cookies();
   const fontScale = parseFontScale(cookieStore.get(FONT_SCALE_COOKIE)?.value);
   const digitStyle = parseDigitStyle(cookieStore.get(DIGIT_STYLE_COOKIE)?.value);
@@ -28,8 +28,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const member = await requireSession();
   const canManageSettings = hasPermission(member, "settings.write") && member.role !== "master" && member.role !== "foreman";
   const preview = getAuthMode() === "preview";
-  const [query, security, securityMailReady] = await Promise.all([
-    searchParams,
+  const [security, securityMailReady] = await Promise.all([
     preview ? Promise.resolve({ enabled: false, pending: false }) : getOwnSecurityState(member),
     preview || !emailOtpEnabled() ? Promise.resolve(false) : emailOtpDeliveryReady(),
   ]);
@@ -69,10 +68,5 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     [members, masterOptions, templates, backupSnapshot, organizations, activity] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), hasPermission(member, "document_templates.read") ? listDocumentTemplates(member) : Promise.resolve([]), getBackupSystemSnapshot(member), listOrganizationSummaries(member), listMemberActivity(member)]);
   }
 
-  const initialTab = query.tab === "security" ? "security" : query.tab === "notifications" || !canManageSettings ? "notifications" : systemTab(query.tab);
-  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Личные уведомления, безопасность и параметры CRM." /><SettingsWorkspace key={initialTab} members={members} activity={activity} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} canManageSettings={canManageSettings} initialTab={initialTab} securityEmail={member.email} securityEnabled={security.enabled} securityPending={security.pending} securityMailReady={securityMailReady} canChatPush={hasPermission(member, "chat.read")} canEventPush={hasPermission(member, "notifications.read")} /></div>;
-}
-
-function systemTab(value: string | undefined) {
-  return value === "members" || value === "activity" || value === "organizations" || value === "appearance" || value === "templates" || value === "system" ? value : "notifications";
+  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Личные уведомления, безопасность и параметры CRM." /><SettingsWorkspace members={members} activity={activity} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} canManageSettings={canManageSettings} securityEmail={member.email} securityEnabled={security.enabled} securityPending={security.pending} securityMailReady={securityMailReady} canChatPush={hasPermission(member, "chat.read")} canEventPush={hasPermission(member, "notifications.read")} /></div>;
 }

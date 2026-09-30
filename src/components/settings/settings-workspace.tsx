@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PushSettingsPanel } from "@/components/chat/chat-push-button";
 import { BackupSystemPanel } from "@/components/settings/backup-system-panel";
 import { AppearancePanel } from "@/components/settings/appearance-panel";
@@ -42,7 +42,6 @@ type SettingsWorkspaceProps = {
   fontScale: FontScale;
   digitStyle: DigitStyle;
   canManageSettings: boolean;
-  initialTab: SettingTab;
   securityEmail: string;
   securityEnabled: boolean;
   securityPending: boolean;
@@ -51,9 +50,10 @@ type SettingsWorkspaceProps = {
   canEventPush: boolean;
 };
 
-export function SettingsWorkspace({ members, activity, masterOptions, templates, backupSnapshot, currentMemberId, preview, organizations, theme, fontScale, digitStyle, canManageSettings, initialTab, securityEmail, securityEnabled, securityPending, securityMailReady, canChatPush, canEventPush }: SettingsWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<SettingTab>(initialTab);
+export function SettingsWorkspace({ members, activity, masterOptions, templates, backupSnapshot, currentMemberId, preview, organizations, theme, fontScale, digitStyle, canManageSettings, securityEmail, securityEnabled, securityPending, securityMailReady, canChatPush, canEventPush }: SettingsWorkspaceProps) {
+  const searchParams = useSearchParams();
   const tabs = canManageSettings ? [{ value: "notifications" as const, label: "Уведомления" }, { value: "security" as const, label: "Безопасность" }, ...systemTabOptions] : [{ value: "notifications" as const, label: "Уведомления" }, { value: "security" as const, label: "Безопасность" }];
+  const activeTab = tabs.find(({ value }) => value === searchParams.get("tab"))?.value ?? "notifications";
 
   return (
     <div className="mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)]">
@@ -61,8 +61,9 @@ export function SettingsWorkspace({ members, activity, masterOptions, templates,
         tabs={tabs}
         value={activeTab}
         onChange={(tab) => {
-          setActiveTab(tab);
-          window.history.replaceState(null, "", `/settings?tab=${tab}`);
+          const params = new URLSearchParams(searchParams.toString());
+          params.set("tab", tab);
+          window.history.replaceState(null, "", `/settings?${params.toString()}`);
         }}
         label="Настройки CRM"
         idPrefix="settings"

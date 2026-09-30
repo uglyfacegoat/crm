@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { cp, mkdtemp, readFile, readdir, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createConnection, createServer } from "node:net";
 import { chromium, request } from "playwright-core";
 import postgres from "postgres";
@@ -105,7 +105,8 @@ try {
   const bootstrap = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/create-admin.ts"], { env: environment, stdio: "inherit" });
   assert.equal(bootstrap.status, 0, "Test administrator bootstrap failed");
   sql = postgres(environment.DATABASE_URL, { max: 2 });
-  await cp(resolve(".next/static"), join(dirname(resolve(runtime)), ".next/static"), { recursive: true, force: true });
+  const buildDirectory = dirname(dirname(resolve(runtime)));
+  await cp(join(buildDirectory, "static"), join(dirname(resolve(runtime)), basename(buildDirectory), "static"), { recursive: true, force: true });
   await cp(resolve("public"), join(dirname(resolve(runtime)), "public"), { recursive: true, force: true });
   server = spawn(process.execPath, [resolve(runtime)], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   serverExit = once(server, "exit");
