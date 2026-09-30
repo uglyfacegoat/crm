@@ -45,6 +45,39 @@ export async function listPersonalNoteTemplates(member: AuthenticatedMember): Pr
   return rows.map((row) => ({ id: row.id as string, name: row.name as string, body: row.body as string, kind: row.template_kind as NoteTemplate["kind"] }));
 }
 
+export type NotePage<T> = { items: T[]; total: number; nextOffset: number | null };
+const notePageSize = 20;
+
+export async function searchPersonalNotes(member: AuthenticatedMember, target: NoteTarget, query = "", offset = 0): Promise<NotePage<PersonalNote>> {
+  const sql = getDatabase();
+  const filter = sql`owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
+    AND target_kind = ${target.kind} AND target_organization_id IS NOT DISTINCT FROM ${target.organizationId}
+    AND target_id IS NOT DISTINCT FROM ${target.id}
+    AND (${query} = '' OR crm_search_matches(concat_ws(' ', title, body), ${query}))`;
+  const [rows, counts] = await Promise.all([
+    sql`SELECT id, title, body, updated_at FROM personal_notes WHERE ${filter}
+      ORDER BY updated_at DESC, id DESC LIMIT ${notePageSize} OFFSET ${offset}`,
+    sql`SELECT count(*) AS total FROM personal_notes WHERE ${filter}`,
+  ]);
+  const total = Number(counts[0].total);
+  return { items: rows.map(row => ({ id: row.id as string, title: row.title as string, body: row.body as string,
+    updatedAt: (row.updated_at as Date).toISOString() })), total, nextOffset: offset + rows.length < total ? offset + rows.length : null };
+}
+
+export async function searchPersonalNoteTemplates(member: AuthenticatedMember, query = "", offset = 0): Promise<NotePage<NoteTemplate>> {
+  const sql = getDatabase();
+  const filter = sql`owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
+    AND (${query} = '' OR crm_search_matches(concat_ws(' ', name, body), ${query}))`;
+  const [rows, counts] = await Promise.all([
+    sql`SELECT id, name, body, template_kind FROM personal_note_templates WHERE ${filter}
+      ORDER BY created_at DESC, id DESC LIMIT ${notePageSize} OFFSET ${offset}`,
+    sql`SELECT count(*) AS total FROM personal_note_templates WHERE ${filter}`,
+  ]);
+  const total = Number(counts[0].total);
+  return { items: rows.map(row => ({ id: row.id as string, name: row.name as string, body: row.body as string,
+    kind: row.template_kind as NoteTemplate["kind"] })), total, nextOffset: offset + rows.length < total ? offset + rows.length : null };
+}
+
 export type NoteDestinationPage = { items: NoteDestination[]; total: number; nextOffset: number | null };
 const destinationPageSize = 30;
 

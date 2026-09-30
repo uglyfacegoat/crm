@@ -6,7 +6,7 @@ import { requireOfficeSession } from "@/server/auth/session";
 import { getDatabase } from "@/server/database";
 import { runPersonalNoteMutation } from "@/server/personal-notes/mutations";
 import {
-  canAccessNoteTarget, listPersonalNotes, listPersonalNoteTemplates,
+  canAccessNoteTarget, searchPersonalNotes, searchPersonalNoteTemplates,
   searchNoteDestinations, type NoteTarget,
 } from "@/server/personal-notes/repository";
 
@@ -62,8 +62,18 @@ export async function savePersonalNoteAction(input: { target: NoteTarget; id?: s
       }
       return { noteId, templateId };
     }));
-  const [notes, templates] = await Promise.all([listPersonalNotes(member, target), listPersonalNoteTemplates(member)]);
-  return { notes, templates, mutation };
+  const [notesPage, templatesPage, originals] = await Promise.all([
+    searchPersonalNotes(member, target), searchPersonalNoteTemplates(member),
+    sql`SELECT id FROM personal_notes WHERE id = ${mutation.result.noteId}
+      AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
+      AND target_kind = ${target.kind} AND target_organization_id IS NOT DISTINCT FROM ${target.organizationId}
+      AND target_id IS NOT DISTINCT FROM ${target.id}`,
+  ]);
+  const templateExists = mutation.result.templateId ? (await sql`SELECT id FROM personal_note_templates
+    WHERE id = ${mutation.result.templateId} AND owner_organization_id = ${member.organizationId}
+      AND owner_member_id = ${member.memberId}`).length > 0 : false;
+  return { notes: notesPage.items, templates: templatesPage.items, notesPage, templatesPage, mutation,
+    originalNoteId: originals[0]?.id as string | undefined, originalTemplateId: templateExists ? mutation.result.templateId : null };
 }
 
 export async function deletePersonalNoteAction(input: { target: NoteTarget; id: string }) {
@@ -72,7 +82,7 @@ export async function deletePersonalNoteAction(input: { target: NoteTarget; id: 
     AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
     AND target_kind = ${target.kind} AND target_organization_id IS NOT DISTINCT FROM ${target.organizationId}
     AND target_id IS NOT DISTINCT FROM ${target.id}`;
-  return listPersonalNotes(member, target);
+  return searchPersonalNotes(member, target);
 }
 
 export async function transferPersonalNoteAction(input: { source: NoteTarget; destination: NoteTarget; id: string; mode: "copy" | "move"; requestKey?: string }) {
@@ -100,7 +110,7 @@ export async function transferPersonalNoteAction(input: { source: NoteTarget; de
         VALUES (${member.organizationId}, ${member.memberId}, ${destination.kind}, ${destination.organizationId}, ${destination.id}, ${rows[0].title}, ${rows[0].body}) RETURNING id`;
       return { noteId: uuid.parse(row.id), templateId: null };
     }));
-  return { notes: await listPersonalNotes(member, source), mutation };
+  return { notesPage: await searchPersonalNotes(member, source), mutation };
 }
 
 export async function searchPersonalNoteTargetsAction(query: string, offset = 0) {
@@ -123,7 +133,7 @@ export async function savePersonalNoteTemplateAction(input: { id?: string; name:
     await getDatabase()`INSERT INTO personal_note_templates (owner_organization_id, owner_member_id, name, body)
       VALUES (${member.organizationId}, ${member.memberId}, ${name}, ${body})`;
   }
-  return listPersonalNoteTemplates(member);
+  return searchPersonalNoteTemplates(member);
 }
 
 export async function deletePersonalNoteTemplateAction(id: string) {
@@ -131,5 +141,18 @@ export async function deletePersonalNoteTemplateAction(id: string) {
   const member = await requireOfficeSession();
   await getDatabase()`DELETE FROM personal_note_templates WHERE id = ${uuid.parse(id)}
     AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}`;
-  return listPersonalNoteTemplates(member);
+  return searchPersonalNoteTemplates(member);
+}
+
+
+export async function searchPersonalNotesAction(targetInput: NoteTarget, query = "", offset = 0) {
+  if (getAuthMode() === "preview") return { items: [], total: 0, nextOffset: null };
+  const { member, target } = await authorizedTarget(targetInput);
+  return searchPersonalNotes(member, target, z.string().trim().max(120).parse(query), z.number().int().min(0).max(1_000_000).parse(offset));
+}
+
+export async function searchPersonalNoteTemplatesAction(query = "", offset = 0) {
+  if (getAuthMode() === "preview") return { items: [], total: 0, nextOffset: null };
+  const member = await requireOfficeSession();
+  return searchPersonalNoteTemplates(member, z.string().trim().max(120).parse(query), z.number().int().min(0).max(1_000_000).parse(offset));
 }

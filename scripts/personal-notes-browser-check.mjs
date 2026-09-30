@@ -104,12 +104,13 @@ try {
   assert.equal(await panel.getByRole("button", { name: "Личный шаблон 1", exact: true }).count(), 0);
   await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("нет такого шаблона");
   await panel.getByRole("status").filter({ hasText: "Шаблоны не найдены" }).waitFor();
-  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("");
+  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("Объект и стоимость");
   await panel.getByRole("button", { name: "Изменить шаблон Объект и стоимость" }).click();
   const editedBody = "Название объекта: {{object}}\nПлощадь объекта: 150\nНаименование услуг: Дезинфекция\nЦена за кВ.м.: 0,07\nОбщий чек: 1050\nОбслуживание: два раза в месяц";
   await panel.getByRole("textbox", { name: "Текст шаблона" }).fill(editedBody);
   await panel.getByRole("button", { name: "Сохранить шаблон" }).click();
   await panel.getByRole("status").filter({ hasText: "Шаблон обновлён" }).waitFor();
+  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("Объект и стоимость");
   await panel.getByRole("button", { name: "Объект и стоимость", exact: true }).click();
   assert.equal(await panel.getByRole("textbox", { name: "Площадь объекта" }).inputValue(), "150");
   assert.equal(await panel.getByRole("textbox", { name: "Обслуживание" }).inputValue(), "два раза в месяц");
@@ -123,6 +124,7 @@ try {
   await lizaPage.reload();
   await panel.getByText("Дератизация — 0,23 ₽/м²").waitFor();
   await panel.getByRole("button", { name: "По шаблону" }).click();
+  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("Объект и стоимость");
   await panel.getByRole("button", { name: "Объект и стоимость", exact: true }).click();
   await panel.getByText("Сохранить в шаблоны", { exact: true }).click();
   assert.equal(await panel.getByRole("switch", { name: "Сохранить в шаблоны" }).isChecked(), true);
@@ -131,6 +133,7 @@ try {
   await panel.getByRole("status").filter({ hasText: "Заметка и шаблон сохранены" }).waitFor();
   await lizaPage.reload();
   await panel.getByRole("button", { name: "По шаблону" }).click();
+  await panel.getByRole("textbox", { name: "Поиск шаблона" }).fill("Личное обслуживание");
   await panel.getByRole("button", { name: "Личное обслуживание", exact: true }).click();
   assert.equal(await panel.getByRole("textbox", { name: "Услуга 1" }).inputValue(), "Дезинфекция");
   await panel.getByRole("button", { name: "Закрыть редактор" }).click();
@@ -278,6 +281,7 @@ try {
   const orderPanel = lizaPage.getByRole("region", { name: "Личные заметки" });
   await orderPanel.locator("article").filter({ hasText: "Маршрут проверки" }).waitFor();
   await orderPanel.getByRole("button", { name: "По шаблону" }).click();
+  await orderPanel.getByRole("textbox", { name: "Поиск шаблона" }).fill("Объект и стоимость");
   await orderPanel.getByRole("button", { name: "Объект и стоимость", exact: true }).click();
   assert.equal(await orderPanel.getByRole("textbox", { name: "Название объекта" }).inputValue(), "Озон Истра");
   assert.equal(await orderPanel.getByRole("textbox", { name: "Площадь объекта" }).inputValue(), "24198,87");
@@ -311,6 +315,79 @@ try {
     const horizontalOverflow = await lizaPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     assert.equal(horizontalOverflow, false, `Dashboard must fit ${width}px`);
   }
+  // Keep large note/template payloads bounded while searching all older records.
+  await sql`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, title, body, updated_at)
+    SELECT ${owner.organization_id}, ${lizaMember.id}, 'dashboard', 'Большая заметка ' || n,
+      CASE WHEN n = 67 THEN 'Поиск по старому содержимому' ELSE repeat('Личный текст ', 700) END,
+      now() - n * interval '1 day' FROM generate_series(1, 67) n`;
+  await lizaPage.reload();
+  assert.equal(await panel.locator('article').count(), 20);
+  await panel.getByRole('textbox', { name: 'Поиск заметок' }).fill('Поиск по старому содержимому');
+  await panel.locator('article').filter({ hasText: 'Большая заметка 67' }).waitFor();
+  assert.equal(await panel.locator('article').count(), 1);
+  await panel.getByRole('textbox', { name: 'Поиск заметок' }).fill('Большая заметка');
+  await panel.getByRole('button', { name: 'Ещё заметки · 20 из 67', exact: true }).waitFor();
+  await panel.getByRole('button', { name: 'Ещё заметки · 20 из 67', exact: true }).click();
+  await panel.getByRole('button', { name: 'Ещё заметки · 40 из 67', exact: true }).waitFor();
+  await panel.getByRole('button', { name: 'Ещё заметки · 40 из 67', exact: true }).click();
+  await panel.getByRole('button', { name: 'Ещё заметки · 60 из 67', exact: true }).click();
+  await panel.locator('article').filter({ hasText: 'Большая заметка 67' }).waitFor();
+  assert.equal(await panel.locator('article').count(), 67);
+  await panel.getByRole('textbox', { name: 'Поиск заметок' }).fill('ничего не найдено');
+  assert.equal(await panel.locator('article').count(), 0);
+  await panel.getByText('Заметки не найдены.', { exact: true }).waitFor();
+  await panel.getByRole('textbox', { name: 'Поиск заметок' }).fill('');
+  await panel.getByRole('button', { name: /Ещё заметки · 20 из/ }).waitFor();
+  await panel.getByRole('button', { name: 'По шаблону' }).click();
+  await panel.getByRole('textbox', { name: 'Поиск шаблона' }).fill('Личный шаблон');
+  await panel.getByRole('button', { name: 'Ещё шаблоны · 20 из 67', exact: true }).click();
+  await panel.getByRole('button', { name: 'Ещё шаблоны · 40 из 67', exact: true }).click();
+  await panel.getByRole('button', { name: 'Ещё шаблоны · 60 из 67', exact: true }).click();
+  await panel.getByRole('button', { name: /Ещё шаблоны ·/ }).waitFor({ state: 'detached' });
+  await panel.getByRole('button', { name: 'Личный шаблон 67', exact: true }).waitFor();
+  assert.equal(await panel.locator('[aria-label="Список шаблонов заметок"]').getByRole('button', { name: /^Личный шаблон/, exact: true }).count(), 67);
+  await panel.getByRole('textbox', { name: 'Поиск шаблона' }).fill('Мой текст 67');
+  await panel.getByRole('button', { name: 'Личный шаблон 67', exact: true }).waitFor();
+  // Search failure retains the draft and exposes a recoverable retry.
+  await panel.getByRole('button', { name: 'Личный шаблон 67', exact: true }).click();
+  assert.equal(await panel.getByRole('textbox', { name: 'Текст', exact: true }).inputValue(), 'Мой текст 67');
+  await panel.getByRole('button', { name: 'По шаблону' }).click();
+  let failTemplateSearch = true;
+  await lizaPage.route('**/*', async route => {
+    if (failTemplateSearch && route.request().method() === 'POST' && route.request().headers()['next-action']) {
+      failTemplateSearch = false; await route.abort('failed'); return;
+    }
+    await route.continue();
+  });
+  await panel.getByRole('textbox', { name: 'Поиск шаблона' }).fill('Мой текст 1');
+  await panel.getByRole('alert').filter({ hasText: 'Не удалось загрузить список' }).waitFor();
+  await lizaPage.unroute('**/*');
+  await panel.getByRole('button', { name: 'Повторить поиск' }).click();
+  await panel.getByRole('button', { name: 'Личный шаблон 1', exact: true }).waitFor();
+  assert.equal(await panel.getByRole('textbox', { name: 'Текст', exact: true }).inputValue(), 'Мой текст 67');
+  for (const width of [390, 768, 1440]) {
+    await lizaPage.setViewportSize({ width, height: 900 });
+    assert.equal(await lizaPage.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    if (process.env.CRM_BROWSER_ARTIFACT_DIR) {
+      await panel.getByRole("textbox", { name: "Поиск шаблона" }).scrollIntoViewIfNeeded();
+      await lizaPage.screenshot({ path: join(process.env.CRM_BROWSER_ARTIFACT_DIR, `notes-search-${width}.png`) });
+    }
+  }
+  for (const [kind, targetId, prefix] of [['client', client.id, 'Клиентские записи'], ['order', order.id, 'Заказные записи']]) {
+    await sql`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, target_organization_id, target_id, title, body, updated_at)
+      SELECT ${owner.organization_id}, ${lizaMember.id}, ${kind}, ${owner.organization_id}, ${targetId},
+        ${prefix} || ' ' || n, ${prefix} || ' содержимое ' || n, now() - n * interval '1 day' FROM generate_series(1, 67) n`;
+    await lizaPage.goto(`${baseUrl}/${kind === 'client' ? 'clients' : 'orders'}/${targetId}`);
+    const recordPanel = lizaPage.getByRole('region', { name: 'Личные заметки' });
+    assert.equal(await recordPanel.locator('article').count(), 20);
+    assert.equal(await recordPanel.getByRole('textbox', { name: 'Поиск заметок' }).inputValue(), '');
+    assert.equal(await recordPanel.getByRole('textbox', { name: 'Текст', exact: true }).count(), 0);
+    await recordPanel.getByRole('textbox', { name: 'Поиск заметок' }).fill(`${prefix} содержимое 67`);
+    await recordPanel.locator('article').filter({ hasText: `${prefix} 67` }).waitFor();
+    assert.equal(await recordPanel.locator('article').count(), 1);
+    await recordPanel.getByRole('button', { name: 'Новая заметка' }).click();
+    await recordPanel.getByRole('textbox', { name: 'Текст', exact: true }).fill(`Черновик: ${prefix}`);
+  }
   const ownerPage = await browser.newPage();
   await login(ownerPage, accounts.owner);
   const ownerPanel = ownerPage.getByRole("region", { name: "Личные заметки" });
@@ -320,7 +397,7 @@ try {
   assert.equal(await ownerPanel.getByRole("button", { name: "Личное обслуживание" }).count(), 0);
   await ownerPage.goto(`${baseUrl}/orders/${order.id}`);
   assert.equal(await ownerPage.getByRole("region", { name: "Личные заметки" }).getByText("Маршрут проверки").count(), 0);
-  console.log("Personal notes UI passed: committed saves/copies/moves with lost HTTP replies, unchanged retry and changed draft recovery; 67 destination pages, template search, failed lookup retry, stale-result hiding, older saved notes; Liza templates, paired rates, dashboard/client/order transfer, contextual calendar/tasks, privacy and responsive widths.");
+  console.log("Personal notes UI passed: committed saves/copies/moves with lost HTTP replies, unchanged retry and changed draft recovery; 67 notes in dashboard/client/order, bounded template pages, body search and retries; 67 destination pages, template search, failed lookup retry, stale-result hiding, older saved notes; Liza templates, paired rates, dashboard/client/order transfer, contextual calendar/tasks, privacy and responsive widths.");
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }

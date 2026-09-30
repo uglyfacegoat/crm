@@ -23,7 +23,7 @@ import type { ServiceVisit, VisitStatus } from "@/server/visits/types";
 import { listAccessibleOrganizations } from "@/server/organizations/repository";
 import { getCenterDashboardData, getCenterTaskDashboardSummary } from "@/server/organizations/center-dashboard";
 import { PersonalNotesPanel } from "@/components/personal-notes/personal-notes-panel";
-import { dashboardNoteTarget, listPersonalNotes, listPersonalNoteTemplates } from "@/server/personal-notes/repository";
+import { dashboardNoteTarget, searchPersonalNotes, searchPersonalNoteTemplates } from "@/server/personal-notes/repository";
 
 export default async function DashboardPage() {
   const member = await requireOfficeSession();
@@ -33,8 +33,8 @@ export default async function DashboardPage() {
     (await listAccessibleOrganizations(member)).some((organization) => organization.current && organization.kind === "center");
   const canReadFinance = hasPermission(member, "finance.read");
   const [personalNotes, noteTemplates] = preview
-    ? [[], []]
-    : await Promise.all([listPersonalNotes(member, dashboardNoteTarget), listPersonalNoteTemplates(member)]);
+    ? [{ items: [], total: 0, nextOffset: null }, { items: [], total: 0, nextOffset: null }]
+    : await Promise.all([searchPersonalNotes(member, dashboardNoteTarget), searchPersonalNoteTemplates(member)]);
   const now = new Date();
   const rangeStart = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const rangeEnd = new Date(now.getTime() + 21 * 86_400_000).toISOString();
@@ -188,7 +188,7 @@ export default async function DashboardPage() {
       </div>
 
       <div id="dashboard-personal-notes">
-        <PersonalNotesPanel target={dashboardNoteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} />
+        <PersonalNotesPanel key={`${member.organizationId}:${member.memberId}:dashboard`} target={dashboardNoteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} />
       </div>
 
       <div id="dashboard-activity">

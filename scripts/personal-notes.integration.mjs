@@ -21,9 +21,9 @@ mock.module('server-only', { namedExports: {} });
 mock.module(new URL('server/database.ts', root), { namedExports: { getDatabase: () => sql } });
 mock.module(new URL('server/auth/config.ts', root), { namedExports: { getAuthMode: () => 'required' } });
 mock.module(new URL('server/auth/session.ts', root), { namedExports: { requireOfficeSession: async () => currentMember } });
-const { canAccessNoteTarget, listPersonalNotes, listPersonalNoteTemplates, searchNoteDestinations } = await import('../src/server/personal-notes/repository.ts');
+const { canAccessNoteTarget, listPersonalNotes, listPersonalNoteTemplates, searchPersonalNotes, searchPersonalNoteTemplates, searchNoteDestinations } = await import('../src/server/personal-notes/repository.ts');
 const { savePersonalNoteAction, deletePersonalNoteAction, transferPersonalNoteAction,
-  savePersonalNoteTemplateAction, deletePersonalNoteTemplateAction } = await import('../src/app/(workspace)/personal-note-actions.ts');
+  savePersonalNoteTemplateAction, deletePersonalNoteTemplateAction, searchPersonalNotesAction, searchPersonalNoteTemplatesAction } = await import('../src/app/(workspace)/personal-note-actions.ts');
 
 test('personal notes stay private, persist without a date key, and search scoped destinations', async (t) => {
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
@@ -198,5 +198,38 @@ test('personal notes stay private, persist without a date key, and search scoped
   assert.equal((await sql`SELECT request_key FROM personal_note_mutations WHERE request_key = ${rollbackKey}`).length, 0);
   assert.equal((await savePersonalNoteAction({ ...operation, requestKey: rollbackKey })).mutation.status, 'applied');
   await assert.rejects(() => savePersonalNoteAction({ ...operation, requestKey: 'invalid' }), /Invalid UUID/);
+
+  currentMember = member(author.id);
+  await sql`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, title, body, updated_at)
+    SELECT ${org.id}, ${author.id}, 'dashboard', 'Большая личная заметка ' || n,
+      CASE WHEN n = 67 THEN 'Уникальный текст старой заметки' ELSE repeat('Текст ', 1000) END,
+      now() - n * interval '1 day' FROM generate_series(1, 67) n`;
+  await sql`INSERT INTO personal_note_templates (owner_organization_id, owner_member_id, name, body, created_at)
+    SELECT ${org.id}, ${author.id}, 'Большой шаблон ' || n,
+      CASE WHEN n = 67 THEN 'Уникальный текст старого шаблона' ELSE repeat('Образец ', 1000) END,
+      now() - n * interval '1 day' FROM generate_series(1, 67) n`;
+  async function collectPages(loader, query) {
+    const records = []; let offset = 0;
+    do {
+      const page = await loader(query, offset);
+      assert(page.items.length <= 20);
+      assert.equal(page.total, 67);
+      records.push(...page.items); offset = page.nextOffset;
+    } while (offset !== null);
+    assert.equal(records.length, 67);
+    assert.equal(new Set(records.map(item => item.id)).size, 67);
+  }
+  await collectPages((query, offset) => searchPersonalNotes(currentMember, dashboard, query, offset), 'Большая личная заметка');
+  await collectPages((query, offset) => searchPersonalNoteTemplates(currentMember, query, offset), 'Большой шаблон');
+  assert.equal((await searchPersonalNotes(currentMember, dashboard, 'Уникальный текст старой заметки')).items[0].title, 'Большая личная заметка 67');
+  assert.equal((await searchPersonalNoteTemplates(currentMember, 'Уникальный текст старого шаблона')).items[0].name, 'Большой шаблон 67');
+  assert.equal((await searchPersonalNotes(currentMember, clientTarget, 'Большая личная заметка')).total, 0);
+  assert.equal((await searchPersonalNoteTemplates(member(colleague.id), 'Большой шаблон')).total, 0);
+
+  assert.equal((await searchPersonalNotesAction(dashboard, 'Уникальный текст старой заметки')).total, 1);
+  assert.equal((await searchPersonalNoteTemplatesAction('Уникальный текст старого шаблона')).total, 1);
+  await assert.rejects(() => searchPersonalNotesAction(foreignTarget, ''), /Карточка недоступна/);
+  await assert.rejects(() => searchPersonalNoteTemplatesAction('', -1));
+  await assert.rejects(() => searchPersonalNotesAction(dashboard, 'a'.repeat(121)));
 
 });

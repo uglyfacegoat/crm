@@ -25,7 +25,7 @@ import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
 import { resolveCenterOrderScope } from "@/server/organizations/center-dashboard";
-import { listPersonalNotes, listPersonalNoteTemplates, type NoteTarget } from "@/server/personal-notes/repository";
+import { searchPersonalNotes, searchPersonalNoteTemplates, type NoteTarget } from "@/server/personal-notes/repository";
 import { getObjectServiceProfile } from "@/server/catalog/object-service-profiles";
 import { getOrderDocumentUploadOptions, listOrderDocuments } from "@/server/documents/repository";
 import type { DocumentListItem, DocumentUploadOptions } from "@/server/documents/types";
@@ -200,8 +200,8 @@ export default async function OrderDetailPage({
     tasksHref: hasPermission(member, "tasks.read") ? `/tasks?order=${order.id}` : undefined,
   };
   const [personalNotes, noteTemplates] = preview
-    ? [[], []]
-    : await Promise.all([listPersonalNotes(member, noteTarget), listPersonalNoteTemplates(member)]);
+    ? [{ items: [], total: 0, nextOffset: null }, { items: [], total: 0, nextOffset: null }]
+    : await Promise.all([searchPersonalNotes(member, noteTarget), searchPersonalNoteTemplates(member)]);
   const serviceProfile = !preview && order.objectId ? await getObjectServiceProfile(orderMember, order.objectId) : null;
   const contractRates = serviceProfile?.rates.filter((rate) => rate.lineKind === "contract") ?? [];
   const lizaDefaults = {
@@ -250,7 +250,7 @@ export default async function OrderDetailPage({
       </header>
 
       <div className="mt-5">
-        <PersonalNotesPanel target={noteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} objectName={order.object} lizaDefaults={lizaDefaults} relatedLinks={relatedNoteLinks} />
+        <PersonalNotesPanel key={`${member.organizationId}:${member.memberId}:order:${order.id}`} target={noteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} objectName={order.object} lizaDefaults={lizaDefaults} relatedLinks={relatedNoteLinks} />
       </div>
 
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)]">
