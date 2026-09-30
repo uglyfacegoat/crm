@@ -16,6 +16,7 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, re
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+page.on("response", (response) => { if (response.status() >= 400) console.error("Sites HTTP failure", response.status(), new URL(response.url()).pathname); });
 
 try {
   await page.goto(`${baseUrl}/sites`, { waitUntil: "networkidle" });

@@ -227,10 +227,10 @@ jobs:
           node scripts/request-body-check.mjs
           node scripts/search-limits-check.mjs
           node scripts/chat-limits-check.mjs
-          CHAT_VOICE_CHECK_BASE_URL="$SMOKE_BASE_URL" node scripts/chat-voice-flow-check.mjs
+          CHAT_VOICE_CHECK_BASE_URL="$SMOKE_BASE_URL" node scripts/chat-voice-flow-check.mjs --allow-working-flow-check
           node scripts/chat-download-flow-check.mjs
           npm run test:sites-production
-          SITES_CHECK_BASE_URL="$SMOKE_BASE_URL" node scripts/sites-flow-check.mjs
+          SITES_CHECK_BASE_URL="$SMOKE_BASE_URL" node scripts/sites-flow-check.mjs --allow-working-flow-check
       - name: Isolated document, finance, visit and chat upload acceptance
         run: UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
       - name: Session revocation with open browser tabs

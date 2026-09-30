@@ -58,7 +58,7 @@ async function verifySitesLayout(width, height) {
         xTicks: document.querySelectorAll(".site-traffic-chart .recharts-xAxis .recharts-cartesian-axis-tick").length,
         yTicks: document.querySelectorAll(".site-traffic-chart .recharts-yAxis .recharts-cartesian-axis-tick").length,
         dash: areaCurve?.getAttribute("stroke-dasharray") ?? "",
-        empty: document.querySelector(".site-traffic-chart")?.textContent?.includes("За период данных о трафике нет") ?? false,
+        empty: Boolean(document.querySelector(".sites-traffic-card .sites-empty-copy")) || (document.querySelector(".site-traffic-chart")?.textContent?.includes("За период данных о трафике нет") ?? false),
         bounds: curveBounds ? { width: curveBounds.width, height: curveBounds.height } : null,
       },
       content: {

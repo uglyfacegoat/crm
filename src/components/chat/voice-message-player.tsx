@@ -100,7 +100,7 @@ export function VoiceMessagePlayer({ src, seed, mine = false, levels, durationHi
     setCurrentTime(audio.currentTime);
   }
 
-  return <div ref={playerRef} data-voice-player className={`flex w-[min(19rem,72vw)] max-w-full items-center gap-3 ${mine ? "text-[var(--on-accent)]" : "text-[var(--accent-ink)]"}`}>
+  return <div ref={playerRef} data-voice-player data-voice-source={src} className={`flex w-[min(19rem,72vw)] max-w-full items-center gap-3 ${mine ? "text-[var(--on-accent)]" : "text-[var(--accent-ink)]"}`}>
     <audio ref={audioRef} preload="none" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onError={() => setPlaybackError(true)} onEnded={(event) => {
       setPlaying(false);
       setCurrentTime(0);

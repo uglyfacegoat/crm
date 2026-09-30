@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
 
@@ -65,16 +65,19 @@ try {
   assert.equal(Number(attachment.size_bytes), audio.length);
   assert.equal(attachment.sha256, createHash("sha256").update(audio).digest("hex"));
   const url = `${origin}/api/v1/chat/attachments/${attachment.id}/download`;
-  const player = page.locator("[data-voice-player]").filter({ has: page.locator(`audio[src*="${attachment.id}"]`) });
+  const player = page.locator(`[data-voice-source*="${attachment.id}"]`);
   await mkdir("artifacts/production", { recursive: true });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
+    if (!(await composer.locator('textarea[name="body"]').isVisible())) {
+      await page.locator('.chat-channel-row button[aria-current="page"]').click();
+    }
     await player.waitFor();
+    await player.getByRole("button", { name: "Воспроизвести голосовое", exact: true }).click();
     await page.waitForFunction((id) => {
       const audio = document.querySelector(`audio[src*="${id}"]`);
       return audio?.readyState >= 1 && Math.abs(audio.duration - 12) < 0.05;
     }, attachment.id);
-    await player.getByRole("button", { name: "Воспроизвести голосовое", exact: true }).click();
     await page.waitForFunction((id) => document.querySelector(`audio[src*="${id}"]`).currentTime > 0.1, attachment.id);
     await player.getByRole("button", { name: "Поставить голосовое на паузу", exact: true }).click();
     const seek = player.getByRole("button", { name: "Перемотать голосовое сообщение", exact: true });
@@ -90,14 +93,10 @@ try {
     await page.screenshot({ path: `artifacts/production/chat-audio-download-${width}.png`, fullPage: true });
   }
   assert.ok(mediaResponses.includes(206), "Browser audio must receive a ranged response");
+  console.log("Download check: WAV playback and seeking passed on desktop and mobile.");
   const voiceMessageId = await composer.locator('input[name="idempotencyKey"]').inputValue();
   await composer.getByRole("button", { name: "Записать голосовое сообщение", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("form .tabular-nums")?.textContent === "00:01");
-  await composer.getByRole("button", { name: "Поставить запись на паузу", exact: true }).click();
-  const pausedTime = await composer.locator(".tabular-nums").innerText();
-  await page.waitForTimeout(1100);
-  assert.equal(await composer.locator(".tabular-nums").innerText(), pausedTime);
-  await composer.getByRole("button", { name: "Продолжить запись", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("form .tabular-nums")?.textContent === "00:03");
   await page.evaluate(() => {
     const original = File.prototype.arrayBuffer;
@@ -107,11 +106,12 @@ try {
       throw new Error("Injected one-shot draft read failure");
     };
   });
-  await composer.getByRole("button", { name: "Завершить запись", exact: true }).click();
+  await composer.getByRole("button", { name: "Остановить запись и прослушать", exact: true }).click();
   await composer.getByRole("alert").filter({ hasText: "Запись сохранена в черновике" }).waitFor();
   assert.equal(await composer.getByRole("button", { name: "Отправить голосовое сообщение", exact: true }).count(), 0);
   await composer.getByRole("button", { name: "Повторить подготовку", exact: true }).click();
   await composer.getByRole("button", { name: "Отправить голосовое сообщение", exact: true }).waitFor();
+  await composer.getByRole("button", { name: "Воспроизвести голосовое", exact: true }).click();
   await page.waitForFunction(() => {
     const audio = document.querySelector("form audio");
     return audio?.readyState >= 1 && Number.isFinite(audio.duration) && audio.duration >= 2 && audio.duration < 4;
@@ -121,9 +121,12 @@ try {
   await composer.getByRole("button", { name: "Записать голосовое сообщение", exact: true }).waitFor();
   const [recording] = await sql`SELECT id FROM chat_message_attachments WHERE message_id = ${voiceMessageId}`;
   assert.ok(recording);
+  console.log("Download check: recording preparation failure, retry and upload passed.");
   await page.reload({ waitUntil: "domcontentloaded" });
-  const recordedPlayer = page.locator("[data-voice-player]").filter({ has: page.locator(`audio[src*="${recording.id}"]`) });
+  const recordedPlayer = page.locator(`[data-voice-source*="${recording.id}"]`);
+  await recordedPlayer.getByRole("button", { name: "Воспроизвести голосовое", exact: true }).click();
   await page.waitForFunction((id) => document.querySelector(`audio[src*="${id}"]`)?.readyState >= 1, recording.id);
+  await recordedPlayer.getByRole("button", { name: "Поставить голосовое на паузу", exact: true }).click();
   const recordingDuration = await recordedPlayer.locator("audio").evaluate((element) => element.duration);
   assert.ok(Number.isFinite(recordingDuration) && recordingDuration >= 2 && recordingDuration < 10,
     `Recorded voice must have a usable duration after upload; received ${recordingDuration}`);
@@ -139,12 +142,29 @@ try {
   await composer.locator('textarea[name="body"]').fill("Legacy voice without duration metadata");
   await composer.locator('input[name="file"]').setInputFiles({ name: "legacy.webm", mimeType: "audio/webm", buffer: legacyVoiceBytes });
   await composer.getByRole("button", { name: "Отправить сообщение", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('textarea[name="body"]')?.value === "");
+  await composer.getByRole("alert").filter({ hasText: "Аудиофайл повреждён" }).waitFor();
+  assert.equal(await composer.locator('input[name="idempotencyKey"]').inputValue(), legacyMessageId);
+  assert.equal(await composer.locator('textarea[name="body"]').inputValue(), "Legacy voice without duration metadata");
+  assert.equal((await sql`SELECT id FROM chat_messages WHERE id = ${legacyMessageId}`).length, 0);
+  // Historical recordings predate upload validation. Seed one in this disposable database
+  // to verify playback without weakening validation of new uploads.
+  const legacyStorageKey = `${member.organization_id}/${legacyMessageId}/v1.webm`;
+  await mkdir(dirname(join(storageRoot, legacyStorageKey)), { recursive: true });
+  await writeFile(join(storageRoot, legacyStorageKey), legacyVoiceBytes);
+  await sql.begin(async (transaction) => {
+    await transaction`INSERT INTO chat_messages (id, organization_id, channel_id, author_id, body)
+      VALUES (${legacyMessageId}, ${member.organization_id}, ${channelId}, ${member.id}, 'Historical voice fixture')`;
+    await transaction`INSERT INTO chat_message_attachments
+      (id, organization_id, message_id, original_filename, storage_key, mime_type, extension, size_bytes, sha256, uploaded_by)
+      VALUES (${legacyMessageId}, ${member.organization_id}, ${legacyMessageId}, 'legacy.webm', ${legacyStorageKey},
+        'audio/webm', 'webm', ${legacyVoiceBytes.length}, ${createHash("sha256").update(legacyVoiceBytes).digest("hex")}, ${member.id})`;
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
   const [legacyAttachment] = await sql`SELECT id, sha256 FROM chat_message_attachments WHERE message_id = ${legacyMessageId}`;
   assert.ok(legacyAttachment);
   assert.equal(legacyAttachment.sha256, createHash("sha256").update(legacyVoiceBytes).digest("hex"));
-  const legacyPlayer = page.locator("[data-voice-player]").filter({ has: page.locator(`audio[src*="${legacyAttachment.id}"]`) });
-  await page.waitForFunction((id) => document.querySelector(`audio[src*="${id}"]`)?.readyState >= 1, legacyAttachment.id);
+  const legacyPlayer = page.locator(`[data-voice-source*="${legacyAttachment.id}"]`);
+  assert.equal(await legacyPlayer.locator("audio").getAttribute("src"), null, "Received voice files must load only on click");
   assert.equal(await legacyPlayer.getByRole("button", { name: "Перемотать голосовое сообщение", exact: true }).isDisabled(), true);
   await legacyPlayer.getByText("—:—", { exact: true }).waitFor();
   await legacyPlayer.getByRole("button", { name: "Воспроизвести голосовое", exact: true }).click();
@@ -194,10 +214,17 @@ try {
   assert.equal((await anonymous.request.get(url)).status(), 401);
   await anonymous.close();
   assert.equal((await context.request.get(`${origin}/api/v1/chat/attachments/not-a-uuid/download`)).status(), 404);
+  const [deniedMember] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${member.organization_id}, 'Denied reader', 'denied-download@example.invalid', 'dispatcher') RETURNING id`;
   await sql`INSERT INTO member_permission_overrides (organization_id, member_id, permission, allowed)
-    VALUES (${member.organization_id}, ${member.id}, 'chat.read', false)`;
-  try { assert.equal((await context.request.get(url)).status(), 403); }
-  finally { await sql`DELETE FROM member_permission_overrides WHERE organization_id = ${member.organization_id} AND member_id = ${member.id} AND permission = 'chat.read'`; }
+    VALUES (${member.organization_id}, ${deniedMember.id}, 'chat.read', false)`;
+  const deniedToken = randomBytes(32).toString("hex");
+  await sql`INSERT INTO auth_sessions (organization_id, member_id, token_hash, expires_at)
+    VALUES (${member.organization_id}, ${deniedMember.id}, ${createHash("sha256").update(deniedToken).digest("hex")}, now() + interval '1 hour')`;
+  const deniedReader = await browser.newContext();
+  await deniedReader.addCookies([{ name: "crm_session", value: deniedToken, url: origin }]);
+  assert.equal((await deniedReader.request.get(url)).status(), 403);
+  await deniedReader.close();
   const [membership] = await sql`DELETE FROM chat_channel_members WHERE organization_id = ${member.organization_id} AND channel_id = ${channelId} AND member_id = ${member.id} RETURNING *`;
   try { assert.equal((await context.request.get(url)).status(), 404); }
   finally { await sql`INSERT INTO chat_channel_members ${sql(membership)}`; }
@@ -242,7 +269,15 @@ try {
     assert.equal(await auditCount(), auditBeforeDenials);
   } finally { await writeFile(path, audio); }
   assert.equal((await context.request.get(url)).status(), 200);
-  console.log("Download acceptance passed: WAV playback/seek at 1440/390 px, voice recording/pause/resume/preparation failure/retry/upload/reload/seek, range/HEAD/conditions, permission/membership/deletion/company isolation, member/company budgets, corruption outside requested range, recovery.");
+  console.log("Download acceptance passed: WAV playback/seek at 1440/390 px, voice recording/stop/preparation failure/retry/upload/reload/seek, range/HEAD/conditions, permission/membership/deletion/company isolation, member/company budgets, corruption outside requested range, recovery.");
+} catch (error) {
+  for (const context of browser.contexts()) {
+    for (const page of context.pages()) {
+      console.error("Download check failed at", page.url(), await page.locator("body").innerText());
+      await page.screenshot({ path: "artifacts/production/chat-download-failure.png", fullPage: true }).catch(() => {});
+    }
+  }
+  throw error;
 } finally {
   await browser.close();
   await sql.end();

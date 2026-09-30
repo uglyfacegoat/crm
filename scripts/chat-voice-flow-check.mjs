@@ -11,11 +11,10 @@ const baseUrl = process.env.CHAT_VOICE_CHECK_BASE_URL ?? "http://localhost:3000"
 const identity = process.env.CHAT_VOICE_CHECK_IDENTITY ?? process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL;
 const password = process.env.CHAT_VOICE_CHECK_PASSWORD ?? process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
 
-if (!browserPath) throw new Error("Chrome or Edge was not found. Set CHROME_PATH.");
 if (!identity || !password) throw new Error("Chat voice flow credentials are required.");
 
 const browser = await chromium.launch({
-  executablePath: browserPath,
+  ...(browserPath ? { executablePath: browserPath } : {}),
   headless: true,
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
 });
@@ -36,24 +35,19 @@ try {
   }
 
   await page.getByRole("button", { name: "Записать голосовое сообщение", exact: true }).click();
-  await page.getByRole("button", { name: "Поставить запись на паузу", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Остановить запись и прослушать", exact: true }).waitFor();
   assert.equal(await page.locator("form [data-voice-waveform] > span").count(), 42);
 
-  await page.getByRole("button", { name: "Поставить запись на паузу", exact: true }).click();
-  await page.getByRole("button", { name: "Продолжить запись", exact: true }).waitFor();
-  const pausedTime = await page.locator("form .tabular-nums").innerText();
-  await page.waitForTimeout(1_100);
-  assert.equal(await page.locator("form .tabular-nums").innerText(), pausedTime, "Paused recordings must not advance the timer.");
-  await page.screenshot({ path: "artifacts/design/chat-voice-paused.png" });
-  await page.getByRole("button", { name: "Продолжить запись", exact: true }).click();
-  await page.waitForTimeout(1_100);
-  await page.getByRole("button", { name: "Завершить запись", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("form .tabular-nums")?.textContent === "00:01");
+  await page.getByRole("button", { name: "Остановить запись и прослушать", exact: true }).click();
 
   await page.getByRole("button", { name: "Отправить голосовое сообщение", exact: true }).waitFor();
   assert.equal(await page.locator("form [data-voice-player]").count(), 1);
   assert.equal(await page.locator("audio[controls]").count(), 0, "Native audio controls must not be exposed.");
-  await page.locator("form").getByRole("button", { name: "Изменить скорость воспроизведения", exact: true }).click();
-  assert.equal(await page.locator("form").getByRole("button", { name: "Изменить скорость воспроизведения", exact: true }).innerText(), "1.5×");
+  assert.equal(await page.getByRole("button", { name: "Изменить скорость воспроизведения", exact: true }).count(), 0);
+  await page.locator("form").getByRole("button", { name: "Воспроизвести голосовое", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("form audio")?.currentTime > 0.1);
+  await page.locator("form").getByRole("button", { name: "Поставить голосовое на паузу", exact: true }).click();
   await page.screenshot({ path: "artifacts/design/chat-voice-draft.png" });
   await page.getByRole("button", { name: "Удалить голосовой черновик", exact: true }).click();
   await page.getByRole("button", { name: "Записать голосовое сообщение", exact: true }).waitFor();
@@ -70,7 +64,7 @@ try {
       });
     };
   });
-  await page.getByRole("button", { name: "Завершить запись", exact: true }).click();
+  await page.getByRole("button", { name: "Остановить запись и прослушать", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Подготовка голосового" }).waitFor();
   await page.getByRole("button", { name: "Удалить голосовой черновик", exact: true }).click();
   await page.waitForFunction(() => typeof window.__releaseVoicePreparation === "function");
@@ -83,14 +77,17 @@ try {
   assert.equal(await page.locator('input[name="file"]').evaluate((input) => input.files.length), 0);
 
   await page.setViewportSize({ width: 390, height: 844 });
+  if (!(await page.getByRole("button", { name: "Записать голосовое сообщение", exact: true }).isVisible())) {
+    await page.locator('.chat-channel-row button[aria-current="page"]').click();
+  }
   await page.getByRole("button", { name: "Записать голосовое сообщение", exact: true }).click();
-  await page.getByRole("button", { name: "Удалить голосовое сообщение", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Отменить запись", exact: true }).waitFor();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "Voice recorder must not overflow the mobile viewport.");
-  await page.getByRole("button", { name: "Удалить голосовое сообщение", exact: true }).click();
+  await page.getByRole("button", { name: "Отменить запись", exact: true }).click();
   await page.getByRole("button", { name: "Записать голосовое сообщение", exact: true }).waitFor();
 
   if (errors.length) throw new Error(`Browser errors: ${JSON.stringify(errors)}`);
-  console.log(JSON.stringify({ operation: "chat.voice_flow_check", status: "succeeded", waveformBars: 42, pauseResume: true, draftDelete: true, cancelledPreparation: true, nativeControls: false }));
+  console.log(JSON.stringify({ operation: "chat.voice_flow_check", status: "succeeded", waveformBars: 42, stopAndPreview: true, draftDelete: true, cancelledPreparation: true, nativeControls: false }));
 } finally {
   await browser.close();
 }

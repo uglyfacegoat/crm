@@ -58,6 +58,10 @@ try {
   await mkdir("artifacts/production", { recursive: true });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
+    if (!(await text.isVisible())) {
+      await page.locator('.chat-channel-row button[aria-current="page"]').click();
+      await text.waitFor({ state: "visible" });
+    }
     for (const operation of ["chat_message", "chat_upload"]) {
       await exhaust(operation, width === 390);
       const draft = `Preserved ${operation} ${width}`;
@@ -95,7 +99,7 @@ try {
   await sql`INSERT INTO chat_messages (id, organization_id, channel_id, author_id, body)
     VALUES (${randomUUID()}, ${member.organization_id}, ${channelId}, ${peer.id}, ${incoming})`;
   await page.getByRole("button", { name: "Обновить сообщения", exact: true }).click();
-  await page.getByText(incoming, { exact: true }).waitFor();
+  await page.getByTestId("chat-message-list").getByText(incoming).waitFor();
   await assertPreserved(draft, requestKey);
 
   const budgetsBefore = await sql`SELECT operation, member_id, request_count FROM request_rate_limits
@@ -111,6 +115,14 @@ try {
   await page.waitForLoadState("networkidle");
   assert.deepEqual(errors, []);
   console.log("Chat checks passed: member/company message and upload limits, no denied file writes, draft/file/key preservation, successful retries, incoming-message refresh, forged channel, 1440/390 px.");
+} catch (error) {
+  for (const context of browser.contexts()) {
+    for (const page of context.pages()) {
+      console.error("Chat check failed at", page.url(), await page.locator("body").innerText());
+      await page.screenshot({ path: "artifacts/production/chat-limits-failure.png", fullPage: true }).catch(() => {});
+    }
+  }
+  throw error;
 } finally {
   await browser.close();
   await sql.end();

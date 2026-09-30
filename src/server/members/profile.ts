@@ -57,6 +57,14 @@ export async function updateOwnProfile(member: AuthenticatedMember, input: { dis
   });
 }
 
+export async function getOwnProfileAvatarUrl(member: AuthenticatedMember) {
+  const [row] = await getDatabase()`SELECT avatars.version, avatars.updated_at FROM member_profile_avatars avatars
+    JOIN organization_members identities ON identities.organization_id = avatars.organization_id AND identities.id = avatars.member_id
+    WHERE lower(identities.email) = lower(${member.email})
+    ORDER BY avatars.updated_at DESC LIMIT 1`;
+  return row ? `/api/v1/profile/avatar?v=${Number(row.version)}-${new Date(row.updated_at as Date).getTime()}` : null;
+}
+
 export async function getOwnProfileAvatar(member: AuthenticatedMember) {
   const sql = getDatabase();
   const [row] = await sql`SELECT avatars.image_data FROM member_profile_avatars avatars

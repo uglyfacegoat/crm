@@ -622,6 +622,7 @@ const roleLabels: Record<OrganizationRole, string> = {
 };
 
 type ShellUser = {
+  avatarUrl?: string | null;
   organizationName: string;
   displayName: string;
   email: string;
@@ -645,7 +646,7 @@ function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
         aria-expanded={open}
         className="focus-ring flex items-center gap-2 rounded-[13px] p-1 pr-2 transition-colors hover:bg-[var(--surface-soft)]"
       >
-        <Avatar name={currentUser.displayName} size="sm" tone="lime" src="/api/v1/profile/avatar" />
+        <Avatar name={currentUser.displayName} size="sm" tone="lime" src={currentUser.avatarUrl ?? undefined} />
         <span className="hidden text-left lg:block">
           <span className="block max-w-32 truncate text-xs font-medium text-[var(--text)]">
             {currentUser.displayName}

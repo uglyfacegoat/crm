@@ -66,7 +66,6 @@ function ChatComposer({ channelId, requestKey, entityOptions }: { channelId: str
         const result = await sendChatMessageAction(state, formData);
         startSubmitTransition(() => {
           if (result.status === "success") {
-            if (messageRef.current) messageRef.current.value = "";
             setMessageText("");
             if (fileRef.current) fileRef.current.value = "";
             setAttachedFileName(null);
