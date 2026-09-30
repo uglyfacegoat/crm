@@ -17,7 +17,7 @@ import {
 import { Dialog } from "@/components/ui/dialog";
 import { formatMoneyMinor } from "@/lib/format";
 import type { FinanceInvoice, FinanceOrder, FinancePayment, FinancePayout, PaymentMethod } from "@/server/finance/types";
-import { OrderField, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
+import { OrderField, OrderPicker, orderInputClass, orderTextareaClass } from "@/components/orders/order-form-parts";
 
 export type FinanceDialog =
   | { kind: "invoice"; order: FinanceOrder }
@@ -41,7 +41,8 @@ function FormFooter({ pending, saved, onClose, submitLabel, danger = false }: { 
 }
 
 function PaymentMethodField({ errors }: { errors?: string[] }) {
-  return <OrderField label="Способ" required errors={errors}><select name="paymentMethod" defaultValue="bank_transfer" className={`${orderInputClass} [color-scheme:light]`}>{Object.entries(paymentMethodLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></OrderField>;
+  const [method, setMethod] = useState("bank_transfer");
+  return <div><input type="hidden" name="paymentMethod" value={method} /><OrderPicker label="Способ" value={method} onChange={setMethod} options={Object.entries(paymentMethodLabels).map(([value, label]) => ({ value, label }))} placeholder="Выберите способ оплаты" required errors={errors} /></div>;
 }
 
 function ReceiptUploadField({ errors }: { errors?: string[] }) {

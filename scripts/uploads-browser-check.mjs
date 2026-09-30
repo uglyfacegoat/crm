@@ -250,6 +250,10 @@ try {
       // All success auto-close timers are <= 1100 ms; test retention beyond that boundary.
       await page.waitForTimeout(1_200);
       assert.equal(await dialog.isVisible(), true);
+      const selectedPaymentMethod = dialog.locator('input[name="paymentMethod"]');
+      if (await selectedPaymentMethod.count()) {
+        assert.equal(await selectedPaymentMethod.inputValue(), label === "Провести оплату" ? "cash" : "card");
+      }
       assert.equal(await dialog.getByRole("button", { name: savedLabel, exact: true }).isDisabled(), true);
       await dialog.getByRole("status").scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(artifacts, screenshot) });
@@ -431,6 +435,13 @@ try {
         await page.getByRole("button", { name: "Провести выплату", exact: true }).click();
       }
       dialog = page.getByRole("dialog", { name: kind === "payment" ? "Оплата клиента" : "Выплата мастеру", exact: true });
+      const method = kind === "payment" ? "cash" : "card";
+      const methodLabel = kind === "payment" ? "Наличные" : "Карта";
+      await dialog.locator('summary[aria-label="Способ"]').click();
+      const methodMenu = dialog.locator('summary[aria-label="Способ"]').locator("..");
+      await methodMenu.getByRole("textbox").fill(methodLabel.slice(0, 3));
+      await methodMenu.getByRole("button", { name: methodLabel, exact: true }).click();
+      assert.equal(await dialog.locator('input[name="paymentMethod"]').inputValue(), method);
       const receiptBytes = pdfFixture(`Receipt ${kind} ${suffix}`);
       await dialog.locator('input[name="amount"]').fill("100");
       await dialog.locator('input[name="receipt"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: receiptBytes });
@@ -457,10 +468,12 @@ try {
         await submit(dialog, kind === "payment" ? "Провести оплату" : "Провести выплату", warn ? warning : null, `${kind}-warning.png`);
       }
       const table = kind === "payment" ? "order_payments" : "order_master_payouts";
-      const records = await sql`SELECT receipt_document_id, amount_minor FROM ${sql(table)}
+      const records = await sql`SELECT receipt_document_id, amount_minor, payment_method FROM ${sql(table)}
         WHERE organization_id = ${member.organization_id} AND idempotency_key = ${key}`;
       assert.equal(records.length, 1);
       assert.equal(records[0].receipt_document_id, receiptId);
+      assert.equal(records[0].payment_method, method);
+
       assert.equal(Number(records[0].amount_minor), 10000);
       await verifyVersion(receiptId, 1, receiptBytes);
       if (!warn) {
