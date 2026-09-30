@@ -12,8 +12,8 @@ import { hashPassword } from "../src/server/auth/password.ts";
 import { runMigrations } from "./migrate.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
-if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl || !process.env.ROLE_CHECK_RUNTIME || !process.env.CHROME_PATH) {
-  throw new Error("Run with isolated PostgreSQL, ROLE_CHECK_RUNTIME and CHROME_PATH.");
+if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl || !process.env.ROLE_CHECK_RUNTIME) {
+  throw new Error("Run with isolated PostgreSQL and ROLE_CHECK_RUNTIME; install Playwright Chromium or set CHROME_PATH.");
 }
 const baseUrl = "http://127.0.0.1:3113";
 const directory = await mkdtemp(join(tmpdir(), "crm-role-check-"));
@@ -60,6 +60,7 @@ try {
     await sql`INSERT INTO member_credentials (organization_id, member_id, password_hash)
       VALUES (${organization.organization_id}, ${row.id}, ${await hashPassword(identity.password)})`;
     identity.memberId = row.id;
+    identity.masterId = master?.id ?? null;
   }
   const runtime = resolve(process.env.ROLE_CHECK_RUNTIME);
   const buildDirectory = dirname(dirname(runtime));
@@ -75,6 +76,14 @@ try {
   });
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
   const pages = {};
+  async function decodedPhoto(locator) {
+    await locator.waitFor();
+    await locator.evaluate(image => new Promise((resolveLoaded, reject) => {
+      if (image.complete) return image.naturalWidth ? resolveLoaded() : reject(new Error('Avatar image did not decode'));
+      image.addEventListener('load', resolveLoaded, { once: true });
+      image.addEventListener('error', () => reject(new Error('Avatar image failed to load')), { once: true });
+    }));
+  }
   const routeResults = [];
   const expectedDestinations = {
     developer: ["/", "/orders", "/calendar", "/finance", "/settings", "/profile", "/chat", "/developer/support"],
@@ -118,6 +127,38 @@ try {
       const response = await page.request.get(`${baseUrl}/api/v1/profile/avatar`);
       assert.equal(response.status(), 200);
       assert.equal(response.headers()["content-type"], "image/webp");
+      if (role === "master") {
+        const masterUrl = `${baseUrl}/api/v1/masters/${credentials.master.masterId}/avatar`;
+        const memberPhoto = await pages.developer.request.get(`${baseUrl}/api/v1/members/${credentials.master.memberId}/avatar`);
+        const masterPhoto = await pages.developer.request.get(masterUrl);
+        assert.equal(masterPhoto.status(), 200, 'A valid UUID must load the linked master photo');
+        assert.equal(masterPhoto.headers()['cache-control'], 'no-store');
+        assert.deepEqual(await masterPhoto.body(), await response.body(), 'Master and own profile share the same photo');
+        assert.deepEqual(await memberPhoto.body(), await response.body(), 'Employee and master share the same photo');
+        await pages.developer.goto(`${baseUrl}/masters`);
+        const photo = pages.developer.locator(`img[src="/api/v1/masters/${credentials.master.masterId}/avatar"]`);
+        await decodedPhoto(photo);
+        await sql`INSERT INTO tasks (organization_id, title, assigned_member_id)
+          VALUES (${organization.organization_id}, 'Аватар назначенного мастера', ${credentials.master.memberId})`;
+        await pages.developer.goto(`${baseUrl}/tasks`);
+        await decodedPhoto(pages.developer.locator(`.tasks-row-owner img[src="/api/v1/members/${credentials.master.memberId}/avatar"]`));
+        await pages.developer.goto(`${baseUrl}/settings?tab=members`);
+        await decodedPhoto(pages.developer.locator(`img[src="/api/v1/members/${credentials.master.memberId}/avatar"]`));
+        await pages.developer.goto(`${baseUrl}/settings/users/${credentials.master.memberId}`);
+        await decodedPhoto(pages.developer.locator(`img[src="/api/v1/members/${credentials.master.memberId}/avatar"]`));
+        const [fieldChannel] = await sql`INSERT INTO chat_channels (organization_id, name, kind, audience_kind, created_by)
+          VALUES (${organization.organization_id}, 'Аватар мастера', 'group', 'direct', ${organization.id}) RETURNING id`;
+        await sql`INSERT INTO chat_channel_members (organization_id, channel_id, member_id, channel_role, joined_by)
+          VALUES (${organization.organization_id}, ${fieldChannel.id}, ${organization.id}, 'owner', ${organization.id}),
+            (${organization.organization_id}, ${fieldChannel.id}, ${credentials.master.memberId}, 'member', ${organization.id})`;
+        await sql`INSERT INTO chat_messages (id, organization_id, channel_id, author_id, body)
+          VALUES (${randomUUID()}, ${organization.organization_id}, ${fieldChannel.id}, ${credentials.master.memberId}, 'Фото мастера в переписке')`;
+        await pages.developer.goto(`${baseUrl}/chat?channel=${fieldChannel.id}`);
+        const chatPhoto = pages.developer.locator('[data-chat-message-group][data-chat-author="Checked master"] img');
+        await decodedPhoto(chatPhoto);
+        const chatPhotoUrl = await chatPhoto.getAttribute('src');
+        assert.deepEqual(await (await pages.developer.request.get(`${baseUrl}${chatPhotoUrl}`)).body(), await response.body());
+      }
     }
     for (const [index, path] of routes.entries()) {
       const response = await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });

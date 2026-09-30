@@ -12,9 +12,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return new Response(null, { status: 403, headers: { "Cache-Control": "no-store" } });
   }
   const { id } = await context.params;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return new Response(null, { status: 404 });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return new Response(null, { status: 404 });
   const [linked] = await getDatabase()`SELECT id FROM organization_members
-    WHERE organization_id = ${member.organizationId} AND master_id = ${id} AND active AND deleted_at IS NULL
+    WHERE master_id = ${id} AND active AND deleted_at IS NULL
     ORDER BY created_at LIMIT 1`;
   if (!linked) return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
   const avatar = await getMemberProfileAvatar(member, String(linked.id));

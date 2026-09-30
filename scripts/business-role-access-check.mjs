@@ -4,15 +4,16 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import postgres from "postgres";
+import sharp from "sharp";
 import { hashPassword } from "../src/server/auth/password.ts";
 import { runMigrations } from "./migrate.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl) throw new Error("Run through the isolated PostgreSQL fixture.");
 const baseUrl = "http://127.0.0.1:3117";
-const runtime = resolve(".next/standalone/server.js");
+const runtime = resolve(process.env.BUSINESS_ROLE_CHECK_RUNTIME || ".next/standalone/server.js");
 const directory = await mkdtemp(join(tmpdir(), "crm-business-roles-"));
 const databaseName = `crm_business_roles_${randomUUID().replaceAll("-", "")}`;
 const url = new URL(adminUrl); url.pathname = `/${databaseName}`;
@@ -85,6 +86,17 @@ try {
     VALUES (${ungrantedCompany.id}, 'Скрытый сайт', 'hidden.example.invalid', 'active') RETURNING id`;
   const [ungrantedMember] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
     VALUES (${ungrantedCompany.id}, 'Ungrant creator', ${`ungranted-${randomUUID()}@example.invalid`}, 'admin') RETURNING id`;
+  const photo = await sharp({ create: { width: 24, height: 24, channels: 3, background: '#4578aa' } }).webp().toBuffer();
+  async function masterWithPhoto(organizationId) {
+    const [record] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+      VALUES (${organizationId}, 'Avatar fixture master', '+70000000007', '+70000000007', 'Moscow', 'Center') RETURNING id`;
+    const [person] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role, master_id)
+      VALUES (${organizationId}, 'Avatar fixture member', ${`avatar-${randomUUID()}@example.invalid`}, 'master', ${record.id}) RETURNING id`;
+    await sql`INSERT INTO member_profile_avatars (organization_id, member_id, image_data) VALUES (${organizationId}, ${person.id}, ${photo})`;
+    return { masterId: record.id, memberId: person.id };
+  }
+  const grantedPhoto = await masterWithPhoto(target.id);
+  const hiddenPhoto = await masterWithPhoto(ungrantedCompany.id);
   const [ungrantedClient] = await sql`INSERT INTO clients (organization_id, legal_name, kind)
     VALUES (${ungrantedCompany.id}, 'Скрытый клиент', 'legal_entity') RETURNING id`;
   const [ungrantedOrder] = await sql`INSERT INTO orders (organization_id, client_id, order_number, status, currency,
@@ -108,7 +120,8 @@ try {
     VALUES (${target.id}, 'Deputy shadow', ${members.deputy.email}, 'admin') RETURNING id`;
   await sql`INSERT INTO organization_access_grants (principal_organization_id, principal_member_id, target_organization_id, target_member_id)
     VALUES (${home.organization_id}, ${members.deputy.id}, ${target.id}, ${shadow.id})`;
-  await cp(resolve(".next/static"), join(dirname(runtime), ".next/static"), { recursive: true, force: true });
+  const buildDirectory = dirname(dirname(runtime));
+  await cp(join(buildDirectory, "static"), join(dirname(runtime), basename(buildDirectory), "static"), { recursive: true, force: true });
   server = spawn(process.execPath, [runtime], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
   serverExit = once(server, "exit");
   let stderr = ""; server.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-4_000); });
@@ -163,6 +176,24 @@ try {
     SELECT ${ungrantedCompany.id}, 'Скрытая просроченная задача ' || n, now() - interval '1 day'
     FROM generate_series(1, 7) AS n`;
   const developerCookie = await login(developerEmail);
+  async function avatar(cookie, route, expectedPhoto) {
+    const result = await fetch(`${baseUrl}${route}`, { headers: { Cookie: cookie } });
+    assert.equal(result.status, 200, route);
+    assert.equal(result.headers.get('content-type'), 'image/webp');
+    assert.equal(result.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(Buffer.from(await result.arrayBuffer()), expectedPhoto);
+  }
+  const grantedPhotoRoutes = [`/api/v1/members/${grantedPhoto.memberId}/avatar`, `/api/v1/masters/${grantedPhoto.masterId}/avatar`];
+  for (const route of grantedPhotoRoutes) await avatar(developerCookie, route, photo);
+  assert.equal((await path(developerCookie, `/api/v1/masters/${hiddenPhoto.masterId}/avatar`)).status, 404);
+  assert.equal((await path(developerCookie, `/api/v1/members/${hiddenPhoto.memberId}/avatar`)).status, 404);
+  assert.equal((await path(developerCookie, '/api/v1/masters/bad-id/avatar')).status, 404);
+  assert.equal((await path(developerCookie, `/api/v1/masters/${randomUUID()}/avatar`)).status, 404);
+  assert.equal((await fetch(`${baseUrl}/api/v1/masters/${grantedPhoto.masterId}/avatar`)).status, 401);
+  const replacement = await sharp({ create: { width: 24, height: 24, channels: 3, background: '#ff8800' } }).webp().toBuffer();
+  await sql`UPDATE member_profile_avatars SET image_data = ${replacement}, version = version + 1, updated_at = now()
+    WHERE organization_id = ${target.id} AND member_id = ${grantedPhoto.memberId}`;
+  for (const route of grantedPhotoRoutes) await avatar(developerCookie, route, replacement);
   const centerDashboard = await fetch(`${baseUrl}/`, { headers: { Cookie: developerCookie }, redirect: "manual" });
   assert.equal(centerDashboard.status, 200);
   const centerDashboardHtml = (await centerDashboard.text()).replaceAll(/<!--.*?-->/g, "");
@@ -199,12 +230,20 @@ try {
   await sql`INSERT INTO member_credentials (organization_id, member_id, password_hash)
     VALUES (${target.id}, ${companyCoordinator.id}, ${await hashPassword(password)})`;
   const companyCookie = await login(companyEmail);
+  await avatar(companyCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`, replacement);
+  assert.equal((await path(companyCookie, `/api/v1/masters/${hiddenPhoto.masterId}/avatar`)).status, 404);
   const companyDashboard = await fetch(`${baseUrl}/`, { headers: { Cookie: companyCookie }, redirect: "manual" });
   assert.equal(companyDashboard.status, 200, `a new role must open a company dashboard: ${stderr}`);
   const companyDashboardHtml = (await companyDashboard.text()).replaceAll(/<!--.*?-->/g, "");
   assert.match(companyDashboardHtml, /Сегодня в работе/);
   assert.match(companyDashboardHtml, /510 просроченные задачи/);
-  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, sites and documents, and principal role retention.");
+  const fieldCookie = await login(members.foreman.email);
+  assert.equal((await path(fieldCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`)).status, 403);
+  await sql`DELETE FROM organization_access_grants WHERE principal_organization_id = ${home.organization_id}
+    AND principal_member_id = ${home.id} AND target_organization_id = ${target.id}`;
+  assert.equal((await path(developerCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`)).status, 404, 'Revoked grant must remove master photo access');
+  assert.equal((await path(developerCookie, `/api/v1/members/${grantedPhoto.memberId}/avatar`)).status, 404);
+  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
 } finally {
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }
   await sql?.end();

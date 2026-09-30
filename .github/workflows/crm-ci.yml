@@ -250,6 +250,10 @@ jobs:
         run: MOBILE_SHELL_CHECK_RUNTIME=.next/standalone/server.js npm run test:mobile-shell-browser
       - name: Verify searchable contract and service forms
         run: PICKER_FORMS_CHECK_RUNTIME=.next/standalone/server.js npm run test:picker-forms-browser
+      - name: Shared profile photos and role access across CRM screens
+        run: ROLE_CHECK_RUNTIME=.next/standalone/server.js npm run test:role-access
+      - name: Company center grants and shared master photos
+        run: npm run test:business-roles
       - name: Private S3 upload, download and backup staging acceptance
         run: UPLOAD_CHECK_STORAGE=s3 UPLOAD_CHECK_ARTIFACTS=artifacts/uploads-s3 UPLOAD_CHECK_RUNTIME=.next/standalone/server.js npm run test:uploads-browser
       - uses: actions/upload-artifact@v4
