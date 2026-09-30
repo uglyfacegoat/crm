@@ -134,6 +134,51 @@ try {
   await panel.getByRole("button", { name: "Личное обслуживание", exact: true }).click();
   assert.equal(await panel.getByRole("textbox", { name: "Услуга 1" }).inputValue(), "Дезинфекция");
   await panel.getByRole("button", { name: "Закрыть редактор" }).click();
+  // Execute the actual action, then lose only its response (the database has committed).
+  async function loseActionResponse() {
+    let lost = false;
+    await lizaPage.route("**/*", async (route) => {
+      if (!lost && route.request().method() === "POST" && route.request().headers()["next-action"]) {
+        lost = true;
+        await route.fetch();
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+  }
+  await panel.getByRole("button", { name: "Новая заметка" }).click();
+  await panel.getByRole("textbox", { name: "Заголовок (необязательно)" }).fill("Ответ потерян");
+  await panel.getByRole("textbox", { name: "Текст", exact: true }).fill("Сохранённый вариант");
+  await panel.getByText("Сохранить в шаблоны", { exact: true }).click();
+  await panel.getByRole("textbox", { name: "Название шаблона" }).fill("Без дубликатов");
+  await loseActionResponse();
+  await panel.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await panel.getByRole("alert").waitFor();
+  await lizaPage.unroute("**/*");
+  const [firstSaved] = await sql`SELECT id FROM personal_notes WHERE owner_member_id = ${lizaMember.id} AND title = 'Ответ потерян'`;
+  assert(firstSaved);
+  await panel.getByRole("textbox", { name: "Текст", exact: true }).fill("Новые правки после сбоя");
+  await panel.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await panel.getByRole("status").filter({ hasText: "Ваши новые правки остались в редакторе" }).waitFor();
+  assert.equal(await panel.getByRole("textbox", { name: "Текст", exact: true }).inputValue(), "Новые правки после сбоя");
+  await panel.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await panel.getByRole("status").filter({ hasText: "Заметка и шаблон сохранены" }).waitFor();
+  const [retained] = await sql`SELECT id, body FROM personal_notes WHERE owner_member_id = ${lizaMember.id} AND title = 'Ответ потерян'`;
+  assert.equal(retained.id, firstSaved.id); assert.equal(retained.body, "Новые правки после сбоя");
+  const [templateCount] = await sql`SELECT count(*) AS count FROM personal_note_templates WHERE owner_member_id = ${lizaMember.id} AND name = 'Без дубликатов'`;
+  assert.equal(Number(templateCount.count), 1);
+  // Unchanged retry acknowledges the first save and closes the editor.
+  await panel.getByRole("button", { name: "Новая заметка" }).click();
+  await panel.getByRole("textbox", { name: "Заголовок (необязательно)" }).fill("Обычный повтор");
+  await panel.getByRole("textbox", { name: "Текст", exact: true }).fill("Не создавать дважды");
+  await loseActionResponse();
+  await panel.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await panel.getByRole("alert").waitFor();
+  await lizaPage.unroute("**/*");
+  await panel.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await panel.getByRole("status").filter({ hasText: "Сохранение уже выполнено" }).waitFor();
+  assert.equal(Number((await sql`SELECT count(*) FROM personal_notes WHERE owner_member_id = ${lizaMember.id} AND title = 'Обычный повтор'`)[0].count), 1);
   await panel.getByRole("button", { name: "Новая заметка" }).click();
   await panel.getByRole("textbox", { name: "Заголовок (необязательно)" }).fill("Маршрут проверки");
   await panel.getByRole("textbox", { name: "Текст", exact: true }).fill("Заметка связана с заказом");
@@ -203,6 +248,11 @@ try {
   await panel.getByRole("button", { name: "Главная · здесь", exact: true }).waitFor();
 
   await panel.getByPlaceholder("Номер заказа или имя клиента").fill("Клиент для заметок");
+  await panel.getByRole("button", { name: "Клиент · Клиент для заметок" }).waitFor();
+  await loseActionResponse();
+  await panel.getByRole("button", { name: "Клиент · Клиент для заметок" }).click();
+  await panel.getByRole("alert").waitFor();
+  await lizaPage.unroute("**/*");
   await panel.getByRole("button", { name: "Клиент · Клиент для заметок" }).click();
   await panel.getByRole("status").filter({ hasText: "Копия создана" }).waitFor();
   await dashboardNote.getByRole("button", { name: "Перенести", exact: true }).click();
@@ -216,6 +266,11 @@ try {
   await clientNote.waitFor();
   await clientNote.getByRole("button", { name: "Перенести" }).click();
   await clientPanel.getByPlaceholder("Номер заказа или имя клиента").fill("NOTE-001");
+  await clientPanel.getByRole("button", { name: "Заказ NOTE-001 · Клиент для заметок" }).waitFor();
+  await loseActionResponse();
+  await clientPanel.getByRole("button", { name: "Заказ NOTE-001 · Клиент для заметок" }).click();
+  await clientPanel.getByRole("alert").waitFor();
+  await lizaPage.unroute("**/*");
   await clientPanel.getByRole("button", { name: "Заказ NOTE-001 · Клиент для заметок" }).click();
   await clientPanel.getByRole("status").filter({ hasText: "Заметка перенесена" }).waitFor();
   assert.equal(await clientPanel.locator("article").filter({ hasText: "Маршрут проверки" }).count(), 0);
@@ -265,7 +320,7 @@ try {
   assert.equal(await ownerPanel.getByRole("button", { name: "Личное обслуживание" }).count(), 0);
   await ownerPage.goto(`${baseUrl}/orders/${order.id}`);
   assert.equal(await ownerPage.getByRole("region", { name: "Личные заметки" }).getByText("Маршрут проверки").count(), 0);
-  console.log("Personal notes UI passed: 67 destination pages, template search, failed lookup retry, stale-result hiding, older saved notes; Liza templates, paired rates, dashboard/client/order transfer, contextual calendar/tasks, privacy and responsive widths.");
+  console.log("Personal notes UI passed: committed saves/copies/moves with lost HTTP replies, unchanged retry and changed draft recovery; 67 destination pages, template search, failed lookup retry, stale-result hiding, older saved notes; Liza templates, paired rates, dashboard/client/order transfer, contextual calendar/tasks, privacy and responsive widths.");
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }

@@ -193,3 +193,25 @@ test("modified, missing and reordered applied files fail before pending SQL exec
   await assert.rejects(runMigrations({ databaseUrl, migrationsDirectory: directory, onApplied: quiet }), /history diverges/);
   assert.equal(Number((await sql`SELECT count(*) FROM migration_records`)[0].count), 0);
 });
+
+
+test("personal note receipts upgrade preserves private notes and editable templates", async (t) => {
+  const { sql, databaseUrl } = await databaseFixture(t);
+  const directory = await migrationDirectory(t, {});
+  const files = (await readdir(resolve('db/migrations'))).filter(name => name.endsWith('.sql') && name < '102_personal_note_mutations.sql').sort();
+  for (const name of files) await cp(resolve('db/migrations', name), join(directory, name));
+  await runMigrations({ databaseUrl, migrationsDirectory: directory, onApplied: quiet });
+  const [org] = await sql`INSERT INTO organizations (name, timezone) VALUES ('Historical notes', 'Europe/Moscow') RETURNING id`;
+  const [member] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${org.id}, 'Historical author', 'notes@fixture.invalid', 'crm_coordinator') RETURNING id`;
+  const [note] = await sql`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, title, body)
+    VALUES (${org.id}, ${member.id}, 'dashboard', 'Old note', 'Keep across days') RETURNING *`;
+  const [template] = await sql`INSERT INTO personal_note_templates (owner_organization_id, owner_member_id, name, body, template_kind)
+    VALUES (${org.id}, ${member.id}, 'Private rates', 'Historical template body', 'liza_order') RETURNING *`;
+  const history = await sql`SELECT * FROM schema_migrations ORDER BY name`;
+  await runMigrations({ databaseUrl, onApplied: quiet });
+  assert.deepEqual((await sql`SELECT * FROM personal_notes WHERE id = ${note.id}`)[0], note);
+  assert.deepEqual((await sql`SELECT * FROM personal_note_templates WHERE id = ${template.id}`)[0], template);
+  assert.deepEqual(await sql`SELECT * FROM schema_migrations WHERE name < '102_personal_note_mutations.sql' ORDER BY name`, history);
+  assert.ok((await sql`SELECT to_regclass('public.personal_note_mutations') AS relation`)[0].relation);
+});

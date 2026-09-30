@@ -147,4 +147,56 @@ test('personal notes stay private, persist without a date key, and search scoped
   await assert.rejects(() => transferPersonalNoteAction({ source: dashboard, destination: clientTarget,
     id: concurrent.notes[0].id, mode: 'unknown' }), /Invalid option/);
 
+  // One receipt covers both the note and its template, including concurrent retries.
+  const requestKey = randomUUID();
+  const operation = { target: clientTarget, requestKey, title: 'Lost response', body: 'First draft',
+    template: { name: 'Retry template', body: 'First template', kind: 'liza_order' } };
+  const retryResults = await Promise.all([savePersonalNoteAction(operation), savePersonalNoteAction(operation)]);
+  assert.deepEqual(retryResults.map(item => item.mutation.status).sort(), ['applied', 'replayed']);
+  assert.deepEqual(retryResults[0].mutation.result, retryResults[1].mutation.result);
+  const receipt = retryResults[0].mutation.result;
+  assert.equal(Number((await sql`SELECT count(*) FROM personal_notes WHERE title = 'Lost response'`)[0].count), 1);
+  assert.equal(Number((await sql`SELECT count(*) FROM personal_note_templates WHERE name = 'Retry template'`)[0].count), 1);
+  const changed = await savePersonalNoteAction({ ...operation, body: 'New draft' });
+  assert.equal(changed.mutation.status, 'conflict');
+  assert.equal((await sql`SELECT body FROM personal_notes WHERE id = ${receipt.noteId}`)[0].body, 'First draft');
+  const edited = await savePersonalNoteAction({ ...operation, requestKey: randomUUID(), id: receipt.noteId,
+    body: 'New draft', template: { ...operation.template, id: receipt.templateId, body: 'New template', kind: 'plain' } });
+  assert.equal(edited.mutation.status, 'applied');
+  assert.equal((await sql`SELECT body FROM personal_notes WHERE id = ${receipt.noteId}`)[0].body, 'New draft');
+  assert.equal((await sql`SELECT template_kind FROM personal_note_templates WHERE id = ${receipt.templateId}`)[0].template_kind, 'liza_order');
+
+  const copyOperation = { source: clientTarget, destination: dashboard, id: receipt.noteId, mode: 'copy', requestKey: randomUUID() };
+  const copies = await Promise.all([transferPersonalNoteAction(copyOperation), transferPersonalNoteAction(copyOperation)]);
+  assert.deepEqual(copies.map(item => item.mutation.status).sort(), ['applied', 'replayed']);
+  assert.deepEqual(copies[0].mutation.result, copies[1].mutation.result);
+  const conflictCopy = await transferPersonalNoteAction({ ...copyOperation, destination: clientTarget });
+  assert.equal(conflictCopy.mutation.status, 'conflict');
+  const moveOperation = { ...copyOperation, mode: 'move', requestKey: randomUUID() };
+  assert.equal((await transferPersonalNoteAction(moveOperation)).mutation.status, 'applied');
+  assert.equal((await transferPersonalNoteAction(moveOperation)).mutation.status, 'replayed');
+  await assert.rejects(() => savePersonalNoteAction({ ...operation, requestKey: moveOperation.requestKey }), /Ключ операции уже использован/);
+
+  // Receipts survive deletion and cannot resurrect removed personal records.
+  await deletePersonalNoteAction({ target: dashboard, id: receipt.noteId });
+  await deletePersonalNoteTemplateAction(receipt.templateId);
+  assert.equal((await savePersonalNoteAction(operation)).mutation.status, 'replayed');
+  assert.equal((await sql`SELECT id FROM personal_notes WHERE id = ${receipt.noteId}`).length, 0);
+  assert.equal((await sql`SELECT id FROM personal_note_templates WHERE id = ${receipt.templateId}`).length, 0);
+  const [storedReceipt] = await sql`SELECT result, payload_hash FROM personal_note_mutations WHERE request_key = ${requestKey}`;
+  assert.deepEqual(storedReceipt.result, receipt);
+  assert.match(storedReceipt.payload_hash, /^[a-f0-9]{64}$/);
+
+  // Same key for another member remains private; failed writes roll back the claim.
+  currentMember = member(colleague.id);
+  const colleagueResult = await savePersonalNoteAction(operation);
+  assert.equal(colleagueResult.mutation.status, 'applied');
+  assert.notEqual(colleagueResult.mutation.result.noteId, receipt.noteId);
+  const rollbackKey = randomUUID();
+  await assert.rejects(() => savePersonalNoteAction({ ...operation, requestKey: rollbackKey,
+    template: { id: templateId, name: 'Foreign template', body: 'Must roll back' } }), /Шаблон не найден/);
+  assert.equal((await sql`SELECT request_key FROM personal_note_mutations WHERE request_key = ${rollbackKey}`).length, 0);
+  assert.equal((await savePersonalNoteAction({ ...operation, requestKey: rollbackKey })).mutation.status, 'applied');
+  await assert.rejects(() => savePersonalNoteAction({ ...operation, requestKey: 'invalid' }), /Invalid UUID/);
+
 });

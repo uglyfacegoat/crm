@@ -8,6 +8,7 @@ import {
   savePersonalNoteTemplateAction, searchPersonalNoteTargetsAction, transferPersonalNoteAction,
 } from "@/app/(workspace)/personal-note-actions";
 import type { NoteDestinationPage, NoteTarget, NoteTemplate, PersonalNote } from "@/server/personal-notes/repository";
+import { createClientId } from "@/lib/client-id";
 import { matchesSearchText } from "@/lib/search-normalization";
 import { formatLizaNote, isStructuredLizaNote, parseLizaNote, type LizaNoteFields } from "@/lib/liza-note";
 
@@ -45,6 +46,9 @@ export function PersonalNotesPanel({ target, initialNotes, initialTemplates, obj
   const [destinationError, setDestinationError] = useState("");
   const [destinationRetry, setDestinationRetry] = useState(0);
   const inFlight = useRef(false);
+  const saveRequestKey = useRef<string | null>(null);
+  const transferRequestKey = useRef<string | null>(null);
+  const [savedTemplateId, setSavedTemplateId] = useState<string | undefined>();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, startTransition] = useTransition();
@@ -75,10 +79,11 @@ export function PersonalNotesPanel({ target, initialNotes, initialTemplates, obj
 
   function beginTransfer(id: string, mode: "copy" | "move") {
     setTransferId(id); setTransferMode(mode); setQuery(""); setDestinationOffset(0);
-    setDestinations(null); setDestinationError("");
+    setDestinations(null); setDestinationError(""); transferRequestKey.current = null;
   }
 
   function beginNew(template?: NoteTemplate) {
+    saveRequestKey.current = null; setSavedTemplateId(undefined);
     const structuredTemplate = template?.kind === "liza_order" && isStructuredLizaNote(template.body);
     const templateFields = structuredTemplate ? parseLizaNote(template.body) : null;
     setEditingId(null);
@@ -100,6 +105,7 @@ export function PersonalNotesPanel({ target, initialNotes, initialTemplates, obj
   }
 
   function beginEdit(note: PersonalNote) {
+    saveRequestKey.current = null; setSavedTemplateId(undefined);
     setEditingId(note.id);
     setTitle(note.title);
     setBody(note.body);
@@ -127,12 +133,23 @@ export function PersonalNotesPanel({ target, initialNotes, initialTemplates, obj
     if (saveAsTemplate && !templateName.trim()) { setError("Укажите название шаблона."); return; }
     run(async () => {
       const templateBody = lizaMode ? formatLizaNote({ ...lizaFields, object: "{{object}}" }) : body;
-      const saved = await savePersonalNoteAction({ target, id: editingId ?? undefined, title, body: noteBody,
-        template: saveAsTemplate ? { name: templateName, body: templateBody, kind: lizaMode ? "liza_order" : "plain" } : undefined });
+      saveRequestKey.current ??= createClientId();
+      const saved = await savePersonalNoteAction({ target, id: editingId ?? undefined, requestKey: saveRequestKey.current, title, body: noteBody,
+        template: saveAsTemplate ? { id: savedTemplateId, name: templateName, body: templateBody, kind: lizaMode ? "liza_order" : "plain" } : undefined });
       setNotes(saved.notes);
       setTemplates(saved.templates);
+      saveRequestKey.current = null;
+      if (saved.mutation.status === "conflict") {
+        const original = saved.notes.find((note) => note.id === saved.mutation.result.noteId);
+        setEditingId(original?.id ?? null);
+        setSavedTemplateId(saved.templates.some((template) => template.id === saved.mutation.result.templateId)
+          ? saved.mutation.result.templateId ?? undefined : undefined);
+        setNotice(original ? "Предыдущий вариант уже сохранён. Ваши новые правки остались в редакторе — сохраните их ещё раз."
+          : "Предыдущее сохранение выполнено, но заметка уже удалена или перенесена. Новый текст остался в редакторе.");
+        return;
+      }
       setEditorOpen(false);
-      setNotice(saveAsTemplate ? "Заметка и шаблон сохранены." : "Заметка сохранена.");
+      setNotice(saved.mutation.status === "replayed" ? "Сохранение уже выполнено. Список обновлён." : saveAsTemplate ? "Заметка и шаблон сохранены." : "Заметка сохранена.");
     });
   }
 
@@ -144,10 +161,14 @@ export function PersonalNotesPanel({ target, initialNotes, initialTemplates, obj
   function transfer(destination: NoteTarget) {
     if (!transferId) return;
     run(async () => {
-      setNotes(await transferPersonalNoteAction({ source: target, destination, id: transferId, mode: transferMode }));
+      transferRequestKey.current ??= createClientId();
+      const result = await transferPersonalNoteAction({ source: target, destination, id: transferId, mode: transferMode, requestKey: transferRequestKey.current });
+      setNotes(result.notes);
+      transferRequestKey.current = null;
       setTransferId(null);
       setQuery("");
-      setNotice(transferMode === "move" ? "Заметка перенесена." : "Копия создана.");
+      setNotice(result.mutation.status === "conflict" ? "Предыдущая операция уже выполнена. Новое место назначения не применялось."
+        : transferMode === "move" ? "Заметка перенесена." : "Копия создана.");
     });
   }
 
