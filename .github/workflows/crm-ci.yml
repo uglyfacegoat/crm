@@ -198,6 +198,8 @@ jobs:
       - run: npm run auth:create-admin
       - run: npm run build
       - run: npx playwright-core install --with-deps chromium
+      - name: Install audio conversion runtime for standalone HTTP checks
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Start production server and verify HTTP behavior
         run: |
           mkdir -p artifacts "$DOCUMENT_STORAGE_ROOT"
