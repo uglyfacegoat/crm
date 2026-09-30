@@ -14,6 +14,7 @@
     "test:migrations": "node scripts/isolated-postgres-test.mjs --test scripts/migrations.integration.mjs",
     "test:mail-delivery": "node scripts/isolated-postgres-test.mjs --test scripts/mail-delivery.integration.mjs",
     "test:visit-conflicts": "node scripts/isolated-postgres-test.mjs --experimental-transform-types --experimental-test-module-mocks --test scripts/visit-schedule-conflict.integration.mjs",
+    "test:visit-arrival-browser": "node scripts/isolated-postgres-test.mjs scripts/visit-arrival-browser-check.mjs",
     "test:session-revocation": "node scripts/isolated-postgres-test.mjs --experimental-strip-types scripts/session-revocation-browser-check.mjs",
     "test:role-access": "node scripts/isolated-postgres-test.mjs --experimental-strip-types scripts/role-access-browser-check.mjs",
     "test:business-roles": "node scripts/isolated-postgres-test.mjs --experimental-strip-types scripts/business-role-access-check.mjs",

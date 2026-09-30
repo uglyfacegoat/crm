@@ -24,6 +24,7 @@ import {
 } from "@/app/(workspace)/calendar/actions";
 import { OrderPicker } from "@/components/orders/order-form-parts";
 import { Dialog } from "@/components/ui/dialog";
+import { VisitArrivalModePicker } from "@/components/visits/visit-form-parts";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
 import { clientCrypto as crypto } from "@/lib/client-id";
 import { filterCalendarVisits } from "@/lib/visits/calendar-filters";
@@ -156,6 +157,13 @@ function formatTime(totalMinutes: number) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function arrivalTime(visit: ServiceVisit) {
+  const start = zonedParts(visit.scheduledStartAt, visit.timezone);
+  const end = zonedParts(visit.scheduledEndAt, visit.timezone);
+  const time = `${start.hour}:${start.minute}`;
+  return visit.arrivalMode === "fixed" ? `Точно ${time}` : `${time}–${end.hour}:${end.minute}${`${start.year}-${start.month}-${start.day}` !== `${end.year}-${end.month}-${end.day}` ? " · следующий день" : ""}`;
+}
+
 function formatVisitListDate(visit: ServiceVisit) {
   return new Intl.DateTimeFormat("ru-RU", {
     timeZone: visit.timezone,
@@ -183,8 +191,17 @@ function MoveVisitDialog({
     localDate: string,
     localTime: string,
     rescheduleReason: string,
+    arrivalMode: "fixed" | "window",
+    endTime?: string,
   ) => void;
 }) {
+  const [arrivalMode, setArrivalMode] = useState(draft?.visit.arrivalMode ?? "fixed");
+  const [endTime, setEndTime] = useState(() => {
+    if (!draft) return "";
+    const duration = Math.round((Date.parse(draft.visit.scheduledEndAt) - Date.parse(draft.visit.scheduledStartAt)) / 60_000);
+    const [hour, minute] = draft.localTime.split(":").map(Number);
+    return formatTime((hour * 60 + minute + duration) % 1440);
+  });
   if (!draft) return null;
   const { visit } = draft;
   return (
@@ -192,7 +209,7 @@ function MoveVisitDialog({
       open
       onClose={onClose}
       title="Перенести выезд"
-      description="Длительность, мастер, статус и связь с заказом сохранятся."
+      description="Выберите точное время или интервал приезда. Мастер, статус и связь с заказом сохранятся."
     >
       <form
         onSubmit={(event) => {
@@ -203,6 +220,8 @@ function MoveVisitDialog({
             String(formData.get("localDate")),
             String(formData.get("localTime")),
             String(formData.get("rescheduleReason")),
+            arrivalMode,
+            arrivalMode === "window" ? endTime : undefined,
           );
         }}
         className="flex flex-1 flex-col"
@@ -217,6 +236,7 @@ function MoveVisitDialog({
             <p className="mt-2 text-sm font-semibold">{visit.client}</p>
             <p className="mt-1 text-xs opacity-75">{visit.address}</p>
           </div>
+          <VisitArrivalModePicker value={arrivalMode} onChange={setArrivalMode} />
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-2 text-[10px] text-[var(--muted)]">
               <span>Новая дата</span>
@@ -228,7 +248,7 @@ function MoveVisitDialog({
               />
             </label>
             <label className="grid gap-2 text-[10px] text-[var(--muted)]">
-              <span>Новое время</span>
+              <span>{arrivalMode === "fixed" ? "Новое время" : "Начало интервала"}</span>
               <TimeInput
                 required
                 step={SNAP_MINUTES * 60}
@@ -238,6 +258,7 @@ function MoveVisitDialog({
               />
             </label>
           </div>
+          {arrivalMode === "window" ? <label className="grid gap-2 text-[10px] text-[var(--muted)]"><span>Окончание интервала</span><TimeInput name="endTime" required value={endTime} onChange={setEndTime} /><span>Если окончание раньше начала, интервал закончится на следующий день.</span></label> : <p className="text-[10px] text-[var(--muted)]">Длительность работ сохранится прежней.</p>}
           <label className="grid gap-2 text-[10px] text-[var(--muted)]">
             <span>
               Причина переноса <b className="text-[var(--accent)]">*</b>
@@ -343,7 +364,7 @@ function CalendarList({
                   {formatVisitListDate(visit)}
                 </p>
                 <p className="mt-1 text-[9px] text-[var(--muted)]">
-                  {visit.timezone}
+                  {arrivalTime(visit)} · {visit.timezone}
                 </p>
               </div>
               <strong className="font-display text-[11px] text-[var(--accent)]">
@@ -534,7 +555,7 @@ function ScheduleGrid({
                 {visitsByDate.get(day.date)?.length ?? 0} выезд.
               </span>
             </button>
-            {(visitsByDate.get(day.date) ?? []).map(({ visit, time }) => (
+            {(visitsByDate.get(day.date) ?? []).map(({ visit }) => (
               <article
                 key={visit.id}
                 className={`m-3 rounded-xl border p-3 ${eventColors[visit.statusCode]}`}
@@ -546,7 +567,7 @@ function ScheduleGrid({
                     }
                     className="focus-ring min-w-0 flex-1 rounded"
                   >
-                    <p className="font-display text-xs">{time}</p>
+                    <p className="font-display text-xs">{arrivalTime(visit)}</p>
                     <p className="mt-2 truncate text-sm font-semibold">
                       {visit.client}
                     </p>
@@ -712,7 +733,7 @@ function ScheduleGrid({
                   return (
                     <article
                       key={entry.visit.id}
-                      aria-label={`${entry.time}, ${entry.visit.client}, ${entry.visit.address}`}
+                      aria-label={`${arrivalTime(entry.visit)}, ${entry.visit.client}, ${entry.visit.address}`}
                       draggable={movable && pendingId !== entry.visit.id}
                       onDragStart={(event) => onDragStart(entry.visit, event)}
                       onDragEnd={onDragEnd}
@@ -723,11 +744,11 @@ function ScheduleGrid({
                         left: `calc(${position.lane * laneWidth}% + ${laneGap}px)`,
                         right: `calc(${100 - (position.lane + 1) * laneWidth}% + ${laneGap}px)`,
                       }}
-                      title={`${entry.time} · ${entry.visit.client} · ${entry.visit.address}`}
+                      title={`${arrivalTime(entry.visit)} · ${entry.visit.client} · ${entry.visit.address}`}
                     >
                       <div className="flex min-w-0 items-center gap-1">
                         <span className="min-w-0 flex-1 truncate font-display text-[9px] font-semibold">
-                          {entry.time}
+                          {arrivalTime(entry.visit)}
                         </span>
                         {movable && visibleLaneCount <= 4 ? (
                           <GripVertical className="ml-auto size-3 shrink-0 opacity-55" />
@@ -1032,6 +1053,8 @@ export function CalendarWorkspace({
     localDate: string,
     localTime: string,
     rescheduleReason: string,
+    arrivalMode: "fixed" | "window",
+    endTime?: string,
   ) {
     if (!canWrite || isPending || terminalStatuses.has(visit.statusCode))
       return;
@@ -1044,6 +1067,8 @@ export function CalendarWorkspace({
         localDate,
         localTime,
         rescheduleReason,
+        arrivalMode,
+        endTime,
       );
       if (
         result.status === "success" &&
@@ -1059,6 +1084,7 @@ export function CalendarWorkspace({
                   version: result.version!,
                   scheduledStartAt: result.scheduledStartAt!,
                   scheduledEndAt: result.scheduledEndAt!,
+                  arrivalMode: result.arrivalMode ?? entry.arrivalMode,
                 }
               : entry,
           ),
@@ -1150,6 +1176,7 @@ export function CalendarWorkspace({
       formData.set("localDate", localDate);
       formData.set("localTime", localTime);
       formData.set("durationMinutes", "120");
+      formData.set("arrivalMode", "fixed");
       formData.set("assignedMasterId", "");
       formData.set("notes", "");
       const result = await createVisitAction(

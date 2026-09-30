@@ -28,7 +28,7 @@ import {
 } from "@/app/(workspace)/calendar/actions";
 import { Dialog } from "@/components/ui/dialog";
 import { clientCrypto as crypto } from "@/lib/client-id";
-import { VisitDurationPicker } from "@/components/visits/visit-form-parts";
+import { VisitArrivalModePicker, VisitDurationPicker } from "@/components/visits/visit-form-parts";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
 import { VisitCompletionForm } from "@/components/visits/visit-completion-form";
 import { VisitHistoryButton } from "@/components/visits/visit-history-dialog";
@@ -132,6 +132,8 @@ function CreateVisitForm({
   );
   const [masterId, setMasterId] = useState(defaultMasterId ?? "");
   const [duration, setDuration] = useState(120);
+  const [arrivalMode, setArrivalMode] = useState<"fixed" | "window">("fixed");
+  const [endTime, setEndTime] = useState("");
   useCloseAfterSuccess(state.status, onClose);
   return (
     <form action={action} className="flex flex-1 flex-col">
@@ -139,6 +141,7 @@ function CreateVisitForm({
       <input type="hidden" name="orderId" value={orderId} />
       <input type="hidden" name="assignedMasterId" value={masterId} />
       <div className="flex-1 space-y-6 p-5 sm:p-7">
+        <VisitArrivalModePicker value={arrivalMode} onChange={setArrivalMode} />
         <div className="grid gap-4 sm:grid-cols-2">
           <OrderField
             label="Дата"
@@ -148,7 +151,7 @@ function CreateVisitForm({
             <DateInput name="localDate" required className={orderInputClass} />
           </OrderField>
           <OrderField
-            label="Время"
+            label={arrivalMode === "fixed" ? "Время приезда" : "Начало интервала"}
             required
             errors={state.fieldErrors.localTime}
           >
@@ -160,7 +163,9 @@ function CreateVisitForm({
             />
           </OrderField>
         </div>
-        <VisitDurationPicker value={duration} onChange={setDuration} />
+        {arrivalMode === "window" ? <OrderField label="Окончание интервала" required errors={state.fieldErrors.endTime}><TimeInput name="endTime" required value={endTime} onChange={setEndTime} /></OrderField> : null}
+        {arrivalMode === "fixed" ? <VisitDurationPicker value={duration} onChange={setDuration} /> : <input type="hidden" name="durationMinutes" value={duration} />}
+        {arrivalMode === "window" ? <p className="text-[10px] text-[var(--muted)]">Если окончание раньше начала, интервал закончится на следующий день.</p> : null}
         <OrderPicker
           label="Мастер"
           value={masterId}
@@ -220,10 +225,14 @@ function EditVisitForm({
   const [localDate, setLocalDate] = useState(initialLocal.date);
   const [localTime, setLocalTime] = useState(initialLocal.time);
   const [duration, setDuration] = useState(initialDuration);
+  const [arrivalMode, setArrivalMode] = useState(visit.arrivalMode);
+  const [endTime, setEndTime] = useState(localDateTime(visit.scheduledEndAt, visit.timezone).time);
   const [savedSchedule, setSavedSchedule] = useState({
     date: initialLocal.date,
     time: initialLocal.time,
     duration: initialDuration,
+    arrivalMode: visit.arrivalMode,
+    endTime: localDateTime(visit.scheduledEndAt, visit.timezone).time,
   });
   const [rescheduleReason, setRescheduleReason] = useState("");
   const [version, setVersion] = useState(visit.version);
@@ -241,6 +250,8 @@ function EditVisitForm({
           date: String(formData.get("localDate")),
           time: String(formData.get("localTime")),
           duration: Number(formData.get("durationMinutes")),
+          arrivalMode: formData.get("arrivalMode") as "fixed" | "window",
+          endTime: String(formData.get("endTime") ?? ""),
         };
         setVersion(result.version);
         setSavedSchedule(submittedSchedule);
@@ -305,7 +316,8 @@ function EditVisitForm({
   const scheduleChanged =
     localDate !== savedSchedule.date ||
     localTime !== savedSchedule.time ||
-    duration !== savedSchedule.duration;
+    arrivalMode !== savedSchedule.arrivalMode ||
+    (arrivalMode === "window" ? endTime !== savedSchedule.endTime : duration !== savedSchedule.duration);
 
   return (
     <form
@@ -340,6 +352,7 @@ function EditVisitForm({
             Завершение выполняется отдельно: система потребует подписанный акт.
           </p>
         </fieldset>
+        <VisitArrivalModePicker value={arrivalMode} onChange={(value) => { setArrivalMode(value); scheduleSave(); }} />
         <div className="grid gap-4 sm:grid-cols-2">
           <OrderField
             label="Дата"
@@ -355,7 +368,7 @@ function EditVisitForm({
             />
           </OrderField>
           <OrderField
-            label="Время"
+            label={arrivalMode === "fixed" ? "Время приезда" : "Начало интервала"}
             required
             errors={state.fieldErrors.localTime}
           >
@@ -369,7 +382,9 @@ function EditVisitForm({
             />
           </OrderField>
         </div>
-        <VisitDurationPicker value={duration} onChange={chooseDuration} />
+        {arrivalMode === "window" ? <OrderField label="Окончание интервала" required errors={state.fieldErrors.endTime}><TimeInput name="endTime" required value={endTime} onChange={setEndTime} /></OrderField> : null}
+        {arrivalMode === "fixed" ? <VisitDurationPicker value={duration} onChange={chooseDuration} /> : <input type="hidden" name="durationMinutes" value={duration} />}
+        {arrivalMode === "window" ? <p className="text-[10px] text-[var(--muted)]">Если окончание раньше начала, интервал закончится на следующий день.</p> : null}
         {scheduleChanged ? (
           <OrderField
             label="Причина переноса"

@@ -270,6 +270,8 @@ export function TimeInput({
       <input
         data-testid={testId}
         data-form-name={name}
+        required={required}
+        pattern="(?:[01][0-9]|2[0-3]):[0-5][0-9]"
         inputMode="numeric"
         autoComplete="off"
         value={displayValue}

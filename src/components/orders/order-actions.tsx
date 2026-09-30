@@ -1,6 +1,6 @@
 "use client";
 
-import { DateInput } from "@/components/ui/date-time-inputs";
+import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { MultiDateCalendar } from "@/components/ui/multi-date-calendar";
 import { ServiceChoice, resolveServiceChoice } from "@/components/catalog/service-choice";
 import type { ObjectServiceProfile } from "@/server/catalog/object-service-profiles";
@@ -715,8 +715,8 @@ function CopyOrderForm({
                       {entry?.arrivalMode ? <button type="button" onClick={() => changeDate(date, { arrivalMode: undefined, startTime: undefined, endTime: undefined })} className="focus-ring min-h-10 rounded-lg border border-[var(--line)] px-3 text-xs">Без изменения времени</button> : null}
                     </div>
                     {entry?.arrivalMode ? <div className="grid gap-3 sm:grid-cols-2">
-                      <OrderField label={entry.arrivalMode === "fixed" ? "Время прибытия" : "Начало интервала"}><input type="time" value={entry.startTime ?? ""} onChange={(event) => changeDate(date, { startTime: event.target.value })} className={orderInputClass} /></OrderField>
-                      {entry.arrivalMode === "window" ? <OrderField label="Окончание интервала"><input type="time" value={entry.endTime ?? ""} onChange={(event) => changeDate(date, { endTime: event.target.value })} className={orderInputClass} /></OrderField> : null}
+                      <OrderField label={entry.arrivalMode === "fixed" ? "Время прибытия" : "Начало интервала"}><TimeInput name="overrideStartTime" value={entry.startTime ?? ""} onChange={(value) => changeDate(date, { startTime: value })} required className={orderInputClass} /></OrderField>
+                      {entry.arrivalMode === "window" ? <OrderField label="Окончание интервала"><TimeInput name="overrideEndTime" value={entry.endTime ?? ""} onChange={(value) => changeDate(date, { endTime: value })} required className={orderInputClass} /></OrderField> : null}
                     </div> : null}
                     <p className="mt-2 text-xs text-[var(--muted)]">{visitIds.length ? "Время изменит первый скопированный выезд." : entry?.arrivalMode ? "На эту дату будет создан новый выезд." : "Без времени заказ останется без выезда."}</p>
                   </div>

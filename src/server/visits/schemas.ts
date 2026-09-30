@@ -9,6 +9,9 @@ const arrivalMode = z.enum(["fixed", "window"]);
 const optionalEndTime = z.union([z.literal(""), localTime]).optional().transform((value) => value || null);
 
 function validateArrivalWindow(value: { arrivalMode?: "fixed" | "window"; localTime: string; endTime?: string | null }, context: z.RefinementCtx) {
+  if (value.arrivalMode === "window" && !value.endTime) {
+    context.addIssue({ code: "custom", path: ["endTime"], message: "Укажите окончание интервала" });
+  }
   if (value.arrivalMode === "window" && value.endTime === value.localTime) {
     context.addIssue({ code: "custom", path: ["endTime"], message: "Окончание интервала должно отличаться от начала" });
   }

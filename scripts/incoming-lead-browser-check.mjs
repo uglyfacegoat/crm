@@ -369,9 +369,20 @@ try {
   await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
   await copyDialog.getByRole("button", { name: dateLabel(copyDates[0]) }).click();
   await copyDialog.getByRole("button", { name: "Точное время" }).click();
-  await copyDialog.locator('input[type="time"]').fill("09:15");
+  await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("09:15");
   await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
   await copyDialog.getByRole("button", { name: dateLabel(copyDates[1]) }).click();
+  await copyDialog.getByRole("button", { name: "Интервал", exact: true }).click();
+  await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("23:30");
+  await copyDialog.locator('[data-form-name="overrideEndTime"]').fill("00:30");
+  await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
+  await copyDialog.getByRole("button", { name: dateLabel(copyDates[0]) }).click();
+  assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').inputValue(), "09:15");
+  assert.equal(await copyDialog.locator('[data-form-name="overrideEndTime"]').count(), 0);
+  await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
+  await copyDialog.getByRole("button", { name: dateLabel(copyDates[1]) }).click();
+  assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').inputValue(), "23:30");
+  assert.equal(await copyDialog.locator('[data-form-name="overrideEndTime"]').inputValue(), "00:30");
   await copyDialog.locator("label").filter({ hasText: "Топливо" }).first().click();
   await copyDialog.locator("label").filter({ hasText: "Материалы" }).first().click();
   await copyDialog.getByPlaceholder("Условия только для этой даты").fill("Особая заметка второй даты");
@@ -408,6 +419,13 @@ try {
     FROM service_visits WHERE organization_id = ${owner.organization_id} AND order_id = ${copies[0].id}`;
   assert.equal(copyVisit.arrival_mode, "fixed");
   assert.equal(copyVisit.local_time, "09:15:00");
+  const [secondCopyVisit] = await sql`SELECT arrival_mode, (scheduled_start_at AT TIME ZONE 'Europe/Moscow')::time::text AS local_time,
+    (scheduled_end_at AT TIME ZONE 'Europe/Moscow')::time::text AS end_time, extract(epoch from scheduled_end_at - scheduled_start_at)::integer AS seconds
+    FROM service_visits WHERE organization_id = ${owner.organization_id} AND order_id = ${copies[1].id}`;
+  assert.equal(secondCopyVisit.arrival_mode, "window");
+  assert.equal(secondCopyVisit.local_time, "23:30:00");
+  assert.equal(secondCopyVisit.end_time, "00:30:00");
+  assert.equal(secondCopyVisit.seconds, 3600);
   const [secondCopyServices] = await sql`SELECT count(*)::integer AS count FROM order_services
     WHERE organization_id = ${owner.organization_id} AND order_id = ${copies[1].id}`;
   assert.equal(secondCopyServices.count, 3);

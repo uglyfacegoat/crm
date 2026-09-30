@@ -6,7 +6,7 @@ import { createVisitSeriesAction, type CreateVisitSeriesState } from "@/app/(wor
 import { OrderField, OrderFormFooter, OrderFormStatus, orderInputClass, OrderPicker, orderTextareaClass } from "@/components/orders/order-form-parts";
 import { DateInput, TimeInput } from "@/components/ui/date-time-inputs";
 import { MultiDateCalendar } from "@/components/ui/multi-date-calendar";
-import { VisitDurationPicker } from "@/components/visits/visit-form-parts";
+import { VisitArrivalModePicker, VisitDurationPicker } from "@/components/visits/visit-form-parts";
 import { generateVisitRecurrenceDates, type VisitRecurrenceUnit } from "@/lib/visits/recurrence";
 import type { OrderCreationOptions } from "@/server/orders/types";
 
@@ -40,6 +40,8 @@ export function VisitSeriesForm({ orderId, requestKey, masters, defaultMasterId,
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [masterId, setMasterId] = useState(defaultMasterId ?? "");
   const [duration, setDuration] = useState(120);
+  const [arrivalMode, setArrivalMode] = useState<"fixed" | "window">("fixed");
+  const [endTime, setEndTime] = useState("12:00");
   const intervalDates = useMemo(() => {
     try { return generateVisitRecurrenceDates(startsOn, endsOn, frequencyUnit, frequencyInterval); }
     catch { return []; }
@@ -67,8 +69,11 @@ export function VisitSeriesForm({ orderId, requestKey, masters, defaultMasterId,
         {([ ["interval", "По интервалу"], ["dates", "Выбрать даты"] ] as const).map(([mode, label]) => <button key={mode} type="button" aria-pressed={scheduleMode === mode} onClick={() => setScheduleMode(mode)} className={`focus-ring min-h-11 rounded-lg px-2 text-xs font-semibold ${scheduleMode === mode ? "bg-black text-white" : "bg-white text-[var(--text)]"}`}>{label}</button>)}
       </div>
       {scheduleMode === "interval" ? <><div className="grid gap-4 sm:grid-cols-2"><OrderField label="Первый выезд" required errors={state.fieldErrors.startsOn}><DateInput name="startsOn" required value={startsOn} onChange={changeStart} /></OrderField><OrderField label="Окончание серии" required errors={state.fieldErrors.endsOn}><DateInput name="endsOn" required value={endsOn} onChange={setEndsOn} /></OrderField><OrderField label="Интервал" required errors={state.fieldErrors.frequencyInterval}><input type="number" name="frequencyInterval" min="1" max="12" required value={frequencyInterval} onChange={(event) => setFrequencyInterval(Number(event.target.value))} className={orderInputClass} /></OrderField></div><OrderPicker label="Повторять" value={frequencyUnit} onChange={(value) => setFrequencyUnit(value as VisitRecurrenceUnit)} options={[{ value: "week", label: "Каждые N недель" }, { value: "month", label: "Каждые N месяцев" }]} placeholder="Выберите период" required errors={state.fieldErrors.frequencyUnit} /></> : <><MultiDateCalendar dates={selectedDates} onChange={setSelectedDates} minDate={today()} maxDate={oneYearFrom(today())} limit={60} />{state.fieldErrors.selectedDates?.[0] ? <p role="alert" className="text-xs text-[var(--danger-ink)]">{state.fieldErrors.selectedDates[0]}</p> : null}</>}
-      <OrderField label="Время всех выездов" required errors={state.fieldErrors.localTime}><TimeInput name="localTime" required defaultValue="10:00" /></OrderField>
-      <VisitDurationPicker value={duration} onChange={setDuration} />
+      <VisitArrivalModePicker value={arrivalMode} onChange={setArrivalMode} />
+      <OrderField label={arrivalMode === "fixed" ? "Время всех выездов" : "Начало интервала всех выездов"} required errors={state.fieldErrors.localTime}><TimeInput name="localTime" required defaultValue="10:00" /></OrderField>
+      {arrivalMode === "window" ? <OrderField label="Окончание интервала" required errors={state.fieldErrors.endTime}><TimeInput name="endTime" required value={endTime} onChange={setEndTime} /></OrderField> : null}
+      {arrivalMode === "fixed" ? <VisitDurationPicker value={duration} onChange={setDuration} /> : <input type="hidden" name="durationMinutes" value={duration} />}
+      {arrivalMode === "window" ? <p className="text-[10px] text-[var(--muted)]">Если окончание раньше начала, интервал закончится на следующий день.</p> : null}
       <OrderPicker label="Мастер" value={masterId} onChange={setMasterId} options={[{ value: "", label: "Не назначен" }, ...masters.map((master) => ({ value: master.id, label: master.name, detail: master.phone }))]} placeholder="Не назначен" searchable searchPlaceholder="ФИО или телефон" errors={state.fieldErrors.assignedMasterId} />
       <OrderField label="Общая заметка" errors={state.fieldErrors.notes}><textarea name="notes" maxLength={4000} placeholder="Заметка попадёт в каждый выезд серии" className={orderTextareaClass} /></OrderField>
       <div className="rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface-inset)] p-4"><div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]"><CalendarRange className="size-4 text-[var(--accent)]" />Будет создано: <strong>{dates.length}</strong></div>{dates.length ? <p className="mt-2 text-[10px] leading-4 text-[var(--muted)]">{dates.slice(0, 5).map((date) => new Intl.DateTimeFormat("ru-RU").format(new Date(`${date}T12:00:00Z`))).join(" · ")}{dates.length > 5 ? ` · ещё ${dates.length - 5}` : ""}</p> : <p className="mt-2 text-[10px] text-[var(--danger-ink)]">Выберите даты.</p>}<p className="mt-2 text-[10px] leading-4 text-[var(--muted)]">Серия создаётся целиком. Если хотя бы одна дата конфликтует с расписанием мастера, ни один выезд не сохранится.</p></div>
