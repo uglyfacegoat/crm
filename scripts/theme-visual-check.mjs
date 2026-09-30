@@ -1,3 +1,4 @@
+import "./require-flow-check-target.mjs";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright-core";

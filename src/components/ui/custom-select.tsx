@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronDown } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 
 export type CustomSelectOption = {
@@ -28,12 +28,23 @@ export function CustomSelect({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [openUpwards, setOpenUpwards] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const selected =
     options.find((option) => option.value === value) ?? options[0];
 
   useDismissableLayer(rootRef, open, () => setOpen(false));
+
+  useLayoutEffect(() => {
+    if (!open || !rootRef.current || !listboxRef.current) return;
+    const trigger = rootRef.current.getBoundingClientRect();
+    const menuHeight = Math.min(listboxRef.current.scrollHeight, 256) + 8;
+    const roomBelow = window.innerHeight - trigger.bottom;
+    const roomAbove = trigger.top;
+    setOpenUpwards(roomBelow < menuHeight && roomAbove > roomBelow);
+  }, [open, options.length]);
 
   function moveSelection(direction: 1 | -1) {
     const enabled = options.filter((option) => !option.disabled);
@@ -77,10 +88,11 @@ export function CustomSelect({
       </button>
       {open ? (
         <div
+          ref={listboxRef}
           id={listboxId}
           role="listbox"
           aria-label={ariaLabel}
-          className="absolute inset-x-0 top-[calc(100%+0.4rem)] z-[100] max-h-64 overflow-y-auto rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.24)]"
+          className={`absolute inset-x-0 z-[100] max-h-64 overflow-y-auto rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.24)] ${openUpwards ? "bottom-[calc(100%+0.4rem)]" : "top-[calc(100%+0.4rem)]"}`}
         >
           {options.map((option) => (
             <button

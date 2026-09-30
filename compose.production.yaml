@@ -1,0 +1,162 @@
+name: crm-production
+
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: .env.production.database
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [crm_default]
+
+  clamav:
+    image: clamav/clamav-debian@sha256:df80497be841a8ad57f95e04f978216241457f8f8ad608f1f682e3cd0fe63c45
+    restart: unless-stopped
+    environment:
+      CLAMD_CONF_SelfCheck: "60"
+      CLAMD_CONF_AlertExceedsMax: "yes"
+      CLAMD_CONF_MaxScanSize: 100M
+      CLAMD_CONF_MaxFileSize: 25M
+      CLAMD_CONF_MaxRecursion: "10"
+      CLAMD_CONF_MaxFiles: "1000"
+      FRESHCLAM_CHECKS: "4"
+    networks: [crm_default]
+
+  crm:
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
+    restart: unless-stopped
+    env_file: .env.production.web
+    environment:
+      AUTH_MODE: required
+      AUTH_COOKIE_SECURE: "true"
+      CRM_TRUST_PROXY: "true"
+      CRM_ALLOWED_ORIGINS: ${CRM_PUBLIC_ORIGIN:?Set CRM_PUBLIC_ORIGIN}
+      CRM_FILE_SCAN_MODE: required
+      CRM_CLAMD_HOST: clamav
+      CRM_CLAMD_PORT: "3310"
+    depends_on:
+      database: { condition: service_healthy }
+      clamav: { condition: service_started }
+    volumes:
+      - document_storage:/app/storage
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/v1/system/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 90s
+      retries: 6
+    networks: [crm_default]
+
+  reminder-worker:
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
+    restart: unless-stopped
+    entrypoint: [node, scripts/reminder-worker.mjs]
+    env_file: .env.production.workers
+    depends_on:
+      crm: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, scripts/reminder-worker.mjs, --healthcheck]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 4
+    networks: [crm_default]
+
+  workflow-worker:
+    profiles: [workflow]
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
+    restart: unless-stopped
+    entrypoint: [node, --experimental-transform-types, scripts/workflow-worker.mjs]
+    env_file: .env.production.workers
+    environment:
+      NODE_NO_WARNINGS: "1"
+    depends_on:
+      crm: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, --experimental-transform-types, scripts/workflow-worker.mjs, --healthcheck]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 4
+    networks: [crm_default]
+
+  mail-worker:
+    profiles: [mail]
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
+    restart: unless-stopped
+    entrypoint: [node, scripts/mail-worker.mjs]
+    env_file: .env.production.mail
+    environment:
+      NODE_EXTRA_CA_CERTS: /app/mail-tls-ca.pem
+    volumes:
+      - ${CRM_MAIL_TRUST_CERT_PATH:-/etc/tehstroinvest-mail/tls/fullchain.pem}:/app/mail-tls-ca.pem:ro
+    depends_on:
+      database: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, scripts/mail-worker.mjs, --healthcheck]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 4
+    networks: [crm_default]
+
+  backup-worker:
+    image: ${CRM_APP_IMAGE:?Set CRM_APP_IMAGE to the candidate release image}
+    restart: unless-stopped
+    entrypoint: [node, scripts/backup-worker.mjs]
+    env_file: .env.production.backup
+    depends_on:
+      crm: { condition: service_healthy }
+    volumes:
+      - backups:/app/backups
+      - document_storage:/app/storage:ro
+      - type: bind
+        source: ${CRM_BACKUP_EXPORT_PATH:?Set an absolute private backup export path}
+        target: /app/backup-export
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, node, scripts/backup-worker.mjs, --healthcheck]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 6
+    networks: [crm_default]
+
+  gateway:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    depends_on:
+      crm: { condition: service_healthy }
+    environment:
+      CRM_PUBLIC_ORIGIN: ${CRM_PUBLIC_ORIGIN:?Set CRM_PUBLIC_ORIGIN}
+      CRM_PUBLIC_HOST: ${CRM_PUBLIC_HOST:?Set CRM_PUBLIC_HOST}
+      NGINX_ENVSUBST_FILTER: ^CRM_PUBLIC_
+    ports:
+      - ${CRM_HTTPS_BIND_ADDRESS:-127.0.0.1}:${CRM_HTTP_PORT:-80}:80
+      - ${CRM_HTTPS_BIND_ADDRESS:-127.0.0.1}:${CRM_HTTPS_PORT:-443}:443
+    volumes:
+      - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${CRM_TLS_CERTIFICATE:?Set CRM_TLS_CERTIFICATE}:/etc/nginx/certs/certificate.pem:ro
+      - ${CRM_TLS_PRIVATE_KEY:?Set CRM_TLS_PRIVATE_KEY}:/etc/nginx/certs/private-key.pem:ro
+    tmpfs:
+      - /var/cache/nginx/client_temp:size=80m,uid=101,gid=101,mode=0700
+    healthcheck:
+      test: [CMD, nginx, -t]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks: [crm_default]
+
+volumes:
+  postgres_data:
+  document_storage:
+  backups:
+
+networks:
+  crm_default:

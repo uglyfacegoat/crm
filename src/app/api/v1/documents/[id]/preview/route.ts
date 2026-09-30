@@ -1,11 +1,14 @@
 import mammoth from "mammoth";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { getCurrentSession } from "@/server/auth/session";
+import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
+import { FileProcessingBusyError, withFileProcessingSlot } from "@/server/file-scan/processing-slots";
 import { readVerifiedDocumentFile } from "@/server/documents/download-response";
 import {
   DocumentNotFoundError,
   getDocumentDownload,
 } from "@/server/documents/repository";
+import { resolveCenterDocumentScope } from "@/server/organizations/center-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -47,11 +50,15 @@ export async function GET(
     return Response.json({ error: "authentication_required" }, { status: 401 });
   try {
     const { id } = await context.params;
-    const document = await getDocumentDownload(member, id);
+    const document = await getDocumentDownload(await resolveCenterDocumentScope(member, id) ?? member, id);
     if (document.mimeType !== docxMimeType)
       return Response.json({ error: "preview_not_supported" }, { status: 415 });
-    const file = await readVerifiedDocumentFile(document, "documents.preview");
-    const { value } = await mammoth.extractRawText({ buffer: file });
+    const limited = await rejectLimitedFileRead(member, "document_download");
+    if (limited) return limited;
+    const value = await withFileProcessingSlot(async () => {
+      const file = await readVerifiedDocumentFile(document, "documents.preview");
+      return (await mammoth.extractRawText({ buffer: file })).value;
+    });
     return new Response(previewDocument(document.filename, value), {
       headers: {
         "Cache-Control": "private, no-store",
@@ -63,6 +70,8 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (error instanceof FileProcessingBusyError)
+      return Response.json({ error: "processing_busy" }, { status: 429, headers: { "Cache-Control": "private, no-store", "Retry-After": "3" } });
     if (error instanceof AuthorizationError)
       return Response.json({ error: "forbidden" }, { status: 403 });
     if (error instanceof DocumentNotFoundError)
@@ -72,7 +81,6 @@ export async function GET(
         operation: "documents.preview",
         category: "unexpected",
         memberId: member.memberId,
-        error: error instanceof Error ? error.message : "Unknown error",
       }),
     );
     return Response.json({ error: "preview_failed" }, { status: 500 });

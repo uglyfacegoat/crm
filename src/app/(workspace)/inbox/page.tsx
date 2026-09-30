@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { IncomingLeadsWorkspace } from "@/components/incoming-leads/incoming-leads-workspace";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
@@ -16,7 +17,9 @@ const emptySnapshot: IncomingLeadSnapshot = {
 
 export default async function IncomingLeadsPage({ searchParams }: PageProps<"/inbox">) {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "leads.read");
   const query = await searchParams;
+  const selectedLeadId = typeof query.lead === "string" ? query.lead : null;
   const filter = incomingLeadListFilterSchema.parse({
     status: Array.isArray(query.status) ? query.status[0] : query.status,
     query: Array.isArray(query.query) ? query.query[0] : query.query,
@@ -24,6 +27,6 @@ export default async function IncomingLeadsPage({ searchParams }: PageProps<"/in
   const canRead = hasPermission(member, "leads.read");
   const canWrite = hasPermission(member, "leads.write");
   const preview = getAuthMode() === "preview";
-  const snapshot = canRead && !preview ? await getIncomingLeadSnapshot(member, filter) : emptySnapshot;
-  return <IncomingLeadsWorkspace snapshot={snapshot} filter={filter} canWrite={canWrite && !preview} preview={preview} />;
+  const snapshot = canRead && !preview ? await getIncomingLeadSnapshot(member, filter, selectedLeadId) : emptySnapshot;
+  return <IncomingLeadsWorkspace key={`${filter.status}:${filter.query}:${selectedLeadId ?? ""}`} snapshot={snapshot} filter={filter} canWrite={canWrite && !preview} preview={preview} initialSelectedId={selectedLeadId} />;
 }

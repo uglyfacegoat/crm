@@ -1,5 +1,7 @@
 .git
 .next
+.next-*
+**/._*
 node_modules
 artifacts
 .env
@@ -9,3 +11,11 @@ npm-debug.log*
 Dockerfile*
 compose*.yaml
 README.md
+backups
+output
+.codex-local
+.local-recovery
+.crm-storage
+*.pem
+*.key
+deploy

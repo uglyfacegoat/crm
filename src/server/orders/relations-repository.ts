@@ -37,7 +37,7 @@ export class OrderRelationClientMismatchError extends Error {
 
 function requireRelationRead(member: AuthenticatedMember) {
   requirePermission(member, "orders.read");
-  if (member.role === "master") throw new AuthorizationError();
+  if (member.role === "master" || member.role === "foreman") throw new AuthorizationError();
 }
 
 export async function getOrderRelations(member: AuthenticatedMember, orderId: string): Promise<OrderRelations> {

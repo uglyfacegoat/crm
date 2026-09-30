@@ -1,0 +1,114 @@
+"use server";
+
+import { z } from "zod";
+import { getAuthMode } from "@/server/auth/config";
+import { requireOfficeSession } from "@/server/auth/session";
+import { getDatabase } from "@/server/database";
+import {
+  canAccessNoteTarget, listPersonalNotes, listPersonalNoteTemplates,
+  searchNoteDestinations, type NoteTarget,
+} from "@/server/personal-notes/repository";
+
+const uuid = z.string().uuid();
+const targetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("dashboard"), organizationId: z.null(), id: z.null() }),
+  z.object({ kind: z.literal("order"), organizationId: uuid, id: uuid }),
+  z.object({ kind: z.literal("client"), organizationId: uuid, id: uuid }),
+]);
+const noteContentSchema = z.object({ title: z.string().trim().max(160), body: z.string().trim().min(1).max(12000) });
+
+async function authorizedTarget(value: NoteTarget) {
+  if (getAuthMode() === "preview") throw new Error("Сохранение недоступно в деморежиме.");
+  const member = await requireOfficeSession();
+  const target = targetSchema.parse(value);
+  if (!await canAccessNoteTarget(member, target)) throw new Error("Карточка недоступна.");
+  return { member, target };
+}
+
+export async function savePersonalNoteAction(input: { target: NoteTarget; id?: string; title: string; body: string; template?: { name: string; body: string; kind?: "plain" | "liza_order" } }) {
+  const { member, target } = await authorizedTarget(input.target);
+  const content = noteContentSchema.parse(input);
+  const template = input.template ? z.object({ name: z.string().trim().min(1).max(100), body: z.string().trim().min(1).max(12000), kind: z.enum(["plain", "liza_order"]).default("plain") }).parse(input.template) : null;
+  const sql = getDatabase();
+  await sql.begin(async (transaction) => {
+    if (input.id) {
+      const id = uuid.parse(input.id);
+      const rows = await transaction`UPDATE personal_notes SET title = ${content.title}, body = ${content.body}, updated_at = now()
+        WHERE id = ${id} AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
+          AND target_kind = ${target.kind} AND target_organization_id IS NOT DISTINCT FROM ${target.organizationId}
+          AND target_id IS NOT DISTINCT FROM ${target.id} RETURNING id`;
+      if (!rows.length) throw new Error("Заметка не найдена.");
+    } else {
+      await transaction`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, target_organization_id, target_id, title, body)
+        VALUES (${member.organizationId}, ${member.memberId}, ${target.kind}, ${target.organizationId}, ${target.id}, ${content.title}, ${content.body})`;
+    }
+    if (template) {
+      await transaction`INSERT INTO personal_note_templates (owner_organization_id, owner_member_id, name, body, template_kind)
+        VALUES (${member.organizationId}, ${member.memberId}, ${template.name}, ${template.body}, ${template.kind})`;
+    }
+  });
+  const [notes, templates] = await Promise.all([listPersonalNotes(member, target), listPersonalNoteTemplates(member)]);
+  return { notes, templates };
+}
+
+export async function deletePersonalNoteAction(input: { target: NoteTarget; id: string }) {
+  const { member, target } = await authorizedTarget(input.target);
+  await getDatabase()`DELETE FROM personal_notes WHERE id = ${uuid.parse(input.id)}
+    AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
+    AND target_kind = ${target.kind} AND target_organization_id IS NOT DISTINCT FROM ${target.organizationId}
+    AND target_id IS NOT DISTINCT FROM ${target.id}`;
+  return listPersonalNotes(member, target);
+}
+
+export async function transferPersonalNoteAction(input: { source: NoteTarget; destination: NoteTarget; id: string; mode: "copy" | "move" }) {
+  const { member, target: source } = await authorizedTarget(input.source);
+  const destination = targetSchema.parse(input.destination);
+  if (!await canAccessNoteTarget(member, destination)) throw new Error("Место назначения недоступно.");
+  const id = uuid.parse(input.id);
+  const sql = getDatabase();
+  const rows = await sql`SELECT title, body FROM personal_notes WHERE id = ${id}
+    AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}
+    AND target_kind = ${source.kind} AND target_organization_id IS NOT DISTINCT FROM ${source.organizationId}
+    AND target_id IS NOT DISTINCT FROM ${source.id} LIMIT 1`;
+  if (!rows.length) throw new Error("Заметка не найдена.");
+  if (input.mode === "move") {
+    await sql`UPDATE personal_notes SET target_kind = ${destination.kind}, target_organization_id = ${destination.organizationId},
+      target_id = ${destination.id}, updated_at = now() WHERE id = ${id}
+      AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}`;
+  } else {
+    await sql`INSERT INTO personal_notes (owner_organization_id, owner_member_id, target_kind, target_organization_id, target_id, title, body)
+      VALUES (${member.organizationId}, ${member.memberId}, ${destination.kind}, ${destination.organizationId}, ${destination.id}, ${rows[0].title}, ${rows[0].body})`;
+  }
+  return listPersonalNotes(member, source);
+}
+
+export async function searchPersonalNoteTargetsAction(query: string) {
+  if (getAuthMode() === "preview") return [];
+  const member = await requireOfficeSession();
+  return searchNoteDestinations(member, z.string().trim().max(120).parse(query));
+}
+
+export async function savePersonalNoteTemplateAction(input: { id?: string; name: string; body: string }) {
+  if (getAuthMode() === "preview") throw new Error("Сохранение недоступно в деморежиме.");
+  const member = await requireOfficeSession();
+  const name = z.string().trim().min(1).max(100).parse(input.name);
+  const body = z.string().trim().min(1).max(12000).parse(input.body);
+  if (input.id) {
+    const rows = await getDatabase()`UPDATE personal_note_templates SET name = ${name}, body = ${body}
+      WHERE id = ${uuid.parse(input.id)} AND owner_organization_id = ${member.organizationId}
+        AND owner_member_id = ${member.memberId} RETURNING id`;
+    if (!rows.length) throw new Error("Шаблон не найден.");
+  } else {
+    await getDatabase()`INSERT INTO personal_note_templates (owner_organization_id, owner_member_id, name, body)
+      VALUES (${member.organizationId}, ${member.memberId}, ${name}, ${body})`;
+  }
+  return listPersonalNoteTemplates(member);
+}
+
+export async function deletePersonalNoteTemplateAction(id: string) {
+  if (getAuthMode() === "preview") throw new Error("Удаление недоступно в деморежиме.");
+  const member = await requireOfficeSession();
+  await getDatabase()`DELETE FROM personal_note_templates WHERE id = ${uuid.parse(id)}
+    AND owner_organization_id = ${member.organizationId} AND owner_member_id = ${member.memberId}`;
+  return listPersonalNoteTemplates(member);
+}

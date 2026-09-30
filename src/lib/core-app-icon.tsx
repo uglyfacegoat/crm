@@ -1,0 +1,18 @@
+import { ImageResponse } from "next/og";
+
+// The vector is the source of truth; platforms that require PNG receive it rendered on demand.
+const coreIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#111111"/><g transform="translate(173 119) scale(1.98)" fill="#FFFFFF"><path d="M40 0C17.9085 0 0 17.013 0 38C0 58.987 17.9085 76 40 76V0Z"/><path d="M44 62C66.0915 62 84 79.013 84 100C84 120.987 66.0915 138 44 138V62Z"/></g></svg>`;
+
+export function renderCoreAppIcon(size: 180 | 192 | 512) {
+  return new ImageResponse(
+    // The image generator needs a plain img to rasterize the SVG data URL.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`data:image/svg+xml;base64,${Buffer.from(coreIconSvg).toString("base64")}`}
+      alt=""
+      width={size}
+      height={size}
+    />,
+    { width: size, height: size },
+  );
+}

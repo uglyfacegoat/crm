@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { ContractsWorkspace } from "@/components/contracts/contracts-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getAuthMode } from "@/server/auth/config";
@@ -11,6 +12,7 @@ export const metadata: Metadata = { title: "Договоры" };
 
 export default async function ContractsPage() {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "contracts.read");
   const snapshot = getAuthMode() === "preview" ? getPreviewContracts() : await listContracts(member);
   const canWrite = hasPermission(member, "contracts.write");
   return <div>

@@ -1,20 +1,20 @@
 import "server-only";
 import { z } from "zod";
-import { requirePermission } from "@/server/auth/permissions";
+import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { selectCanonicalWebsiteMetrics, type WebsiteMetricRow } from "./metrics";
 import type { ConfigureWebsiteIntegrationInput, CreateWebsiteInput, UpdateWebsiteInfrastructureInput } from "./schemas";
 import type { WebsiteDetail, WebsiteHealthSnapshot, WebsiteIntegrationListItem, WebsiteListItem, WebsiteSnapshot } from "./types";
 
-const websiteRowSchema = z.object({ id: z.string().uuid(), name: z.string(), domain: z.string(), status: z.enum(["setup", "active", "attention", "disabled"]), version: z.number().int().positive() });
+const websiteRowSchema = z.object({ id: z.string().uuid(), organization_id: z.string().uuid(), organization_name: z.string(), name: z.string(), domain: z.string(), status: z.enum(["setup", "active", "attention", "disabled"]), version: z.number().int().positive() });
 const integrationRowSchema = z.object({ id: z.string().uuid(), website_id: z.string().uuid(), provider: z.enum(["yandex_metrica", "ga4", "google_search_console", "yandex_webmaster"]), external_property_id: z.string(), status: z.enum(["pending", "connected", "error", "revoked"]), last_successful_sync_at: z.coerce.date().nullable(), last_error_code: z.string().nullable() });
 const metricRowSchema = z.object({ website_id: z.string().uuid(), metric_date: z.string(), provider: z.enum(["yandex_metrica", "ga4", "google_search_console", "yandex_webmaster", "crm"]), visitors: z.string(), sessions: z.string(), pageviews: z.string(), goal_completions: z.string(), search_clicks: z.string(), search_impressions: z.string() });
-const leadRowSchema = z.object({ website_id: z.string().uuid(), leads: z.number().int().nonnegative(), paid_orders: z.number().int().nonnegative(), paid_revenue_minor: z.string() });
+const leadRowSchema = z.object({ website_id: z.string().uuid(), leads: z.number().int().nonnegative(), orders: z.number().int().nonnegative(), paid_orders: z.number().int().nonnegative(), paid_revenue_minor: z.string() });
 const sourceRowSchema = z.object({ source: z.string(), leads: z.number().int().positive() });
 const boundsRowSchema = z.object({ timezone: z.string(), start_date: z.string(), end_date: z.string(), start_at: z.coerce.date(), end_at: z.coerce.date() });
 const hostingRowSchema = z.object({ provider: z.string(), plan_name: z.string(), server_region: z.string(), monthly_cost_minor: z.string(), renewal_on: z.string(), ssl_expires_on: z.string(), disk_capacity_mb: z.number().int().positive(), memory_capacity_mb: z.number().int().positive(), notes: z.string().nullable() });
-const healthRowSchema = z.object({ id: z.string().uuid(), measured_at: z.coerce.date(), health_status: z.enum(["healthy", "degraded", "down"]), uptime_percent: z.coerce.number(), response_time_ms: z.number().int().nonnegative(), cpu_load_percent: z.coerce.number(), memory_used_mb: z.number().int().nonnegative(), disk_used_mb: z.number().int().nonnegative(), source: z.enum(["manual", "monitor"]) });
+const healthRowSchema = z.object({ id: z.string().uuid(), measured_at: z.coerce.date(), health_status: z.enum(["healthy", "degraded", "down"]), uptime_percent: z.coerce.number(), response_time_ms: z.number().int().nonnegative(), cpu_load_percent: z.coerce.number(), memory_used_mb: z.number().int().nonnegative(), disk_used_mb: z.number().int().nonnegative(), memory_capacity_mb: z.number().int().positive().nullable(), disk_capacity_mb: z.number().int().positive().nullable(), ssl_expires_on: z.string().nullable(), source: z.enum(["manual", "monitor"]) });
 
 export class WebsiteDomainConflictError extends Error { constructor() { super("Website domain already exists."); this.name = "WebsiteDomainConflictError"; } }
 export class WebsiteNotFoundError extends Error { constructor() { super("Website was not found."); this.name = "WebsiteNotFoundError"; } }
@@ -38,12 +38,37 @@ function formatDateLabel(date: string) {
 
 function mapHealthSnapshot(value: unknown): WebsiteHealthSnapshot {
   const row = healthRowSchema.parse(value);
-  return { id: row.id, measuredAt: row.measured_at.toISOString(), healthStatus: row.health_status, uptimePercent: row.uptime_percent, responseTimeMs: row.response_time_ms, cpuLoadPercent: row.cpu_load_percent, memoryUsedMb: row.memory_used_mb, diskUsedMb: row.disk_used_mb, source: row.source };
+  return { id: row.id, measuredAt: row.measured_at.toISOString(), healthStatus: row.health_status, uptimePercent: row.uptime_percent, responseTimeMs: row.response_time_ms, cpuLoadPercent: row.cpu_load_percent, memoryUsedMb: row.memory_used_mb, diskUsedMb: row.disk_used_mb, memoryCapacityMb: row.memory_capacity_mb, diskCapacityMb: row.disk_capacity_mb, sslExpiresOn: row.ssl_expires_on, source: row.source };
+}
+
+export async function accessibleWebsiteOrganizationIds(member: AuthenticatedMember): Promise<string[]> {
+  requirePermission(member, "sites.read");
+  const sql = getDatabase();
+  const [current] = await sql`SELECT organization_kind FROM organizations WHERE id = ${member.organizationId}`;
+  if (current?.organization_kind !== "center" || !hasPermission(member, "companies.switch")) {
+    return [member.organizationId];
+  }
+  const rows = await sql`SELECT grants.target_organization_id AS organization_id
+    FROM auth_sessions sessions
+    JOIN organizations center ON center.id = sessions.organization_id AND center.organization_kind = 'center'
+    JOIN organization_access_grants grants
+      ON grants.principal_organization_id = sessions.organization_id
+      AND grants.principal_member_id = sessions.member_id
+    JOIN organization_members target
+      ON target.organization_id = grants.target_organization_id
+      AND target.id = grants.target_member_id AND target.active AND target.deleted_at IS NULL
+    WHERE sessions.id = ${member.sessionId} AND sessions.revoked_at IS NULL
+      AND sessions.expires_at > now()
+      AND COALESCE(sessions.active_organization_id, sessions.organization_id) = center.id`;
+  const ids = [member.organizationId];
+  for (const row of rows) ids.push(z.string().uuid().parse(row.organization_id));
+  return ids;
 }
 
 export async function getWebsiteSnapshot(member: AuthenticatedMember): Promise<WebsiteSnapshot> {
   requirePermission(member, "sites.read");
   const sql = getDatabase();
+  const organizationIds = await accessibleWebsiteOrganizationIds(member);
   const [boundsValue] = await sql`SELECT timezone,
       ((now() AT TIME ZONE timezone)::date - 29)::text AS start_date,
       (now() AT TIME ZONE timezone)::date::text AS end_date,
@@ -52,22 +77,26 @@ export async function getWebsiteSnapshot(member: AuthenticatedMember): Promise<W
     FROM organizations WHERE id = ${member.organizationId}`;
   const bounds = boundsRowSchema.parse(boundsValue);
   const [websiteValues, integrationValues, metricValues, leadValues, sourceValues] = await Promise.all([
-    sql`SELECT id, name, domain, status, version FROM websites WHERE organization_id = ${member.organizationId} ORDER BY created_at DESC`,
+    sql`SELECT websites.id, websites.organization_id, organizations.name AS organization_name,
+        websites.name, websites.domain, websites.status, websites.version
+      FROM websites JOIN organizations ON organizations.id = websites.organization_id
+      WHERE websites.organization_id = ANY(${organizationIds}::uuid[]) ORDER BY websites.created_at DESC`,
     sql`SELECT id, website_id, provider, external_property_id, status, last_successful_sync_at, last_error_code
-      FROM website_integrations WHERE organization_id = ${member.organizationId} ORDER BY created_at`,
+      FROM website_integrations WHERE organization_id = ANY(${organizationIds}::uuid[]) ORDER BY created_at`,
     sql`SELECT website_id, metric_date::text, provider, visitors::text, sessions::text, pageviews::text,
         goal_completions::text, search_clicks::text, search_impressions::text
-      FROM website_daily_metrics WHERE organization_id = ${member.organizationId}
+      FROM website_daily_metrics WHERE organization_id = ANY(${organizationIds}::uuid[])
         AND metric_date BETWEEN ${bounds.start_date}::date AND ${bounds.end_date}::date ORDER BY metric_date`,
     sql`SELECT website_leads.website_id, count(DISTINCT website_leads.id)::integer AS leads,
+        count(DISTINCT orders.id)::integer AS orders,
         count(DISTINCT orders.id) FILTER (WHERE orders.paid_total_minor > 0)::integer AS paid_orders,
         coalesce(sum(orders.paid_total_minor), 0)::text AS paid_revenue_minor
       FROM website_leads LEFT JOIN orders ON orders.organization_id = website_leads.organization_id AND orders.source_lead_id = website_leads.id
-      WHERE website_leads.organization_id = ${member.organizationId} AND website_leads.received_at >= ${bounds.start_at}
+      WHERE website_leads.organization_id = ANY(${organizationIds}::uuid[]) AND website_leads.received_at >= ${bounds.start_at}
         AND website_leads.received_at < ${bounds.end_at}
       GROUP BY website_leads.website_id`,
     sql`SELECT coalesce(nullif(btrim(utm_source), ''), 'Без метки') AS source, count(*)::integer AS leads
-      FROM website_leads WHERE organization_id = ${member.organizationId} AND received_at >= ${bounds.start_at}
+      FROM website_leads WHERE organization_id = ANY(${organizationIds}::uuid[]) AND received_at >= ${bounds.start_at}
         AND received_at < ${bounds.end_at}
       GROUP BY source ORDER BY leads DESC, source LIMIT 6`,
   ]);
@@ -86,42 +115,38 @@ export async function getWebsiteSnapshot(member: AuthenticatedMember): Promise<W
   const canonical = selectCanonicalWebsiteMetrics(metricRows);
   const trafficByWebsite = new Map<string, { visitors: number; pageviews: number }>();
   const trafficByDate = new Map<string, { visitors: number; pageviews: number }>();
+  const trafficByWebsiteAndDate = new Map<string, number>();
   for (const row of canonical.traffic) {
     const site = trafficByWebsite.get(row.websiteId) ?? { visitors: 0, pageviews: 0 };
     site.visitors += row.visitors; site.pageviews += row.pageviews; trafficByWebsite.set(row.websiteId, site);
     const day = trafficByDate.get(row.date) ?? { visitors: 0, pageviews: 0 };
     day.visitors += row.visitors; day.pageviews += row.pageviews; trafficByDate.set(row.date, day);
+    trafficByWebsiteAndDate.set(`${row.websiteId}:${row.date}`, row.visitors);
   }
-  const leadByWebsite = new Map(leadValues.map((value) => { const row = leadRowSchema.parse(value); return [row.website_id, { leads: row.leads, paidOrders: row.paid_orders, paidRevenueMinor: safeInteger(row.paid_revenue_minor) }] as const; }));
-  const sites: WebsiteListItem[] = websiteRows.map((row) => {
-    const traffic = trafficByWebsite.get(row.id) ?? { visitors: 0, pageviews: 0 };
-    const funnel = leadByWebsite.get(row.id) ?? { leads: 0, paidOrders: 0, paidRevenueMinor: 0 };
-    return { id: row.id, name: row.name, domain: row.domain, status: row.status, version: row.version, ...traffic, ...funnel, conversionPercent: traffic.visitors ? Number(((funnel.leads / traffic.visitors) * 100).toFixed(2)) : 0, integrations: integrationsByWebsite.get(row.id) ?? [] };
-  });
   const dates: string[] = [];
   const cursor = new Date(`${bounds.start_date}T00:00:00Z`);
   const end = new Date(`${bounds.end_date}T00:00:00Z`);
   while (cursor <= end) { dates.push(cursor.toISOString().slice(0, 10)); cursor.setUTCDate(cursor.getUTCDate() + 1); }
+  const leadByWebsite = new Map(leadValues.map((value) => { const row = leadRowSchema.parse(value); return [row.website_id, { leads: row.leads, orders: row.orders, paidOrders: row.paid_orders, paidRevenueMinor: safeInteger(row.paid_revenue_minor) }] as const; }));
+  const sites: WebsiteListItem[] = websiteRows.map((row) => {
+    const traffic = trafficByWebsite.get(row.id) ?? { visitors: 0, pageviews: 0 };
+    const funnel = leadByWebsite.get(row.id) ?? { leads: 0, orders: 0, paidOrders: 0, paidRevenueMinor: 0 };
+    return { id: row.id, organizationId: row.organization_id, organizationName: row.organization_name, name: row.name, domain: row.domain, status: row.status, version: row.version, ...traffic, ...funnel, conversionPercent: traffic.visitors ? Number(((funnel.leads / traffic.visitors) * 100).toFixed(2)) : 0, trafficHistory: dates.map((date) => trafficByWebsiteAndDate.get(`${row.id}:${date}`) ?? null), integrations: integrationsByWebsite.get(row.id) ?? [] };
+  });
   const searchClicks = [...canonical.search.values()].reduce((total, value) => total + value.clicks, 0);
-  const searchClicksByDate = new Map<string, number>();
-  for (const [key, value] of canonical.search) {
-    const date = key.slice(key.lastIndexOf(":") + 1);
-    searchClicksByDate.set(date, (searchClicksByDate.get(date) ?? 0) + value.clicks);
-  }
   const visitors = sites.reduce((total, site) => total + site.visitors, 0);
   const pageviews = sites.reduce((total, site) => total + site.pageviews, 0);
   const leads = sites.reduce((total, site) => total + site.leads, 0);
+  const orders = sites.reduce((total, site) => total + site.orders, 0);
   const paidOrders = sites.reduce((total, site) => total + site.paidOrders, 0);
   const sources = sourceValues.map((value) => sourceRowSchema.parse(value));
   const sourceTotal = sources.reduce((total, source) => total + source.leads, 0);
   return {
     period: { startDate: bounds.start_date, endDate: bounds.end_date, timezone: bounds.timezone },
-    summary: { totalSites: sites.length, activeSites: sites.filter((site) => site.status === "active").length, visitors, pageviews, searchClicks, leads, paidOrders, paidRevenueMinor: sites.reduce((total, site) => total + site.paidRevenueMinor, 0), conversionPercent: visitors ? Number(((leads / visitors) * 100).toFixed(2)) : 0 },
+    summary: { totalSites: sites.length, activeSites: sites.filter((site) => site.status === "active").length, visitors, pageviews, searchClicks, leads, orders, paidOrders, paidRevenueMinor: sites.reduce((total, site) => total + site.paidRevenueMinor, 0), conversionPercent: visitors ? Number(((leads / visitors) * 100).toFixed(2)) : 0 },
     sites,
     trafficTrend: { labels: dates.map(formatDateLabel), series: [
-      { label: "Посетители", color: "#000000", values: dates.map((date) => trafficByDate.get(date)?.visitors ?? 0), valueFormat: "integer" },
-      { label: "Просмотры", color: "#a2beff", values: dates.map((date) => trafficByDate.get(date)?.pageviews ?? 0), valueFormat: "integer" },
-      { label: "Поисковые клики", color: "#25272c", values: dates.map((date) => searchClicksByDate.get(date) ?? 0), valueFormat: "integer" },
+      { label: "Посетители", color: "#000000", values: dates.map((date) => trafficByDate.get(date)?.visitors ?? null), valueFormat: "integer" },
     ] },
     trafficSources: sources.map((source) => ({ label: source.source, amount: source.leads, value: sourceTotal ? Math.round((source.leads / sourceTotal) * 100) : 0 })),
   };
@@ -158,14 +183,15 @@ export async function getWebsiteDetail(member: AuthenticatedMember, websiteId: s
   const snapshot = await getWebsiteSnapshot(member);
   const website = snapshot.sites.find((site) => site.id === parsedWebsiteId);
   if (!website) throw new WebsiteNotFoundError();
+  const websiteOrganizationId = website.organizationId ?? member.organizationId;
   const sql = getDatabase();
   const [hostingRows, healthRows] = await Promise.all([
     sql`SELECT provider, plan_name, server_region, monthly_cost_minor::text, renewal_on::text, ssl_expires_on::text,
         disk_capacity_mb, memory_capacity_mb, notes
-      FROM website_hosting_profiles WHERE organization_id = ${member.organizationId} AND website_id = ${parsedWebsiteId}`,
+      FROM website_hosting_profiles WHERE organization_id = ${websiteOrganizationId} AND website_id = ${parsedWebsiteId}`,
     sql`SELECT id, measured_at, health_status, uptime_percent::text, response_time_ms, cpu_load_percent::text,
-        memory_used_mb, disk_used_mb, source
-      FROM website_health_snapshots WHERE organization_id = ${member.organizationId} AND website_id = ${parsedWebsiteId}
+        memory_used_mb, disk_used_mb, memory_capacity_mb, disk_capacity_mb, ssl_expires_on::text, source
+      FROM website_health_snapshots WHERE organization_id = ${websiteOrganizationId} AND website_id = ${parsedWebsiteId}
       ORDER BY measured_at DESC LIMIT 30`,
   ]);
   const hostingRow = hostingRows[0] ? hostingRowSchema.parse(hostingRows[0]) : null;

@@ -67,8 +67,8 @@ function CreateClientForm({ requestKey, onComplete }: { requestKey: string; onCo
             <FieldError errors={state.fieldErrors.legalName} />
           </label>
           <label className={labelClass}>
-            <span>ИНН {kind === "legal_entity" ? "*" : ""}</span>
-            <input name="taxId" required={kind === "legal_entity"} inputMode="numeric" pattern="[0-9]{10}([0-9]{2})?" placeholder="10 или 12 цифр" className={inputClass} />
+            <span>ИНН</span>
+            <input name="taxId" inputMode="numeric" pattern="[0-9]{10}([0-9]{2})?" placeholder="10 или 12 цифр, если есть" className={inputClass} />
             <FieldError errors={state.fieldErrors.taxId} />
           </label>
         </div>

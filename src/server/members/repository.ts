@@ -4,7 +4,7 @@ import { z } from "zod";
 import { normalizeLoginIdentity } from "@/server/auth/identity";
 import { permissions, requirePermission, type Permission } from "@/server/auth/permissions";
 import { hashPassword } from "@/server/auth/password";
-import { organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
+import { assignableOrganizationRoles, organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import type { CreateMemberInput, ResetMemberPasswordInput, UpdateMemberAccessInput } from "./schemas";
 import type { MemberMasterOption, OrganizationMemberListItem } from "./types";
@@ -52,6 +52,12 @@ export class MemberSelfModificationError extends Error {
 export class MemberSelfPasswordResetError extends Error {
   constructor() { super("Administrators must use the personal security flow to change their own password."); this.name = "MemberSelfPasswordResetError"; }
 }
+export class MemberProtectedAccountError extends Error {
+  constructor() { super("System developer accounts cannot be managed from organization settings."); this.name = "MemberProtectedAccountError"; }
+}
+export class MemberLegacyRoleChangeError extends Error {
+  constructor() { super("Legacy roles can only be retained on their existing accounts."); this.name = "MemberLegacyRoleChangeError"; }
+}
 
 function uniqueConstraint(error: unknown) {
   if (!error || typeof error !== "object" || !("code" in error) || error.code !== "23505") return null;
@@ -79,7 +85,8 @@ export async function listOrganizationMembers(member: AuthenticatedMember): Prom
   requirePermission(member, "settings.write");
   const sql = getDatabase();
   const rows = await sql`SELECT members.id, members.display_name, members.email, phone_identity.normalized_value AS phone,
-      members.role, members.active, members.master_id, masters.full_name AS master_name,
+      CASE WHEN developer_accounts.email IS NOT NULL THEN developer_accounts.account_role ELSE members.role END AS role,
+      members.active, members.master_id, masters.full_name AS master_name,
       last_session.last_login_at, members.version,
       COALESCE(permission_overrides.values, '{}'::jsonb) AS permission_overrides
     FROM organization_members members
@@ -87,6 +94,7 @@ export async function listOrganizationMembers(member: AuthenticatedMember): Prom
       ON phone_identity.organization_id = members.organization_id AND phone_identity.member_id = members.id
       AND phone_identity.kind = 'phone'
     LEFT JOIN masters ON masters.organization_id = members.organization_id AND masters.id = members.master_id
+    LEFT JOIN developer_accounts ON developer_accounts.email = members.email
     LEFT JOIN LATERAL (
       SELECT max(created_at) AS last_login_at FROM auth_sessions
       WHERE organization_id = members.organization_id AND member_id = members.id
@@ -137,6 +145,8 @@ export async function createOrganizationMember(member: AuthenticatedMember, inpu
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
+      const protectedIdentity = await transaction`SELECT 1 FROM developer_accounts WHERE email = ${emailIdentity.normalizedValue}`;
+      if (protectedIdentity.length) throw new MemberProtectedAccountError();
       const insertedRequest = await transaction`INSERT INTO idempotency_requests (organization_id, idempotency_key, operation)
         VALUES (${member.organizationId}, ${input.idempotencyKey}, 'organization_members.create')
         ON CONFLICT (organization_id, idempotency_key) DO NOTHING
@@ -186,14 +196,17 @@ export async function updateOrganizationMemberAccess(member: AuthenticatedMember
   try {
     return await sql.begin(async (transaction) => {
       const [existing] = await transaction`SELECT role, active, master_id, version,
+          EXISTS (SELECT 1 FROM developer_accounts WHERE email = organization_members.email) AS protected_account,
           COALESCE((SELECT jsonb_object_agg(permission, allowed) FROM member_permission_overrides
             WHERE organization_id = organization_members.organization_id AND member_id = organization_members.id), '{}'::jsonb) AS permission_overrides
         FROM organization_members
         WHERE organization_id = ${member.organizationId} AND id = ${input.memberId}
         FOR UPDATE`;
       if (!existing) throw new MemberNotFoundError();
-      const current = z.object({ role: z.enum(organizationRoles), active: z.boolean(), master_id: z.string().uuid().nullable(), version: z.number().int().positive(), permission_overrides: z.partialRecord(z.enum(permissions), z.boolean()) }).parse(existing);
+      const current = z.object({ role: z.enum(organizationRoles), active: z.boolean(), master_id: z.string().uuid().nullable(), version: z.number().int().positive(), protected_account: z.boolean(), permission_overrides: z.partialRecord(z.enum(permissions), z.boolean()) }).parse(existing);
+      if (current.protected_account) throw new MemberProtectedAccountError();
       if (current.version !== input.expectedVersion) throw new MemberVersionConflictError();
+      if (!assignableOrganizationRoles.some((role) => role === input.role) && input.role !== current.role) throw new MemberLegacyRoleChangeError();
       if (input.masterId) await requireAvailableMaster(transaction, member.organizationId, input.masterId);
 
       const [updated] = await transaction`UPDATE organization_members SET role = ${input.role}, master_id = ${input.masterId},
@@ -236,7 +249,6 @@ export async function updateOrganizationMemberAccess(member: AuthenticatedMember
 export async function resetOrganizationMemberPassword(member: AuthenticatedMember, input: ResetMemberPasswordInput) {
   requirePermission(member, "settings.write");
   if (input.memberId === member.memberId) throw new MemberSelfPasswordResetError();
-  const passwordHash = await hashPassword(input.password);
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
     const insertedRequest = await transaction`INSERT INTO idempotency_requests (organization_id, idempotency_key, operation)
@@ -249,18 +261,27 @@ export async function resetOrganizationMemberPassword(member: AuthenticatedMembe
       if (existingRequest?.operation !== "organization_members.password_reset" || existingRequest.entity_id !== input.memberId) {
         throw new Error("Idempotency key is already used by another operation.");
       }
-      const [currentMember] = await transaction`SELECT version FROM organization_members
+      const [currentMember] = await transaction`SELECT version,
+          EXISTS (SELECT 1 FROM developer_accounts WHERE email = organization_members.email) AS protected_account
+        FROM organization_members
         WHERE organization_id = ${member.organizationId} AND id = ${input.memberId}`;
       if (!currentMember) throw new MemberNotFoundError();
-      return z.number().int().positive().parse(currentMember.version);
+      const parsedMember = z.object({ version: z.number().int().positive(), protected_account: z.boolean() }).parse(currentMember);
+      if (parsedMember.protected_account) throw new MemberProtectedAccountError();
+      return parsedMember.version;
     }
 
-    const [existingMember] = await transaction`SELECT version FROM organization_members
+    const [existingMember] = await transaction`SELECT version,
+        EXISTS (SELECT 1 FROM developer_accounts WHERE email = organization_members.email) AS protected_account
+      FROM organization_members
       WHERE organization_id = ${member.organizationId} AND id = ${input.memberId}
       FOR UPDATE`;
     if (!existingMember) throw new MemberNotFoundError();
-    const currentVersion = z.number().int().positive().parse(existingMember.version);
+    const protectedMember = z.object({ version: z.number().int().positive(), protected_account: z.boolean() }).parse(existingMember);
+    if (protectedMember.protected_account) throw new MemberProtectedAccountError();
+    const currentVersion = protectedMember.version;
     if (currentVersion !== input.expectedVersion) throw new MemberVersionConflictError();
+    const passwordHash = await hashPassword(input.password);
 
     const updatedCredentials = await transaction`UPDATE member_credentials SET
         password_hash = ${passwordHash}, failed_login_attempts = 0, locked_until = NULL,

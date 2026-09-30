@@ -176,15 +176,13 @@ function MoveDialog({
   const [query, setQuery] = useState("");
   const ids = selectedIds(selection);
   const selectedFolderIds = new Set(ids.folderIds);
+  const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
   const visibleFolders = folders.filter(
     (folder) =>
-      !selectedFolderIds.has(folder.id) &&
+      !folderPath(folder.id, foldersById).some((ancestor) => selectedFolderIds.has(ancestor.id)) &&
       matchesSearchText(query, [
         folder.name,
-        ...folderPath(
-          folder.id,
-          new Map(folders.map((entry) => [entry.id, entry])),
-        ).map((entry) => entry.name),
+        ...folderPath(folder.id, foldersById).map((entry) => entry.name),
       ]),
   );
   useEffect(() => {
@@ -216,8 +214,8 @@ function MoveDialog({
           value={targetFolderId ?? ""}
         />
         <div className="flex min-h-0 flex-1 flex-col p-5 sm:p-7">
-          <label className="flex h-11 shrink-0 items-center gap-2 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3">
-            <Search className="size-4 text-[var(--muted)]" />
+          <label className="flex min-h-11 shrink-0 items-center gap-2 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3">
+            <Search className="size-4 shrink-0 text-[var(--muted)]" />
             <span className="sr-only">Быстрый поиск папки</span>
             <input
               value={query}
@@ -318,6 +316,7 @@ export function DocumentArchiveManager({
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [moveSelection, setMoveSelection] = useState<Set<SelectionKey>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
   const [moving, startMoving] = useTransition();
   const router = useRouter();
@@ -386,13 +385,13 @@ export function DocumentArchiveManager({
     <div className="mt-7 space-y-4">
       <section className="surface-panel p-4 sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3 lg:max-w-xl">
-            <Search className="size-4 text-[var(--muted)]" />
+          <label className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3 lg:max-w-xl">
+            <Search className="size-4 shrink-0 text-[var(--muted)]" />
             <span className="sr-only">Поиск по архиву</span>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Папка, файл, клиент, заказ или категория"
+              placeholder="Поиск по архиву"
               className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
             />
             {query ? (
@@ -410,7 +409,10 @@ export function DocumentArchiveManager({
             {selection.size ? (
               <button
                 type="button"
-                onClick={() => setMoveOpen(true)}
+                onClick={() => {
+                  setMoveSelection(new Set(selection));
+                  setMoveOpen(true);
+                }}
                 disabled={!canWrite}
                 className="focus-ring flex h-11 items-center gap-2 rounded-[12px] bg-[var(--accent)] px-4 text-xs font-semibold text-[var(--on-accent)] disabled:opacity-45"
               >
@@ -491,14 +493,14 @@ export function DocumentArchiveManager({
         ) : null}
       </section>
 
-      <section className="surface-panel min-h-[28rem]">
-        <header className="grid grid-cols-[2.5rem_minmax(0,1fr)_8rem_auto] items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-[9px] uppercase tracking-[0.12em] text-[var(--muted)] sm:px-5">
+      <section className="surface-panel min-h-0 md:min-h-[28rem]">
+        <header className="hidden grid-cols-[2.5rem_minmax(0,1fr)_8rem_auto] items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-[9px] uppercase tracking-[0.12em] text-[var(--muted)] md:grid md:px-5">
           <span />
           <span>Название</span>
-          <span className="hidden sm:block">Тип / связь</span>
+          <span>Тип / связь</span>
           <span>Действие</span>
         </header>
-        <div className="divide-y divide-[var(--line)]">
+        <div className="space-y-2 p-3 md:divide-y md:divide-[var(--line)] md:space-y-0 md:p-0">
           {visibleFolders.map((folder) => {
             const key: SelectionKey = `folder:${folder.id}`;
             const selected = selection.has(key);
@@ -520,7 +522,7 @@ export function DocumentArchiveManager({
                   ) as SelectionKey;
                   if (source && source !== key) moveDragged(source, folder.id);
                 }}
-                className={`grid min-h-16 grid-cols-[2.5rem_minmax(0,1fr)_8rem_auto] items-center gap-3 px-4 py-3 sm:px-5 ${selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-soft)]"}`}
+                className={`grid min-h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-3 md:grid-cols-[2.5rem_minmax(0,1fr)_8rem_auto] md:rounded-none md:border-0 md:bg-transparent md:px-5 md:py-3 ${selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-soft)]"}`}
               >
                 <label className="grid size-8 place-items-center">
                   <input
@@ -541,20 +543,20 @@ export function DocumentArchiveManager({
                     <FolderOpen className="size-4" />
                   </span>
                   <span className="min-w-0">
-                    <strong className="block truncate text-xs font-medium text-[var(--text)]">
+                    <strong className="block break-words text-xs font-medium leading-5 text-[var(--text)] md:truncate">
                       {folder.name}
                     </strong>
-                    <span className="mt-1 block text-[9px] text-[var(--muted)]">
+                    <span className="mt-1 block text-[10px] text-[var(--muted)]">
                       {folder.documentCount} файлов непосредственно внутри
                     </span>
                   </span>
                 </button>
-                <span className="hidden text-[10px] text-[var(--muted)] sm:block">
+                <span className="hidden text-[10px] text-[var(--muted)] md:block">
                   Папка
                 </span>
                 <span className="flex items-center gap-2">
                   {canWrite ? (
-                    <GripVertical className="size-4 cursor-grab text-[var(--muted-subtle)]" />
+                    <GripVertical className="hidden size-4 cursor-grab text-[var(--muted-subtle)] md:block" />
                   ) : null}
                   <button
                     type="button"
@@ -565,6 +567,7 @@ export function DocumentArchiveManager({
                     <ArrowRight className="size-4" />
                   </button>
                 </span>
+                {canWrite ? <button type="button" onClick={() => { setMoveSelection(new Set([key])); setMoveOpen(true); }} className="focus-ring col-span-3 flex min-h-10 items-center justify-center gap-2 rounded-[10px] border border-[var(--line)] text-xs font-medium text-[var(--text-secondary)] md:hidden"><MoveRight className="size-4" />Переместить папку</button> : null}
               </article>
             );
           })}
@@ -578,7 +581,7 @@ export function DocumentArchiveManager({
                 onDragStart={(event) =>
                   event.dataTransfer.setData("text/archive-key", key)
                 }
-                className={`grid min-h-16 grid-cols-[2.5rem_minmax(0,1fr)_8rem_auto] items-center gap-3 px-4 py-3 sm:px-5 ${selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-soft)]"}`}
+                className={`grid min-h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border border-[var(--line)] bg-[var(--surface-raised)] p-3 md:grid-cols-[2.5rem_minmax(0,1fr)_8rem_auto] md:rounded-none md:border-0 md:bg-transparent md:px-5 md:py-3 ${selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-soft)]"}`}
               >
                 <label className="grid size-8 place-items-center">
                   <input
@@ -595,20 +598,20 @@ export function DocumentArchiveManager({
                     <FileText className="size-4" />
                   </span>
                   <span className="min-w-0">
-                    <strong className="block truncate text-xs font-medium text-[var(--text)]">
+                    <strong className="block break-words text-xs font-medium leading-5 text-[var(--text)] md:truncate">
                       {document.title}
                     </strong>
-                    <span className="mt-1 block truncate text-[9px] text-[var(--muted)]">
+                    <span className="mt-1 block truncate text-[10px] text-[var(--muted)]">
                       {document.filename} · заказ {document.orderNumber}
                     </span>
                   </span>
                 </div>
-                <span className="hidden text-[10px] text-[var(--muted)] sm:block">
+                <span className="hidden text-[10px] text-[var(--muted)] md:block">
                   {document.categoryLabel}
                 </span>
                 <span className="flex items-center gap-2">
                   {canWrite ? (
-                    <GripVertical className="size-4 cursor-grab text-[var(--muted-subtle)]" />
+                    <GripVertical className="hidden size-4 cursor-grab text-[var(--muted-subtle)] md:block" />
                   ) : null}
                   <a
                     href={`/api/v1/documents/${document.id}/download`}
@@ -618,6 +621,7 @@ export function DocumentArchiveManager({
                     <Download className="size-4" />
                   </a>
                 </span>
+                {canWrite ? <button type="button" onClick={() => { setMoveSelection(new Set([key])); setMoveOpen(true); }} className="focus-ring col-span-3 flex min-h-10 items-center justify-center gap-2 rounded-[10px] border border-[var(--line)] text-xs font-medium text-[var(--text-secondary)] md:hidden"><MoveRight className="size-4" />Переместить файл</button> : null}
               </article>
             );
           })}
@@ -651,14 +655,15 @@ export function DocumentArchiveManager({
         onClose={() => setCreateOpen(false)}
       />
       <MoveDialog
-        key={`${selection.size}:${moveOpen}`}
+        key={`${Array.from(moveSelection).join(":")}:${moveOpen}`}
         open={moveOpen}
-        selection={selection}
+        selection={moveSelection}
         folders={folders}
         onClose={() => setMoveOpen(false)}
         onMoved={() => {
           setMoveOpen(false);
           setSelection(new Set());
+          setMoveSelection(new Set());
           router.refresh();
         }}
       />

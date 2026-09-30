@@ -5,10 +5,16 @@ import { generateVisitRecurrenceDates } from "@/lib/visits/recurrence";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
-import type { CreateContractInput, RenewContractInput, UpdateContractInput } from "./schemas";
+import type { CreateContractInput, LinkContractInput, RenewContractInput, UpdateContractInput } from "./schemas";
 import type { ContractHistoryEvent, ContractListItem, ContractSnapshot } from "./types";
 
 const uuidSchema = z.string().uuid();
+const contractRelationRowSchema = z.object({
+  contract_id: uuidSchema,
+  contract_number: z.string(),
+  relation_type: z.enum(["related", "supplement", "framework"]),
+  note: z.string().nullable(),
+});
 const contractRowSchema = z.object({
   id: uuidSchema,
   contract_number: z.string(),
@@ -25,6 +31,7 @@ const contractRowSchema = z.object({
   version: z.number().int().positive(),
   renewed_from_contract_id: uuidSchema.nullable(),
   renewed_by_contract_id: uuidSchema.nullable(),
+  related_contracts: z.array(contractRelationRowSchema),
   days_until_end: z.number().int(),
   next_visit_at: z.coerce.date().nullable(),
   schedule_rule_id: uuidSchema.nullable(),
@@ -84,6 +91,12 @@ export class ContractStateTransitionError extends Error {
 export class ContractAlreadyRenewedError extends Error {
   constructor() { super("The contract already has a renewal."); this.name = "ContractAlreadyRenewedError"; }
 }
+export class ContractRelationConflictError extends Error {
+  constructor() { super("The contracts are already related."); this.name = "ContractRelationConflictError"; }
+}
+export class ContractRelationReferenceError extends Error {
+  constructor() { super("A contract selected for the relation is unavailable."); this.name = "ContractRelationReferenceError"; }
+}
 export class ContractScheduleConflictError extends Error {
   constructor() { super("The selected master has an overlapping visit."); this.name = "ContractScheduleConflictError"; }
 }
@@ -124,6 +137,12 @@ function mapContract(value: unknown): ContractListItem {
     version: row.version,
     renewedFromContractId: row.renewed_from_contract_id,
     renewedByContractId: row.renewed_by_contract_id,
+    relations: row.related_contracts.map((relation) => ({
+      contractId: relation.contract_id,
+      contractNumber: relation.contract_number,
+      relationType: relation.relation_type,
+      note: relation.note,
+    })),
     daysUntilEnd: row.days_until_end,
     nextVisitAt: row.next_visit_at?.toISOString() ?? null,
     schedule: hasSchedule ? {
@@ -216,7 +235,8 @@ export async function listContracts(member: AuthenticatedMember): Promise<Contra
         (contracts.ends_on - (now() AT TIME ZONE organizations.timezone)::date)::integer AS days_until_end,
         next_visit.next_visit_at, rules.id AS schedule_rule_id, rules.frequency_unit, rules.frequency_interval,
         rules.local_time::text, rules.duration_minutes, rules.default_master_id, masters.full_name AS default_master_name,
-        coalesce(visit_totals.visit_count, 0)::integer AS visit_count
+        coalesce(visit_totals.visit_count, 0)::integer AS visit_count,
+        coalesce(contract_links.items, '[]'::jsonb) AS related_contracts
       FROM contracts
       JOIN organizations ON organizations.id = contracts.organization_id
       JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
@@ -229,6 +249,19 @@ export async function listContracts(member: AuthenticatedMember): Promise<Contra
           AND status IN ('planned', 'confirmed') AND scheduled_start_at >= now()) next_visit ON true
       LEFT JOIN LATERAL (SELECT count(*)::integer AS visit_count FROM service_visits
         WHERE organization_id = contracts.organization_id AND contract_id = contracts.id) visit_totals ON true
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(jsonb_build_object(
+          'contract_id', linked.id,
+          'contract_number', linked.contract_number,
+          'relation_type', relation.relation_type,
+          'note', relation.note
+        ) ORDER BY linked.contract_number) AS items
+        FROM contract_relations relation
+        JOIN contracts linked ON linked.organization_id = relation.organization_id
+          AND linked.id = CASE WHEN relation.contract_a_id = contracts.id THEN relation.contract_b_id ELSE relation.contract_a_id END
+        WHERE relation.organization_id = contracts.organization_id
+          AND contracts.id IN (relation.contract_a_id, relation.contract_b_id)
+      ) contract_links ON true
       WHERE contracts.organization_id = ${member.organizationId}
       ORDER BY CASE contracts.status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 WHEN 'suspended' THEN 2 ELSE 3 END,
         contracts.ends_on, contracts.created_at DESC
@@ -264,7 +297,8 @@ export async function getContract(member: AuthenticatedMember, contractId: strin
       (contracts.ends_on - (now() AT TIME ZONE organizations.timezone)::date)::integer AS days_until_end,
       next_visit.next_visit_at, rules.id AS schedule_rule_id, rules.frequency_unit, rules.frequency_interval,
       rules.local_time::text, rules.duration_minutes, rules.default_master_id, masters.full_name AS default_master_name,
-      coalesce(visit_totals.visit_count, 0)::integer AS visit_count
+      coalesce(visit_totals.visit_count, 0)::integer AS visit_count,
+      coalesce(contract_links.items, '[]'::jsonb) AS related_contracts
     FROM contracts
     JOIN organizations ON organizations.id = contracts.organization_id
     JOIN clients ON clients.organization_id = contracts.organization_id AND clients.id = contracts.client_id
@@ -277,6 +311,19 @@ export async function getContract(member: AuthenticatedMember, contractId: strin
         AND status IN ('planned', 'confirmed') AND scheduled_start_at >= now()) next_visit ON true
     LEFT JOIN LATERAL (SELECT count(*)::integer AS visit_count FROM service_visits
       WHERE organization_id = contracts.organization_id AND contract_id = contracts.id) visit_totals ON true
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(jsonb_build_object(
+        'contract_id', linked.id,
+        'contract_number', linked.contract_number,
+        'relation_type', relation.relation_type,
+        'note', relation.note
+      ) ORDER BY linked.contract_number) AS items
+      FROM contract_relations relation
+      JOIN contracts linked ON linked.organization_id = relation.organization_id
+        AND linked.id = CASE WHEN relation.contract_a_id = contracts.id THEN relation.contract_b_id ELSE relation.contract_a_id END
+      WHERE relation.organization_id = contracts.organization_id
+        AND contracts.id IN (relation.contract_a_id, relation.contract_b_id)
+    ) contract_links ON true
     WHERE contracts.organization_id = ${member.organizationId} AND contracts.id = ${contractId}`;
   if (!row) throw new ContractNotFoundError();
   return mapContract(row);
@@ -440,6 +487,36 @@ export async function renewContract(member: AuthenticatedMember, input: RenewCon
     if (constraint === "contracts_organization_id_contract_number_key") throw new ContractNumberConflictError();
     if (constraint === "contracts_single_renewal_idx") throw new ContractAlreadyRenewedError();
     if (databaseConstraint(error, "23P01") === "service_visits_master_no_overlap") throw new ContractScheduleConflictError();
+    throw error;
+  }
+}
+
+export async function linkContracts(member: AuthenticatedMember, input: LinkContractInput) {
+  requirePermission(member, "contracts.write");
+  const [contractAId, contractBId] = [input.contractId, input.relatedContractId].toSorted();
+  const sql = getDatabase();
+  try {
+    await sql.begin(async (transaction) => {
+      const contracts = await transaction`SELECT id, contract_number FROM contracts
+        WHERE organization_id = ${member.organizationId} AND id IN (${contractAId}, ${contractBId})
+        ORDER BY id FOR KEY SHARE`;
+      if (contracts.length !== 2) throw new ContractRelationReferenceError();
+      await transaction`INSERT INTO contract_relations (
+          organization_id, contract_a_id, contract_b_id, relation_type, note, created_by
+        ) VALUES (
+          ${member.organizationId}, ${contractAId}, ${contractBId}, ${input.relationType}, ${input.note}, ${member.memberId}
+        )`;
+      await transaction`INSERT INTO audit_events (
+          organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes
+        ) VALUES (
+          ${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'contract.link', 'contract', ${input.contractId},
+          ${transaction.json({ relatedContractId: input.relatedContractId, relationType: input.relationType, note: input.note })}
+        )`;
+    });
+  } catch (error) {
+    if (databaseConstraint(error, "23505") === "contract_relations_pair_unique") {
+      throw new ContractRelationConflictError();
+    }
     throw error;
   }
 }

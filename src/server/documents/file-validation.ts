@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
+import { MAX_DOCUMENT_SIZE_BYTES } from "../../lib/file-limits.ts";
+import { hasBoundedZip } from "../file-scan/zip-bounds.mjs";
 
-export const MAX_DOCUMENT_SIZE_BYTES = 15 * 1024 * 1024;
+export { MAX_DOCUMENT_SIZE_BYTES };
 
 type AllowedDocumentFile = {
   extension: "pdf" | "jpg" | "png" | "webp" | "docx" | "xlsx";
@@ -25,6 +27,10 @@ export class DocumentFileValidationError extends Error {
   }
 }
 
+export function assertDocumentFileSize(sizeBytes: number) {
+  if (sizeBytes > MAX_DOCUMENT_SIZE_BYTES) throw new DocumentFileValidationError("Размер файла не должен превышать 15 МБ.");
+}
+
 function startsWith(buffer: Buffer, signature: number[]) {
   return signature.every((byte, index) => buffer[index] === byte);
 }
@@ -35,8 +41,7 @@ function hasValidSignature(buffer: Buffer, extension: AllowedDocumentFile["exten
   if (extension === "png") return startsWith(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   if (extension === "webp") return buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
   if (!startsWith(buffer, [0x50, 0x4b, 0x03, 0x04])) return false;
-  const archiveText = buffer.toString("latin1");
-  return archiveText.includes("[Content_Types].xml") && archiveText.includes(extension === "docx" ? "word/" : "xl/");
+  return hasBoundedZip(buffer, { requiredPrefix: extension === "docx" ? "word/" : "xl/" });
 }
 
 function safeOriginalFilename(filename: string) {
@@ -48,7 +53,7 @@ function safeOriginalFilename(filename: string) {
 export function validateDocumentFile(input: { filename: string; declaredMimeType: string; buffer: Buffer }) {
   const filename = safeOriginalFilename(input.filename);
   if (!input.buffer.length) throw new DocumentFileValidationError("Файл пуст.");
-  if (input.buffer.length > MAX_DOCUMENT_SIZE_BYTES) throw new DocumentFileValidationError("Размер файла не должен превышать 15 МБ.");
+  assertDocumentFileSize(input.buffer.length);
   const rawExtension = extname(filename).slice(1).toLowerCase();
   const allowed = allowedFiles[rawExtension];
   if (!allowed) throw new DocumentFileValidationError("Разрешены PDF, JPG, PNG, WebP, DOCX и XLSX.");

@@ -1,0 +1,11 @@
+[Unit]
+Description=Measure website and VPS health every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=crm-site-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -526,10 +526,10 @@ export function OrderVisitSection({
   }
   return (
     <section
-      className="surface-panel animate-rise overflow-hidden"
+      className="surface-panel panel-stack animate-rise overflow-hidden"
       style={{ animationDelay: "140ms" }}
     >
-      <div className="flex flex-col items-stretch gap-3 border-b border-[var(--line)] px-4 py-4 min-[480px]:flex-row min-[480px]:items-center min-[480px]:justify-between sm:px-6">
+      <div className="flex flex-col items-stretch gap-3 border-b border-[var(--line)] px-4 py-4 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between sm:px-6">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-[var(--text)]">Выезды</h2>
           <p className="mt-1 truncate text-xs text-[var(--muted)]">
@@ -538,25 +538,25 @@ export function OrderVisitSection({
               : "План и история работ по заказу"}
           </p>
         </div>
-        <div className="flex w-full min-w-0 gap-2 min-[480px]:w-auto min-[480px]:shrink-0">
+        <div className="grid w-full min-w-0 grid-cols-2 gap-2 min-[640px]:flex min-[640px]:w-auto min-[640px]:shrink-0">
           <VisitHistoryButton feed={history} visits={visits} />
           {canWrite ? (
             <>
               <button
                 aria-label="Создать серию выездов"
                 onClick={() => setSeriesKey(crypto.randomUUID())}
-                className="focus-ring flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] border border-[var(--line-strong)] px-2 text-xs text-[var(--text-secondary)] min-[480px]:flex-none min-[480px]:px-3"
+                className="focus-ring flex h-9 min-w-0 items-center justify-center gap-2 rounded-[11px] border border-[var(--line-strong)] px-2 text-xs text-[var(--text-secondary)] min-[640px]:px-3"
               >
                 <Repeat2 className="size-3.5 shrink-0" />
-                <span className="tiny-hidden">Серия</span>
+                <span>Серия</span>
               </button>
               <button
                 aria-label="Добавить выезд"
                 onClick={() => setCreateKey(crypto.randomUUID())}
-                className="focus-ring flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] bg-[var(--accent)] px-2 text-xs font-semibold text-[var(--on-accent)] min-[480px]:flex-none min-[480px]:px-3"
+                className="focus-ring col-span-2 flex h-9 min-w-0 items-center justify-center gap-2 rounded-[11px] bg-[var(--accent)] px-2 text-xs font-semibold text-[var(--on-accent)] min-[640px]:px-3"
               >
                 <Plus className="size-3.5 shrink-0" />
-                <span className="tiny-hidden">Добавить </span>выезд
+                Добавить выезд
               </button>
             </>
           ) : null}
@@ -578,12 +578,12 @@ export function OrderVisitSection({
                     {formatVisitDate(visit)}
                   </p>
                   <p className="mt-1 text-[10px] text-[var(--muted)]">
-                    до{" "}
-                    {new Intl.DateTimeFormat("ru-RU", {
+                    {visit.arrivalMode === "fixed" ? "Точное время" : "до "}
+                    {visit.arrivalMode === "window" ? new Intl.DateTimeFormat("ru-RU", {
                       timeZone: visit.timezone,
                       hour: "2-digit",
                       minute: "2-digit",
-                    }).format(new Date(visit.scheduledEndAt))}
+                    }).format(new Date(visit.scheduledEndAt)) : null}
                     {visit.occurrenceNumber
                       ? ` · серия #${visit.occurrenceNumber}`
                       : ""}
@@ -604,46 +604,48 @@ export function OrderVisitSection({
                     </p>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
+                <div className="flex items-center justify-between gap-2 sm:justify-end">
                   <span
-                    className={`rounded-full px-2.5 py-1 text-[10px] ${visitStatusStyles[visit.statusCode]}`}
+                    className={`mr-auto shrink-0 rounded-full px-2.5 py-1 text-[10px] sm:mr-0 ${visitStatusStyles[visit.statusCode]}`}
                   >
                     {visit.status}
                   </span>
-                  <VisitDispatchCardButton visitId={visit.id} compact />
-                  {visit.completionDocumentId ? (
-                    <a
-                      href={`/api/v1/documents/${visit.completionDocumentId}/download`}
-                      aria-label={`Скачать закрывающий акт ${visit.completionDocumentTitle ?? ""}`}
-                      title={
-                        visit.completionDocumentTitle ??
-                        "Скачать закрывающий акт"
-                      }
-                      className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--success-border)]/45 bg-[var(--success-bg)] text-[var(--success)] hover:bg-[var(--success-bg)]"
-                    >
-                      <FileCheck2 className="size-3.5" />
-                    </a>
-                  ) : canComplete && !terminal ? (
-                    <button
-                      type="button"
-                      onClick={() => openCompletion(visit.id)}
-                      aria-label={`Завершить выезд ${formatVisitDate(visit)} с актом`}
-                      title="Завершить с закрывающим актом"
-                      className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--accent)]/20 bg-[var(--accent)]/[0.045] text-[var(--accent)] hover:bg-[var(--accent)]/[0.08]"
-                    >
-                      <FileCheck2 className="size-3.5" />
-                    </button>
-                  ) : null}
-                  {canWrite && visit.statusCode !== "completed" ? (
-                    <button
-                      type="button"
-                      onClick={() => setActiveVisitId(visit.id)}
-                      aria-label={`Редактировать выезд ${formatVisitDate(visit)}`}
-                      className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]"
-                    >
-                      <Pencil className="size-3.5" />
-                    </button>
-                  ) : null}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <VisitDispatchCardButton visitId={visit.id} compact />
+                    {visit.completionDocumentId ? (
+                      <a
+                        href={`/api/v1/documents/${visit.completionDocumentId}/download`}
+                        aria-label={`Скачать закрывающий акт ${visit.completionDocumentTitle ?? ""}`}
+                        title={
+                          visit.completionDocumentTitle ??
+                          "Скачать закрывающий акт"
+                        }
+                        className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--success-border)]/45 bg-[var(--success-bg)] text-[var(--success)] hover:bg-[var(--success-bg)]"
+                      >
+                        <FileCheck2 className="size-3.5" />
+                      </a>
+                    ) : canComplete && !terminal ? (
+                      <button
+                        type="button"
+                        onClick={() => openCompletion(visit.id)}
+                        aria-label={`Завершить выезд ${formatVisitDate(visit)} с актом`}
+                        title="Завершить с закрывающим актом"
+                        className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--accent)]/20 bg-[var(--accent)]/[0.045] text-[var(--accent)] hover:bg-[var(--accent)]/[0.08]"
+                      >
+                        <FileCheck2 className="size-3.5" />
+                      </button>
+                    ) : null}
+                    {canWrite && visit.statusCode !== "completed" ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveVisitId(visit.id)}
+                        aria-label={`Редактировать выезд ${formatVisitDate(visit)}`}
+                        className="focus-ring grid size-9 place-items-center rounded-[10px] border border-[var(--line)] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </article>
             );

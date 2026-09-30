@@ -1,0 +1,13 @@
+title = "CRM secret scan"
+
+[extend]
+useDefault = true
+
+# Test fixture UUIDs are identifiers, not credentials. Keep every other default rule.
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = "UUID fixtures falsely match the generic API key heuristic"
+  regexTarget = "secret"
+  regexes = ['''^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$''']

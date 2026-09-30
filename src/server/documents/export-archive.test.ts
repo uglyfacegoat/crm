@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { unzipSync } from "fflate";
 import { createDocumentArchivePath, createDocumentExportArchive, DocumentExportIntegrityError, safeArchiveSegment } from "./export-archive.ts";
 import type { DocumentExportFile } from "./types.ts";
 
@@ -42,6 +43,9 @@ test("ZIP export verifies integrity before creating an archive", () => {
   const result = createDocumentExportArchive([{ ...valid, content: Buffer.from("test") }]);
   assert.equal(result.totalSizeBytes, 4);
   assert.deepEqual([...result.archive.subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+  const entries = unzipSync(result.archive);
+  assert.equal(Object.keys(entries).length, 1);
+  assert.equal(Buffer.from(Object.values(entries)[0]).toString(), "test");
   assert.throws(
     () => createDocumentExportArchive([{ ...valid, content: Buffer.from("tampered") }]),
     DocumentExportIntegrityError,

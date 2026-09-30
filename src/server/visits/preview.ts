@@ -17,6 +17,7 @@ export function getPreviewVisits(): ServiceVisit[] {
       address: visit.address,
       scheduledStartAt: scheduledStartAt.toISOString(),
       scheduledEndAt: new Date(scheduledStartAt.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+      arrivalMode: "window",
       timezone: "Europe/Moscow",
       statusCode: visit.status === "Подтверждён" ? "confirmed" : visit.status === "В работе" ? "in_progress" : "planned",
       status: visit.status,

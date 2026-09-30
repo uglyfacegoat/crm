@@ -1,43 +1,64 @@
-import { MetricCard } from "@/components/dashboard/metric-card";
+import { ActivityChart } from "@/components/dashboard/activity-chart";
 import {
   DashboardCalendar,
   type DashboardVisit,
 } from "@/components/dashboard/dashboard-calendar";
 import { FinancialSummary } from "@/components/dashboard/financial-summary";
+import { DashboardDateCard } from "@/components/dashboard/dashboard-date-card";
 import { RecentOrders } from "@/components/dashboard/recent-orders";
 import { TaskList } from "@/components/dashboard/task-list";
 import { TodayVisits } from "@/components/dashboard/today-visits";
 import { formatMoneyMinor } from "@/lib/format";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
+import { redirect } from "next/navigation";
 import { requireOfficeSession } from "@/server/auth/session";
 import { getPreviewOrders } from "@/server/orders/preview";
 import { listOrders } from "@/server/orders/repository";
 import { getPreviewTasks } from "@/server/tasks/preview";
-import { listTasks } from "@/server/tasks/repository";
+import { getTaskDashboardSummary, listTasks } from "@/server/tasks/repository";
 import { getPreviewVisits } from "@/server/visits/preview";
 import { listVisits } from "@/server/visits/repository";
 import type { ServiceVisit, VisitStatus } from "@/server/visits/types";
+import { listAccessibleOrganizations } from "@/server/organizations/repository";
+import { getCenterDashboardData, getCenterTaskDashboardSummary } from "@/server/organizations/center-dashboard";
+import { PersonalNotesPanel } from "@/components/personal-notes/personal-notes-panel";
+import { dashboardNoteTarget, listPersonalNotes, listPersonalNoteTemplates } from "@/server/personal-notes/repository";
 
 export default async function DashboardPage() {
   const member = await requireOfficeSession();
   const preview = getAuthMode() === "preview";
+  if (!hasPermission(member, "orders.read") || !hasPermission(member, "visits.read") || !hasPermission(member, "tasks.read")) redirect("/profile");
+  const isCenter = !preview && hasPermission(member, "companies.read") &&
+    (await listAccessibleOrganizations(member)).some((organization) => organization.current && organization.kind === "center");
+  const canReadFinance = hasPermission(member, "finance.read");
+  const [personalNotes, noteTemplates] = preview
+    ? [[], []]
+    : await Promise.all([listPersonalNotes(member, dashboardNoteTarget), listPersonalNoteTemplates(member)]);
   const now = new Date();
+  const rangeStart = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+  const rangeEnd = new Date(now.getTime() + 21 * 86_400_000).toISOString();
+  const centerData = isCenter ? await getCenterDashboardData(member, rangeStart, rangeEnd) : null;
   const [dashboardOrders, dashboardVisits, dashboardTasks] = preview
     ? [getPreviewOrders(), getPreviewVisits(), getPreviewTasks()]
+    : centerData
+      ? [centerData.orders, centerData.visits, { tasks: centerData.tasks, timeZone: centerData.timeZone }]
     : await Promise.all([
         listOrders(member),
-        listVisits(
-          member,
-          new Date(now.getTime() - 7 * 86_400_000).toISOString(),
-          new Date(now.getTime() + 21 * 86_400_000).toISOString(),
-        ),
+        listVisits(member, rangeStart, rangeEnd),
         listTasks(member),
       ]);
   const calendarVisits = dashboardVisits.map(toDashboardVisit);
   const dashboardTimeZone =
     dashboardVisits[0]?.timezone ?? dashboardTasks.timeZone;
   const initialCalendarDate = localDateKey(now, dashboardTimeZone);
+  const taskSummary = preview
+    ? { overdueCount: dashboardTasks.tasks.filter((task) => task.column === "overdue").length,
+        dailyCounts: countsByDate(dashboardTasks.tasks.flatMap((task) =>
+          task.dueAt ? [localDateKey(new Date(task.dueAt), dashboardTimeZone)] : []), initialCalendarDate) }
+    : isCenter
+      ? await getCenterTaskDashboardSummary(member, dashboardTimeZone, initialCalendarDate)
+      : await getTaskDashboardSummary(member, dashboardTimeZone, initialCalendarDate);
   const todayVisits = calendarVisits
     .filter((visit) => visit.date === initialCalendarDate)
     .toSorted((left, right) => left.time.localeCompare(right.time));
@@ -66,9 +87,7 @@ export default async function DashboardPage() {
   const currentMonthAgreed = currentMonthOrders
     .filter((order) => order.status !== "Отменён")
     .reduce((sum, order) => sum + order.agreedTotalMinor, 0);
-  const overdueTaskCount = dashboardTasks.tasks.filter(
-    (task) => task.column === "overdue",
-  ).length;
+  const overdueTaskCount = taskSummary.overdueCount;
   const overdueOrderCount = dashboardOrders.filter(
     (order) => order.status === "Просрочен",
   ).length;
@@ -87,18 +106,14 @@ export default async function DashboardPage() {
     calendarVisits.map((visit) => visit.date),
     initialCalendarDate,
   );
+  const activityCounts = countsByDate(calendarVisits.map((visit) => visit.date), initialCalendarDate, 30);
   const dailyOrderBars = countsByDate(
     dashboardOrders.map((order) =>
       localDateKey(new Date(order.createdAt), dashboardTimeZone),
     ),
     initialCalendarDate,
   );
-  const dailyTaskBars = countsByDate(
-    dashboardTasks.tasks.flatMap((task) =>
-      task.dueAt ? [localDateKey(new Date(task.dueAt), dashboardTimeZone)] : [],
-    ),
-    initialCalendarDate,
-  );
+  const dailyTaskBars = taskSummary.dailyCounts;
   const metrics = [
     {
       label: "Маршрут сегодня",
@@ -127,53 +142,68 @@ export default async function DashboardPage() {
       tone: "accent" as const,
       bars: dailyOrderBars,
     },
-    {
+    ...(canReadFinance ? [{
       label: "Согласовано за месяц",
       value: formatMoneyMinor(currentMonthAgreed),
       change: `${currentMonthOrders.length} новых заказов`,
       tone: "support" as const,
       bars: dailyOrderBars,
-    },
+    }] : []),
   ];
   const routeDescription = todayVisits.length
     ? `Сегодня · ${formatDashboardDate(now, dashboardTimeZone)}`
     : "Ближайшие даты";
   return (
-    <div className="animate-rise">
-      <section aria-labelledby="dashboard-pulse-heading">
+    <div className="figma-report-page dashboard-figma-page animate-rise">
+      <header className="dashboard-figma-header">
+        <p className="figma-report-kicker">Оперативный контур / Local CRM</p>
+        <h1 className="figma-report-title mt-[9px]">Сегодня в работе</h1>
+        <p className="figma-report-description mt-[6px]">
+          Сегодня: {todayVisits.length} выездов по расписанию и {overdueTaskCount} просроченные задачи.
+        </p>
+        <p className="dashboard-mobile-date">{formatLongDashboardDate(now, dashboardTimeZone)}</p>
+        <DashboardDateCard initialNow={now.toISOString()} />
+      </header>
+
+      <section aria-labelledby="dashboard-pulse-heading" className="dashboard-open-metrics">
         <h2 id="dashboard-pulse-heading" className="sr-only">
           Пульс дня
         </h2>
-        <div className="grid grid-cols-1 gap-3 min-[560px]:grid-cols-2 xl:grid-cols-4">
-          {metrics.map((metric, index) => (
-            <MetricCard
-              key={metric.label}
-              {...metric}
-              delay={`${80 + index * 45}ms`}
-            />
-          ))}
-        </div>
+        {metrics.map((metric, index) => (
+          <article key={metric.label}>
+            <p>{metric.label}</p>
+            <strong>{metric.value}</strong>
+            <div className="dashboard-metric-footer" data-stacked={index === 1 || index === 2}>
+              <span>{metric.change}</span>
+              {index === 0 && metric.bars.some((value) => value > 0) ? <div className="dashboard-metric-bars" aria-hidden="true">{metric.bars.map((value, barIndex) => <i key={barIndex} style={{ height: `${Math.max(9, value * 7)}px` }} />)}</div> : null}
+              {(index === 1 && attentionCount > 0) || (index === 2 && activeOrders.length > 0) ? <div className="dashboard-metric-units" aria-hidden="true">{Array.from({ length: 10 }, (_, unitIndex) => <i key={unitIndex} data-filled={unitIndex < (index === 1 ? attentionCount : activeOrders.length)} />)}</div> : null}
+            </div>
+          </article>
+        ))}
       </section>
 
-      <div className="mt-3 grid items-start gap-3 lg:grid-cols-2">
-        <TodayVisits
-          visits={routeVisits}
-          dateLabel={routeDescription}
-          title={todayVisits.length ? "Маршрут на сегодня" : "Ближайшие выезды"}
-        />
-        <TaskList
-          tasks={visibleTasks}
-          canWrite={!preview && hasPermission(member, "tasks.write")}
-        />
+      <div className="dashboard-operational-row">
+        <div id="dashboard-route"><TodayVisits visits={routeVisits} dateLabel={routeDescription} title={todayVisits.length ? "Маршрут на сегодня" : "Ближайшие выезды"} /></div>
+        <div id="dashboard-tasks"><TaskList tasks={visibleTasks.slice(0, 2)} canWrite={!preview && !isCenter && hasPermission(member, "tasks.write")} /></div>
       </div>
 
-      <div className="mt-3 grid min-w-0 items-start gap-3 xl:grid-cols-[1.05fr_0.92fr_1fr]">
+      <div id="dashboard-personal-notes">
+        <PersonalNotesPanel target={dashboardNoteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} />
+      </div>
+
+      <div id="dashboard-activity">
+        <ActivityChart points={activityCounts.map((count, index) => ({ date: new Date(new Date(`${initialCalendarDate}T00:00:00Z`).getTime() - (29 - index) * 86_400_000).toISOString().slice(0, 10), count }))} />
+      </div>
+
+      <div id="dashboard-orders" className="dashboard-orders-block">
         <RecentOrders orders={dashboardOrders.slice(0, 6)} />
-        <DashboardCalendar
-          visits={calendarVisits}
-          initialDate={initialCalendarDate}
-        />
-        <FinancialSummary orders={currentMonthOrders} />
+      </div>
+
+      <div className="dashboard-planning-row">
+        <div id="dashboard-calendar">
+          <DashboardCalendar visits={calendarVisits} initialDate={initialCalendarDate} />
+        </div>
+        {canReadFinance ? <div id="dashboard-finance"><FinancialSummary orders={currentMonthOrders} /></div> : null}
       </div>
     </div>
   );
@@ -201,10 +231,21 @@ function formatDashboardDate(date: Date, timeZone: string) {
   }).format(date);
 }
 
-function countsByDate(dateKeys: string[], endDate: string) {
+function formatLongDashboardDate(date: Date, timeZone: string) {
+  const formatted = new Intl.DateTimeFormat("ru-RU", {
+    timeZone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function countsByDate(dateKeys: string[], endDate: string, days = 7) {
   const end = new Date(`${endDate}T00:00:00Z`);
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(end.getTime() - (6 - index) * 86_400_000)
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(end.getTime() - (days - 1 - index) * 86_400_000)
       .toISOString()
       .slice(0, 10);
     return dateKeys.filter((value) => value === date).length;
@@ -237,6 +278,8 @@ function toDashboardVisit(visit: ServiceVisit): DashboardVisit {
   const scheduledStart = new Date(visit.scheduledStartAt);
   return {
     id: visit.id,
+    organizationId: visit.organizationId,
+    organizationName: visit.organizationName,
     orderId: visit.orderId,
     orderNumber: visit.orderNumber,
     date: localDateKey(scheduledStart, visit.timezone),

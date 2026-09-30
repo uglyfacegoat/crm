@@ -173,7 +173,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
       SELECT documents.id, 'document' AS entity_type, documents.title AS title,
         clients.legal_name || ' · заказ №' || orders.order_number AS subtitle,
         document_versions.original_filename AS detail,
-        '/documents?client=' || documents.client_id::text || '&object=' || documents.object_id::text || '&order=' || documents.order_id::text || '&document=' || documents.id::text AS href,
+        '/documents?client=' || documents.client_id::text || '&object=' || coalesce(documents.object_id, documents.order_id)::text || '&order=' || documents.order_id::text || '&document=' || documents.id::text AS href,
         CASE
           WHEN lower(document_versions.original_filename) LIKE ${containsPattern} ESCAPE '\' THEN 'Имя файла'
           WHEN lower(coalesce(documents.description, '')) LIKE ${containsPattern} ESCAPE '\' THEN 'Описание'

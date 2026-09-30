@@ -1,21 +1,18 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuthMode } from "@/server/auth/config";
+import { safeLoginRedirect } from "@/server/auth/login-redirect";
 import { getClientAddress } from "@/server/auth/request";
 import { authenticateMember } from "@/server/auth/service";
-import { setSessionCookie } from "@/server/auth/session";
+import { setEmailChallengeCookie, setSessionCookie } from "@/server/auth/session";
 
 export type LoginState = { error: string | null };
 
-function safeNextPath(value: FormDataEntryValue | null) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/";
-  return value;
-}
-
 export async function loginAction(_previousState: LoginState, formData: FormData): Promise<LoginState> {
-  const nextPath = safeNextPath(formData.get("next"));
+  const nextPath = safeLoginRedirect(formData.get("next"));
   if (getAuthMode() === "preview") redirect(nextPath);
 
   const requestHeaders = await headers();
@@ -28,12 +25,18 @@ export async function loginAction(_previousState: LoginState, formData: FormData
       clientAddress: getClientAddress(requestHeaders),
     });
   } catch (error) {
-    console.error(JSON.stringify({ operation: "auth.login", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "auth.login", category: "unexpected", errorCode: safeErrorCode(error) }));
     return { error: "Сервис входа временно недоступен. Попробуйте ещё раз позднее." };
   }
 
   if (!result.ok) {
-    return { error: result.reason === "rate_limited" ? "Слишком много попыток. Повторите вход через 15 минут." : "Неверный логин или пароль." };
+    return { error: result.reason === "rate_limited" ? "Слишком много попыток. Повторите вход через 15 минут."
+      : result.reason === "mail_unavailable" ? "Подтверждение по почте временно недоступно. Попробуйте позже."
+        : "Неверный логин или пароль." };
+  }
+  if ("challengeToken" in result) {
+    await setEmailChallengeCookie(result.challengeToken);
+    redirect(`/login/verify?next=${encodeURIComponent(nextPath)}`);
   }
   await setSessionCookie(result.session);
   redirect(nextPath);

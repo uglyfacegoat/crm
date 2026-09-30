@@ -19,9 +19,16 @@ const leadRowSchema = z.object({
   phone: z.string().nullable(),
   email: z.string().nullable(),
   service_interest: z.string().nullable(),
+  object_address: z.string().nullable(),
+  object_size: z.string().nullable(),
+  comment: z.string().nullable(),
   landing_url: z.string().nullable(),
+  referrer_url: z.string().nullable(),
   utm_source: z.string().nullable(),
+  utm_medium: z.string().nullable(),
   utm_campaign: z.string().nullable(),
+  utm_content: z.string().nullable(),
+  utm_term: z.string().nullable(),
   moderation_status: z.enum(["new", "reviewing", "accepted", "rejected"]),
   review_note: z.string().nullable(),
   reviewer_name: z.string().nullable(),
@@ -34,6 +41,15 @@ const leadRowSchema = z.object({
 });
 
 const countRowSchema = z.object({ status: z.enum(["new", "reviewing", "accepted", "rejected"]), count: z.number().int().nonnegative() });
+const leadPickerRowSchema = z.object({
+  id: z.string().uuid(),
+  contact_name: z.string().nullable(),
+  phone: z.string().nullable(),
+  email: z.string().nullable(),
+  service_interest: z.string().nullable(),
+  website_name: z.string(),
+  received_at: z.coerce.date(),
+});
 const leadPrefillRowSchema = z.object({
   id: z.string().uuid(),
   version: z.number().int().positive(),
@@ -41,6 +57,9 @@ const leadPrefillRowSchema = z.object({
   phone: z.string().nullable(),
   email: z.string().nullable(),
   service_interest: z.string().nullable(),
+  object_address: z.string().nullable(),
+  object_size: z.string().nullable(),
+  comment: z.string().nullable(),
   website_name: z.string(),
   landing_url: z.string().nullable(),
   utm_source: z.string().nullable(),
@@ -73,9 +92,16 @@ function mapLead(value: unknown): IncomingLead {
     phone: row.phone,
     email: row.email,
     serviceInterest: row.service_interest,
+    objectAddress: row.object_address,
+    objectSize: row.object_size,
+    comment: row.comment,
     landingUrl: row.landing_url,
+    referrerUrl: row.referrer_url,
     utmSource: row.utm_source,
+    utmMedium: row.utm_medium,
     utmCampaign: row.utm_campaign,
+    utmContent: row.utm_content,
+    utmTerm: row.utm_term,
     status: row.moderation_status,
     reviewNote: row.review_note,
     reviewerName: row.reviewer_name,
@@ -88,14 +114,19 @@ function mapLead(value: unknown): IncomingLead {
   };
 }
 
-export async function getIncomingLeadSnapshot(member: AuthenticatedMember, filter: IncomingLeadListFilter): Promise<IncomingLeadSnapshot> {
+export async function getIncomingLeadSnapshot(member: AuthenticatedMember, filter: IncomingLeadListFilter, selectedLeadId?: string | null): Promise<IncomingLeadSnapshot> {
   requirePermission(member, "leads.read");
+  const parsedSelectedId = z.string().uuid().safeParse(selectedLeadId);
+  const selectedId = parsedSelectedId.success ? parsedSelectedId.data : null;
   const sql = getDatabase();
   const [leadValues, countValues] = await Promise.all([
     sql`SELECT website_leads.id, website_leads.website_id, websites.name AS website_name, websites.domain AS website_domain,
         website_leads.external_event_id, website_leads.received_at, website_leads.contact_name, website_leads.phone,
-        website_leads.email, website_leads.service_interest, website_leads.landing_url, website_leads.utm_source,
-        website_leads.utm_campaign, website_leads.moderation_status, website_leads.review_note,
+        website_leads.email, website_leads.service_interest, website_leads.object_address, website_leads.object_size,
+        website_leads.comment, website_leads.landing_url, website_leads.referrer_url,
+        website_leads.utm_source, website_leads.utm_medium, website_leads.utm_campaign,
+        website_leads.utm_content, website_leads.utm_term,
+        website_leads.moderation_status, website_leads.review_note,
         organization_members.display_name AS reviewer_name, website_leads.reviewed_at, website_leads.version,
         orders.id AS order_id, orders.order_number,
         possible_client.id AS possible_client_id, possible_client.legal_name AS possible_client_name
@@ -118,10 +149,11 @@ export async function getIncomingLeadSnapshot(member: AuthenticatedMember, filte
         LIMIT 1
       ) possible_client ON true
       WHERE website_leads.organization_id = ${member.organizationId}
-        AND (${filter.status} = 'all' OR website_leads.moderation_status = ${filter.status})
+        AND (${selectedId}::uuid = website_leads.id OR ((${filter.status} = 'all' OR website_leads.moderation_status = ${filter.status})
         AND (${filter.query} = '' OR crm_search_matches(concat_ws(' ', website_leads.contact_name, website_leads.phone, website_leads.email,
           website_leads.service_interest, websites.name, websites.domain, website_leads.utm_source), ${filter.query}))
-      ORDER BY CASE website_leads.moderation_status WHEN 'new' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
+        ))
+      ORDER BY CASE WHEN website_leads.id = ${selectedId}::uuid THEN -1 WHEN website_leads.moderation_status = 'new' THEN 0 WHEN website_leads.moderation_status = 'reviewing' THEN 1 ELSE 2 END,
         website_leads.received_at DESC
       LIMIT 250`,
     sql`SELECT moderation_status AS status, count(*)::integer AS count
@@ -136,11 +168,44 @@ export async function getIncomingLeadSnapshot(member: AuthenticatedMember, filte
   return { leads: leadValues.map(mapLead), counts };
 }
 
+export async function searchIncomingLeadOptions(member: AuthenticatedMember, filter: IncomingLeadListFilter) {
+  requirePermission(member, "leads.read");
+  const sql = getDatabase();
+  const rows = await sql`SELECT website_leads.id, website_leads.contact_name, website_leads.phone,
+      website_leads.email, website_leads.service_interest, websites.name AS website_name, website_leads.received_at
+    FROM website_leads
+    JOIN websites ON websites.organization_id = website_leads.organization_id AND websites.id = website_leads.website_id
+    WHERE website_leads.organization_id = ${member.organizationId}
+      AND (${filter.status} = 'all' OR website_leads.moderation_status = ${filter.status})
+      AND (${filter.query} = '' OR crm_search_matches(concat_ws(' ', website_leads.contact_name,
+        website_leads.phone, website_leads.email, website_leads.service_interest,
+        websites.name, websites.domain, website_leads.utm_source), ${filter.query}))
+    ORDER BY CASE WHEN website_leads.moderation_status = 'new' THEN 0
+      WHEN website_leads.moderation_status = 'reviewing' THEN 1 ELSE 2 END,
+      website_leads.received_at DESC
+    LIMIT 21`;
+  const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow",
+  });
+  return {
+    items: rows.slice(0, 20).map((value) => {
+      const row = leadPickerRowSchema.parse(value);
+      return {
+        id: row.id,
+        name: row.contact_name || row.phone || row.email || "Без имени",
+        detail: `${row.website_name} · ${row.service_interest || "Услуга не указана"} · ${dateFormatter.format(row.received_at)}`,
+      };
+    }),
+    hasMore: rows.length > 20,
+  };
+}
+
 export async function getIncomingLeadPrefill(member: AuthenticatedMember, leadId: string): Promise<IncomingLeadPrefill> {
   requirePermission(member, "leads.write");
   const parsedLeadId = z.string().uuid().parse(leadId);
   const [value] = await getDatabase()`SELECT website_leads.id, website_leads.version, website_leads.contact_name,
-      website_leads.phone, website_leads.email, website_leads.service_interest, websites.name AS website_name,
+      website_leads.phone, website_leads.email, website_leads.service_interest, website_leads.object_address,
+      website_leads.object_size, website_leads.comment, websites.name AS website_name,
       website_leads.landing_url, website_leads.utm_source, website_leads.utm_campaign,
       possible_client.id AS possible_client_id
     FROM website_leads JOIN websites ON websites.organization_id = website_leads.organization_id AND websites.id = website_leads.website_id
@@ -161,6 +226,9 @@ export async function getIncomingLeadPrefill(member: AuthenticatedMember, leadId
   const row = leadPrefillRowSchema.parse(value);
   const sourceLines = [
     `Заявка с сайта ${row.website_name}.`,
+    row.object_address ? `Адрес объекта: ${row.object_address}` : null,
+    row.object_size ? `Площадь / объём: ${row.object_size}` : null,
+    row.comment ? `Комментарий: ${row.comment}` : null,
     row.landing_url ? `Страница: ${row.landing_url}` : null,
     row.utm_source ? `Источник: ${row.utm_source}${row.utm_campaign ? ` / ${row.utm_campaign}` : ""}` : null,
   ].filter(Boolean);
@@ -174,6 +242,20 @@ export async function getIncomingLeadPrefill(member: AuthenticatedMember, leadId
     serviceInterest: row.service_interest ?? "",
     orderNotes: sourceLines.join("\n"),
   };
+}
+
+export async function getOrderCreatedFromIncomingLead(member: AuthenticatedMember, leadId: string): Promise<string | null> {
+  requirePermission(member, "leads.read");
+  requirePermission(member, "orders.read");
+  const parsedLeadId = z.string().uuid().parse(leadId);
+  const [row] = await getDatabase()`SELECT orders.id
+    FROM website_leads
+    JOIN orders ON orders.organization_id = website_leads.organization_id AND orders.source_lead_id = website_leads.id
+    WHERE website_leads.organization_id = ${member.organizationId}
+      AND website_leads.id = ${parsedLeadId}
+      AND website_leads.moderation_status = 'accepted'
+    LIMIT 1`;
+  return row ? z.string().uuid().parse(row.id) : null;
 }
 
 export async function rejectIncomingLead(member: AuthenticatedMember, input: RejectIncomingLeadInput) {
@@ -200,6 +282,9 @@ function fingerprintLead(input: WebsiteLeadWebhookInput) {
     phone: input.phone ? normalizeContactPhone(input.phone) : null,
     email: input.email ?? null,
     serviceInterest: input.serviceInterest?.toLocaleLowerCase("ru") ?? null,
+    objectAddress: input.objectAddress?.toLocaleLowerCase("ru") ?? null,
+    objectSize: input.objectSize?.toLocaleLowerCase("ru") ?? null,
+    comment: input.comment?.toLocaleLowerCase("ru") ?? null,
     landingUrl: input.landingUrl ?? null,
   };
   return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
@@ -240,10 +325,12 @@ export async function ingestWebsiteLead(input: WebsiteLeadWebhookInput) {
     if (recentDuplicate) return { leadId: z.string().uuid().parse(recentDuplicate.id), duplicate: true };
     const [lead] = await transaction`INSERT INTO website_leads (
         organization_id, website_id, external_event_id, received_at, contact_name, phone, email, service_interest,
+        object_address, object_size, comment,
         landing_url, referrer_url, utm_source, utm_medium, utm_campaign, utm_content, utm_term, payload_fingerprint
       ) VALUES (
         ${organizationId}, ${input.websiteId}, ${input.eventId}, ${input.receivedAt ? new Date(input.receivedAt) : new Date()},
-        ${input.contactName}, ${input.phone}, ${input.email}, ${input.serviceInterest}, ${input.landingUrl}, ${input.referrerUrl},
+        ${input.contactName}, ${input.phone}, ${input.email}, ${input.serviceInterest},
+        ${input.objectAddress}, ${input.objectSize}, ${input.comment}, ${input.landingUrl}, ${input.referrerUrl},
         ${input.utmSource}, ${input.utmMedium}, ${input.utmCampaign}, ${input.utmContent}, ${input.utmTerm}, ${fingerprint}
       ) ON CONFLICT (organization_id, website_id, external_event_id) DO NOTHING RETURNING id`;
     if (!lead) {

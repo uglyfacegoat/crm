@@ -55,6 +55,31 @@ test("validates an atomic quick order for a new client", () => {
   assert.equal(parsed.visit.assignedMasterId, null);
 });
 
+test("accepts a legal entity without INN or email", () => {
+  const parsed = quickOrderSchema.parse({
+    idempotencyKey: "72b4534b-37dc-4a8b-8b8c-7d4ce832b228",
+    client: {
+      mode: "new",
+      details: {
+        kind: "legal_entity", legalName: "ООО Тест", taxId: "",
+        contactName: "Иван Иванов", contactPosition: "", phone: "+7 999 123-45-67", email: "",
+      },
+      object: {
+        name: "Склад", objectType: "Склад", address: "Москва, улица Тестовая, 1",
+        areaSquareMeters: "", floorCount: "", onsiteContact: "", accessInstructions: "",
+        parkingNotes: "", restrictions: "", riskLevel: 3, infestationLevel: 1,
+      },
+    },
+    order: baseOrder,
+    visit: baseVisit,
+  });
+  assert.equal(parsed.client.mode, "new");
+  if (parsed.client.mode === "new") {
+    assert.equal(parsed.client.details.taxId, null);
+    assert.equal(parsed.client.details.email, null);
+  }
+});
+
 test("supports existing client references", () => {
   const parsed = quickOrderSchema.safeParse({
     idempotencyKey: "72b4534b-37dc-4a8b-8b8c-7d4ce832b228",

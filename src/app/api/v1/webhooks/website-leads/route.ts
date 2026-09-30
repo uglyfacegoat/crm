@@ -1,6 +1,11 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { timingSafeEqual } from "node:crypto";
+import { consumeRateLimit } from "@/server/auth/repository";
+import { createPrivateBucketHash } from "@/server/auth/token";
+import { getClientAddress } from "@/server/auth/request";
 import { IncomingLeadNotFoundError, IncomingLeadRateLimitError, ingestWebsiteLead } from "@/server/incoming-leads/repository";
 import { websiteLeadWebhookSchema } from "@/server/incoming-leads/schemas";
+import { InvalidJsonBodyError, readJsonBody, RequestBodyTooLargeError } from "@/server/http/json-body";
 
 export const dynamic = "force-dynamic";
 
@@ -17,22 +22,31 @@ export async function POST(request: Request) {
   if (!configuredSecret || configuredSecret.length < 32) {
     return Response.json({ error: "Webhook is not configured." }, { status: 503 });
   }
+  try {
+    // Both buckets are server-derived. Untrusted forwarding headers cannot create new IP buckets.
+    const globalBucket = createPrivateBucketHash(configuredSecret, "website-leads:global");
+    const globalAllowed = await consumeRateLimit([globalBucket], 600, 1);
+    const address = getClientAddress(request.headers);
+    const addressAllowed = address
+      ? await consumeRateLimit([createPrivateBucketHash(configuredSecret, `website-leads:ip:${address}`)], 120, 1)
+      : true;
+    if (!globalAllowed || !addressAllowed) {
+      return Response.json({ error: "Rate limit exceeded." }, { status: 429, headers: { "Retry-After": "60" } });
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ operation: "website_lead.throttle", category: "unexpected", errorCode: safeErrorCode(error) }));
+    return Response.json({ error: "Webhook is unavailable." }, { status: 503 });
+  }
   if (!hasValidSecret(request, configuredSecret)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > 32_768) {
-    return Response.json({ error: "Payload is too large." }, { status: 413 });
-  }
   let payload: unknown;
   try {
-    const body = await request.text();
-    if (Buffer.byteLength(body, "utf8") > 32_768) {
-      return Response.json({ error: "Payload is too large." }, { status: 413 });
-    }
-    payload = JSON.parse(body) as unknown;
-  } catch {
-    return Response.json({ error: "Malformed JSON." }, { status: 400 });
+    payload = await readJsonBody(request, 32 * 1024);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return Response.json({ error: "Payload is too large." }, { status: 413 });
+    if (error instanceof InvalidJsonBodyError) return Response.json({ error: "Malformed JSON." }, { status: 400 });
+    throw error;
   }
   const parsed = websiteLeadWebhookSchema.safeParse(payload);
   if (!parsed.success) {
@@ -52,7 +66,7 @@ export async function POST(request: Request) {
       operation: "website_lead.receive",
       category: "unexpected",
       websiteId: parsed.data.websiteId,
-      error: error instanceof Error ? error.message : "Unknown error",
+      errorCode: safeErrorCode(error),
     }));
     return Response.json({ error: "Lead could not be stored." }, { status: 500 });
   }

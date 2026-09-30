@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { getAuthMode, shouldUseSecureSessionCookie } from "./config";
 import { resolveSession } from "./service";
+import { EMAIL_CHALLENGE_COOKIE_NAME } from "./email-otp-repository";
 import type { AuthenticatedMember, SessionCookie } from "./types";
 
 export const SESSION_COOKIE_NAME = "crm_session";
@@ -15,14 +16,14 @@ const previewMember: AuthenticatedMember = {
   memberId: "00000000-0000-0000-0000-000000000000",
   displayName: "Иван Петров",
   email: "preview@crm.local",
-  role: "admin",
+  role: "developer",
   masterId: null,
   permissionOverrides: {},
 };
 
 export async function requireOfficeSession() {
   const session = await requireSession();
-  if (session.role === "master") redirect("/my-visits");
+  if (session.role === "master" || session.role === "foreman") redirect("/my-visits");
   return session;
 }
 
@@ -40,6 +41,19 @@ export async function setSessionCookie(session: SessionCookie) {
 export async function clearSessionCookie() {
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, "", { httpOnly: true, secure: shouldUseSecureSessionCookie(), sameSite: "lax", path: "/", maxAge: 0 });
+}
+
+export async function setEmailChallengeCookie(token: string) {
+  (await cookies()).set(EMAIL_CHALLENGE_COOKIE_NAME, token, {
+    httpOnly: true, secure: shouldUseSecureSessionCookie(), sameSite: "lax",
+    path: "/", maxAge: 10 * 60,
+  });
+}
+
+export async function clearEmailChallengeCookie() {
+  (await cookies()).set(EMAIL_CHALLENGE_COOKIE_NAME, "", {
+    httpOnly: true, secure: shouldUseSecureSessionCookie(), sameSite: "lax", path: "/", maxAge: 0,
+  });
 }
 
 export const getCurrentSession = cache(async () => {

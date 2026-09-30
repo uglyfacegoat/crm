@@ -1,14 +1,15 @@
 "use client";
 
 import { Check, ChevronDown, LoaderCircle, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { OrderMutationState } from "@/app/(workspace)/orders/actions";
+import { ORDER_PICKER_PAGE_SIZE, type OrderPickerQuery, type OrderPickerResult } from "@/lib/order-picker";
 import { filterPickerOptions } from "@/lib/picker-options";
 
 export const orderInputClass =
   "focus-ring h-12 w-full rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)] disabled:cursor-not-allowed disabled:opacity-45";
 export const orderTextareaClass =
-  "focus-ring min-h-24 w-full resize-y rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
+  "focus-ring min-h-24 w-full rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]";
 
 export function OrderField({
   label,
@@ -35,7 +36,7 @@ export function OrderField({
   );
 }
 
-type PickerOption = { value: string; label: string; detail?: string };
+type PickerOption = { value: string; label: string; detail?: string; clientId?: string; catalogItem?: NonNullable<OrderPickerResult["items"][number]["catalogItem"]> };
 
 export function OrderPicker({
   label,
@@ -47,13 +48,17 @@ export function OrderPicker({
   required,
   errors,
   placement,
-  searchable = label === "Мастер",
+  searchable = true,
   searchPlaceholder = label === "Мастер" ? "ФИО или телефон" : "Найти вариант",
+  remote,
+  remoteUrl,
+  pinnedValues,
+  onSelected,
 }: {
   label: string;
   value: string;
   options: PickerOption[];
-  onChange: (value: string) => void;
+  onChange: (value: string, option?: PickerOption) => void;
   placeholder: string;
   disabled?: boolean;
   required?: boolean;
@@ -61,12 +66,69 @@ export function OrderPicker({
   placement?: "top" | "bottom";
   searchable?: boolean;
   searchPlaceholder?: string;
+  remote?: { type: OrderPickerQuery["type"]; clientId?: string };
+  remoteUrl?: string;
+  pinnedValues?: string[];
+  onSelected?: (option: PickerOption) => void;
 }) {
   const [query, setQuery] = useState("");
-  const selected = options.find((option) => option.value === value);
+  const [open, setOpen] = useState(false);
+  const [remoteOptions, setRemoteOptions] = useState<{ key: string; items: PickerOption[] } | null>(null);
+  const [remoteHasMore, setRemoteHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [selectedOption, setSelectedOption] = useState<PickerOption | null>(null);
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const remoteType = remote?.type ?? (label === "Мастер" && options.length > 20 ? "masters" : null);
+  const remoteClientId = remote?.clientId;
+  const remoteKey = `${remoteType ?? ""}:${remoteUrl ?? ""}:${remoteClientId ?? ""}:${query}`;
+  useEffect(() => {
+    if (!open || (!remoteType && !remoteUrl) || (remoteType === "objects" || remoteType === "contacts") && !remoteClientId) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setLoadError(false);
+      const url = new URL(remoteUrl ?? "/api/v1/orders/options", window.location.origin);
+      if (remoteType) url.searchParams.set("type", remoteType);
+      url.searchParams.set("q", query);
+      if (remoteClientId) url.searchParams.set("clientId", remoteClientId);
+      try {
+        const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Order picker request failed");
+        const payload = await response.json() as { data: OrderPickerResult };
+        if (!controller.signal.aborted) {
+          setRemoteOptions({ key: remoteKey, items: payload.data.items.map((item) => ({ value: item.id, label: item.name, detail: item.detail, clientId: item.clientId, catalogItem: item.catalogItem })) });
+          setRemoteHasMore(payload.data.hasMore);
+        }
+      } catch {
+        if (!controller.signal.aborted) setLoadError(true);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, query ? 250 : 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [open, query, remoteClientId, remoteType, remoteUrl, remoteKey, retry]);
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !detailsRef.current?.contains(event.target)) {
+        detailsRef.current?.removeAttribute("open");
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [open]);
+  const selected = options.find((option) => option.value === value) ?? (selectedOption?.value === value ? selectedOption : null);
   const visibleOptions = useMemo(
-    () => (searchable ? filterPickerOptions(options, query) : options),
-    [options, query, searchable],
+    () => {
+      if ((!remoteType && !remoteUrl) || loadError) return searchable ? filterPickerOptions(options, query) : options;
+      const pinned = options.filter((option) => option.value === "" || option.value === value || pinnedValues?.includes(option.value));
+      if (selectedOption?.value === value && !pinned.some((option) => option.value === value)) pinned.push(selectedOption);
+      if (remoteOptions?.key !== remoteKey) return query ? [] : [...pinned, ...options.slice(0, ORDER_PICKER_PAGE_SIZE).filter((option) => !pinned.some((item) => item.value === option.value))];
+      return [...pinned, ...remoteOptions.items.filter((option) => !pinned.some((item) => item.value === option.value))];
+    },
+    [options, query, remoteOptions, remoteKey, remoteType, remoteUrl, searchable, loadError, pinnedValues, selectedOption, value],
   );
   const menuPosition =
     (placement ?? (label === "Контакт" ? "top" : "bottom")) === "top"
@@ -79,8 +141,17 @@ export function OrderPicker({
         {required ? " *" : ""}
       </span>
       <details
+        ref={detailsRef}
         onToggle={(event) => {
+          setOpen(event.currentTarget.open);
           if (!event.currentTarget.open) setQuery("");
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !event.currentTarget.open) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.currentTarget.removeAttribute("open");
+          event.currentTarget.querySelector("summary")?.focus();
         }}
         className="group relative open:z-[90]"
       >
@@ -114,11 +185,13 @@ export function OrderPicker({
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  maxLength={100}
                   onKeyDown={(event) => {
-                    if (event.key === "Escape")
-                      event.currentTarget
-                        .closest("details")
-                        ?.removeAttribute("open");
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      detailsRef.current?.removeAttribute("open");
+                      detailsRef.current?.querySelector("summary")?.focus();
+                    }
                     event.stopPropagation();
                   }}
                   placeholder={searchPlaceholder}
@@ -142,7 +215,9 @@ export function OrderPicker({
                   key={option.value}
                   type="button"
                   onClick={(event) => {
-                    onChange(option.value);
+                    onChange(option.value, option);
+                    onSelected?.(option);
+                    setSelectedOption(option);
                     setQuery("");
                     event.currentTarget
                       .closest("details")
@@ -160,9 +235,11 @@ export function OrderPicker({
               ))
             ) : (
               <p className="px-3 py-5 text-center text-xs text-[var(--muted)]">
-                Поиск не дал результатов
+                {loading || (Boolean(query) && (remoteType || remoteUrl) && remoteOptions?.key !== remoteKey) ? "Загрузка…" : loadError ? "Не удалось загрузить варианты" : "Поиск не дал результатов"}
               </p>
             )}
+            {(remoteType || remoteUrl) && loadError && visibleOptions.length === 0 ? <button type="button" onClick={() => setRetry((value) => value + 1)} className="focus-ring w-full rounded-[10px] px-3 py-2 text-xs text-[var(--accent)]">Повторить</button> : null}
+            {(remoteType || remoteUrl) && !loading && !loadError && remoteHasMore ? <p className="px-3 py-2 text-[10px] text-[var(--muted)]">Показаны первые 20. Уточните поиск.</p> : null}
           </div>
         ) : null}
       </details>

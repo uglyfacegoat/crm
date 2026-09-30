@@ -17,6 +17,8 @@ export type WebsiteIntegrationListItem = {
 
 export type WebsiteListItem = {
   id: string;
+  organizationId?: string;
+  organizationName?: string;
   name: string;
   domain: string;
   status: WebsiteStatus;
@@ -24,9 +26,11 @@ export type WebsiteListItem = {
   visitors: number;
   pageviews: number;
   leads: number;
+  orders: number;
   paidOrders: number;
   paidRevenueMinor: number;
   conversionPercent: number;
+  trafficHistory: Array<number | null>;
   integrations: WebsiteIntegrationListItem[];
 };
 
@@ -39,12 +43,13 @@ export type WebsiteSnapshot = {
     pageviews: number;
     searchClicks: number;
     leads: number;
+    orders: number;
     paidOrders: number;
     paidRevenueMinor: number;
     conversionPercent: number;
   };
   sites: WebsiteListItem[];
-  trafficTrend: { labels: string[]; series: ChartSeries[] };
+  trafficTrend: { labels: string[]; series: Array<Omit<ChartSeries, "values"> & { values: Array<number | null> }> };
   trafficSources: Array<{ label: string; value: number; amount: number }>;
 };
 
@@ -69,6 +74,9 @@ export type WebsiteHealthSnapshot = {
   cpuLoadPercent: number;
   memoryUsedMb: number;
   diskUsedMb: number;
+  memoryCapacityMb?: number | null;
+  diskCapacityMb?: number | null;
+  sslExpiresOn?: string | null;
   source: "manual" | "monitor";
 };
 

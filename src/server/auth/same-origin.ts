@@ -1,21 +1,8 @@
-export type SameOriginInput = {
-  origin: string;
-  requestUrl: string;
-  host: string | null;
-  forwardedHost: string | null;
-  forwardedProtocol: string | null;
-};
-
-export function matchesRequestOrigin(input: SameOriginInput) {
+export function matchesRequestOrigin(origin: string | null, allowedOrigins: readonly string[]) {
+  if (!origin) return false;
   try {
-    const originUrl = new URL(input.origin);
-    const requestUrl = new URL(input.requestUrl);
-    const expectedHost = input.host?.trim()
-      || input.forwardedHost?.split(",")[0]?.trim()
-      || requestUrl.host;
-    const expectedProtocol = input.forwardedProtocol?.split(",")[0]?.trim()
-      || requestUrl.protocol.slice(0, -1);
-    return originUrl.host === expectedHost && originUrl.protocol === `${expectedProtocol}:`;
+    const url = new URL(origin);
+    return url.origin === origin && allowedOrigins.includes(origin);
   } catch {
     return false;
   }

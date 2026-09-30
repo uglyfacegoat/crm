@@ -31,6 +31,8 @@ const serviceRowSchema = z.object({ label: z.string(), amount_minor: z.string() 
 const teamRowSchema = z.object({ id: z.string().uuid(), name: z.string(), visits: z.number().int().nonnegative(), completed: z.number().int().nonnegative(), order_value_minor: z.string() });
 const clientRowSchema = z.object({ id: z.string().uuid(), name: z.string(), orders: z.number().int().positive(), agreed_minor: z.string() });
 const rateRowSchema = z.object({ repeat_clients: z.number().int().nonnegative(), active_clients: z.number().int().nonnegative() });
+const activityRowSchema = z.object({ bucket_date: z.string(), visits: z.number().int().nonnegative() });
+const statusRowSchema = z.object({ status: z.enum(["new", "approval", "scheduled", "in_progress", "overdue", "completed", "cancelled"]), count: z.number().int().nonnegative() });
 
 const serviceColors = ["#000000", "#a2beff", "#25272c", "#f6f5f0"];
 
@@ -61,7 +63,7 @@ export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDay
   const bounds = boundsRowSchema.parse(boundsRow);
   const bucketUnit = rangeDays === 30 ? "day" : rangeDays === 90 ? "week" : "month";
 
-  const [orderMetricRows, visitMetricRows, clientMetricRows, trendRows, stageRows, serviceRows, teamRows, clientRows, repeatRateRows] = await Promise.all([
+  const [orderMetricRows, visitMetricRows, clientMetricRows, trendRows, stageRows, serviceRows, teamRows, clientRows, repeatRateRows, activityRows, statusRows] = await Promise.all([
     sql`SELECT
       count(*) FILTER (WHERE created_at >= ${bounds.current_start_at})::integer AS current_orders,
       count(*) FILTER (WHERE created_at < ${bounds.current_start_at})::integer AS previous_orders,
@@ -134,6 +136,17 @@ export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDay
       GROUP BY client_id
     ) SELECT count(*) FILTER (WHERE order_count > 1)::integer AS repeat_clients,
       count(*)::integer AS active_clients FROM client_orders`,
+    sql`SELECT date_trunc(${bucketUnit}, scheduled_start_at AT TIME ZONE ${bounds.timezone})::date::text AS bucket_date,
+      count(*)::integer AS visits
+      FROM service_visits
+      WHERE organization_id = ${member.organizationId} AND status <> 'cancelled'
+        AND scheduled_start_at >= ${bounds.current_start_at} AND scheduled_start_at < ${bounds.current_end_at}
+      GROUP BY bucket_date ORDER BY bucket_date`,
+    sql`SELECT status, count(*)::integer AS count
+      FROM orders
+      WHERE organization_id = ${member.organizationId}
+        AND created_at >= ${bounds.current_start_at} AND created_at < ${bounds.current_end_at}
+      GROUP BY status`,
   ]);
 
   const orders = orderMetricsRowSchema.parse(orderMetricRows[0]);
@@ -158,6 +171,14 @@ export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDay
   const parsedTeam = teamRows.map((row) => teamRowSchema.parse(row));
   const repeatRates = rateRowSchema.parse(repeatRateRows[0]);
   const currentVisitCount = visits.current_count;
+  const activityByBucket = new Map(activityRows.map((row) => {
+    const entry = activityRowSchema.parse(row);
+    return [entry.bucket_date, entry.visits] as const;
+  }));
+  const statusCounts = new Map(statusRows.map((row) => {
+    const entry = statusRowSchema.parse(row);
+    return [entry.status, entry.count] as const;
+  }));
 
   return {
     range: { days: rangeDays, startDate: bounds.start_date, endDate: bounds.end_date, timezone: bounds.timezone },
@@ -201,7 +222,20 @@ export async function getAnalyticsSnapshot(member: AuthenticatedMember, rangeDay
       return { id: client.id, name: client.name, orders: client.orders, agreedMinor: safeInteger(client.agreed_minor) };
     }),
     repeatClientRate: percentage(repeatRates.repeat_clients, repeatRates.active_clients),
+    repeatClientCounts: {
+      repeat: repeatRates.repeat_clients,
+      firstTime: Math.max(0, repeatRates.active_clients - repeatRates.repeat_clients),
+    },
     completedVisitRate: percentage(visits.current_completed, currentVisitCount),
+    visitActivity: buckets.map((bucket) => ({ key: bucket.key, label: bucket.label, value: activityByBucket.get(bucket.key) ?? 0 })),
+    orderStatusBreakdown: [
+      { id: "new", label: "Новые", value: statusCounts.get("new") ?? 0 },
+      { id: "in_progress", label: "В работе", value: (statusCounts.get("in_progress") ?? 0) + (statusCounts.get("overdue") ?? 0) },
+      { id: "scheduled", label: "План", value: statusCounts.get("scheduled") ?? 0 },
+      { id: "approved", label: "Согласование", value: statusCounts.get("approval") ?? 0 },
+      { id: "completed", label: "Выполнено", value: statusCounts.get("completed") ?? 0 },
+      { id: "cancelled", label: "Отменено", value: statusCounts.get("cancelled") ?? 0 },
+    ],
   };
 }
 

@@ -1,13 +1,14 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
 import {
   ClientConflictError, ClientContactConflictError, ClientNotFoundError, ClientObjectConflictError,
-  ClientVersionConflictError, createClient, createClientContact, createClientObject, updateClient,
+  ClientVersionConflictError, completeClientContact, completeClientObject, createClient, createClientContact, createClientObject, updateClient,
 } from "@/server/clients/repository";
-import { createClientContactSchema, createClientObjectSchema, createClientSchema, updateClientSchema } from "@/server/clients/schemas";
+import { completeClientContactSchema, completeClientObjectSchema, createClientContactSchema, createClientObjectSchema, createClientSchema, updateClientSchema } from "@/server/clients/schemas";
 
 export type CreateClientState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]>; clientId: string | null };
 export type ClientMutationState = { status: "idle" | "success" | "error"; message: string | null; fieldErrors: Record<string, string[]> };
@@ -15,7 +16,7 @@ export type ClientMutationState = { status: "idle" | "success" | "error"; messag
 const previewState: ClientMutationState = { status: "error", message: "Предпросмотр не записывает данные. Для сохранения включите рабочий режим и PostgreSQL.", fieldErrors: {} };
 
 function logUnexpected(operation: string, memberId: string, error: unknown) {
-  console.error(JSON.stringify({ operation, category: "unexpected", memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+  console.error(JSON.stringify({ operation, category: "unexpected", memberId, errorCode: safeErrorCode(error) }));
 }
 
 export async function createClientAction(_previous: CreateClientState, formData: FormData): Promise<CreateClientState> {
@@ -29,7 +30,7 @@ export async function createClientAction(_previous: CreateClientState, formData:
     return { status: "success", message: "Клиент создан.", fieldErrors: {}, clientId };
   } catch (error) {
     if (error instanceof ClientConflictError) return { status: "error", message: "Клиент с таким ИНН уже существует.", fieldErrors: { taxId: ["ИНН уже используется"] }, clientId: null };
-    console.error(JSON.stringify({ operation: "clients.create", category: "unexpected", memberId: member.memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "clients.create", category: "unexpected", memberId: member.memberId, errorCode: safeErrorCode(error) }));
     return { status: "error", message: "Не удалось создать клиента. Изменения не сохранены.", fieldErrors: {}, clientId: null };
   }
 }
@@ -86,5 +87,44 @@ export async function createClientObjectAction(_previous: ClientMutationState, f
     if (error instanceof ClientNotFoundError) return { status: "error", message: "Клиент больше не существует или недоступен.", fieldErrors: {} };
     logUnexpected("client_objects.create", member.memberId, error);
     return { status: "error", message: "Не удалось добавить объект. Изменения не сохранены.", fieldErrors: {} };
+  }
+}
+
+export async function completeClientContactAction(_previous: ClientMutationState, formData: FormData): Promise<ClientMutationState> {
+  if (getAuthMode() === "preview") return previewState;
+  const parsed = completeClientContactSchema.safeParse({ clientId: formData.get("clientId"), contactId: formData.get("contactId"), fullName: formData.get("fullName"), position: formData.get("position"), phone: formData.get("phone"), email: formData.get("email") });
+  if (!parsed.success) return { status: "error", message: "Проверьте заполненные поля.", fieldErrors: parsed.error.flatten().fieldErrors };
+  const member = await requireSession();
+  try {
+    await completeClientContact(member, parsed.data);
+    revalidatePath(`/clients/${parsed.data.clientId}`);
+    revalidatePath("/clients");
+    revalidatePath("/orders");
+    revalidatePath("/orders/[id]", "page");
+    return { status: "success", message: "Контакт обновлён.", fieldErrors: {} };
+  } catch (error) {
+    if (error instanceof ClientContactConflictError) return { status: "error", message: "Этот телефон уже добавлен клиенту.", fieldErrors: { phone: ["Номер уже используется"] } };
+    if (error instanceof ClientNotFoundError) return { status: "error", message: "Контакт не найден.", fieldErrors: {} };
+    logUnexpected("client_contacts.complete", member.memberId, error);
+    return { status: "error", message: "Не удалось обновить контакт.", fieldErrors: {} };
+  }
+}
+
+export async function completeClientObjectAction(_previous: ClientMutationState, formData: FormData): Promise<ClientMutationState> {
+  if (getAuthMode() === "preview") return previewState;
+  const parsed = completeClientObjectSchema.safeParse({ clientId: formData.get("clientId"), objectId: formData.get("objectId"), name: formData.get("name"), address: formData.get("address") });
+  if (!parsed.success) return { status: "error", message: "Проверьте название и адрес.", fieldErrors: parsed.error.flatten().fieldErrors };
+  const member = await requireSession();
+  try {
+    await completeClientObject(member, parsed.data);
+    revalidatePath(`/clients/${parsed.data.clientId}`);
+    revalidatePath("/orders");
+    revalidatePath("/orders/[id]", "page");
+    return { status: "success", message: "Объект обновлён.", fieldErrors: {} };
+  } catch (error) {
+    if (error instanceof ClientObjectConflictError) return { status: "error", message: "Объект с таким адресом уже существует.", fieldErrors: { address: ["Адрес уже используется"] } };
+    if (error instanceof ClientNotFoundError) return { status: "error", message: "Объект не найден.", fieldErrors: {} };
+    logUnexpected("client_objects.complete", member.memberId, error);
+    return { status: "error", message: "Не удалось обновить объект.", fieldErrors: {} };
   }
 }

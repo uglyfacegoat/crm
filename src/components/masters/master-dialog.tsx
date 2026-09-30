@@ -231,7 +231,7 @@ function MasterAvailabilityFields({
 
   if (!master)
     return (
-      <section className="rounded-[18px] border border-[var(--line)] bg-[var(--surface-raised)] p-5 sm:p-6">
+      <section className="inset-panel p-5 sm:p-6">
         <input type="hidden" name="operationalStatus" value="working" />
         <input type="hidden" name="statusUntil" value="" />
         <input type="hidden" name="statusNote" value="" />
@@ -282,7 +282,7 @@ function MasterAvailabilityFields({
     );
 
   return (
-    <section className="overflow-hidden rounded-[18px] border border-[var(--line)] bg-[var(--surface-raised)]">
+    <section className="overflow-hidden inset-panel">
       <header className="border-b border-[var(--line)] px-5 py-4 sm:px-6">
         <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">
           Статус и доступность

@@ -10,6 +10,7 @@ const baseInput = {
   assignedMasterId: "",
   masterPayment: "",
   notes: "Уточнённый состав",
+  agreedTotal: "25000",
 };
 
 test("order update accepts a complete editable service composition", () => {
@@ -20,8 +21,7 @@ test("order update accepts a complete editable service composition", () => {
   assert.equal(result.success, true);
 });
 
-test("order update rejects an empty service composition", () => {
+test("order update keeps an agreed price before services are specified", () => {
   const result = updateOrderSchema.safeParse({ ...baseInput, services: [] });
-  assert.equal(result.success, false);
-  if (!result.success) assert.equal(result.error.flatten().fieldErrors.services?.[0], "Добавьте хотя бы одну услугу");
+  assert.equal(result.success, true);
 });

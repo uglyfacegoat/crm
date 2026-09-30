@@ -1,3 +1,4 @@
+import "./require-flow-check-target.mjs";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
@@ -36,14 +37,16 @@ try {
   await page.getByRole("heading", { name: "Договоры", exact: true }).waitFor();
   await page.getByRole("button", { name: "Новый договор", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Новый договор" });
-  const objectSelect = dialog.locator('select[name="objectId"]');
-  if (await objectSelect.locator("option").count() < 2) throw new Error("Contract flow requires at least one client object.");
-  const objectId = await objectSelect.locator("option").nth(1).getAttribute("value");
-  if (!objectId) throw new Error("The first contract object has no identifier.");
-  await objectSelect.selectOption(objectId);
+  await dialog.locator('summary[aria-label="Клиент и объект"]').click();
+  const objectChoice = dialog.locator('details:has(summary[aria-label="Клиент и объект"]) button').first();
+  if (!(await objectChoice.count())) throw new Error("Contract flow requires at least one client object.");
+  await objectChoice.click();
+  const objectId = await dialog.locator('input[name="objectId"]').inputValue();
+  const clientId = await dialog.locator('input[name="clientId"]').inputValue();
+  if (!objectId || !clientId) throw new Error("The chosen contract object has no object or client identifier.");
   await dialog.locator('input[name="contractNumber"]').fill(contractNumber);
-  await dialog.locator('input[name="startsOn"]').fill("2026-09-03");
-  await dialog.locator('input[name="endsOn"]').fill("2026-12-03");
+  await dialog.locator('input[data-form-name="startsOn"]').fill("03.09.2026");
+  await dialog.locator('input[data-form-name="endsOn"]').fill("03.12.2026");
   await dialog.getByRole("button", { name: "Создать договор" }).click();
   await dialog.waitFor({ state: "hidden" });
   const contractLink = page.getByRole("link", { name: contractNumber, exact: true });

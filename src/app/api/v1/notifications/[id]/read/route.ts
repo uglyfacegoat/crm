@@ -1,3 +1,4 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { z } from "zod";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError, requirePermission } from "@/server/auth/permissions";
@@ -26,7 +27,7 @@ export async function POST(request: Request, context: RouteContext<"/api/v1/noti
   } catch (error) {
     if (error instanceof AuthorizationError) return Response.json({ error: { code: "forbidden", message: "Недостаточно прав для изменения уведомлений." } }, { status: 403, headers: privateHeaders });
     if (error instanceof NotificationNotFoundError) return Response.json({ error: { code: "not_found", message: "Уведомление уже недоступно." } }, { status: 404, headers: privateHeaders });
-    console.error(JSON.stringify({ operation: "notifications.read", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "notifications.read", category: "unexpected", errorCode: safeErrorCode(error) }));
     return Response.json({ error: { code: "service_unavailable", message: "Не удалось отметить уведомление." } }, { status: 503, headers: privateHeaders });
   }
 }

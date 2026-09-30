@@ -248,7 +248,7 @@ function MoveVisitDialog({
               maxLength={1000}
               name="rescheduleReason"
               placeholder="Например: клиент попросил перенести выезд"
-              className="focus-ring min-h-28 resize-y rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] placeholder:text-[var(--muted-subtle)]"
+              className="focus-ring min-h-28 rounded-[12px] border border-[var(--line)] bg-[var(--surface-inset)] px-3.5 py-3 text-sm leading-5 text-[var(--text)] placeholder:text-[var(--muted-subtle)]"
             />
             <span className="text-[9px] leading-4 text-[var(--muted)]">
               Причина сохранится отдельно от заметок и будет видна в истории
@@ -417,7 +417,7 @@ function UnassignedOrdersPanel({
   onDragEnd: () => void;
 }) {
   return (
-    <aside className="surface-panel min-w-0 p-3 sm:p-4">
+    <aside id="calendar-unassigned-orders" className="surface-panel min-w-0 p-3 sm:p-4">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-[var(--text)]">
@@ -523,8 +523,9 @@ function ScheduleGrid({
         {days.map((day) => (
           <div key={day.date}>
             <button
+              type="button"
               onClick={() => onSelectDay(day.date)}
-              className="flex w-full items-center justify-between bg-[var(--surface-raised)] px-4 py-3 text-left"
+              className="focus-ring flex w-full items-center justify-between bg-[var(--surface-raised)] px-4 py-3 text-left"
             >
               <span className="text-xs capitalize text-[var(--text)]">
                 {day.weekday}, {day.day}
@@ -576,23 +577,31 @@ function ScheduleGrid({
           </div>
         ))}
       </div>
-      <div className="hidden min-w-[860px] lg:block">
-        <div
-          className={`grid border-b border-[var(--line)] ${view === "day" ? "grid-cols-[4.5rem_1fr]" : "grid-cols-[4.5rem_repeat(7,1fr)]"}`}
-        >
-          <div />
-          {days.map((day) => (
-            <button
-              key={day.date}
-              onClick={() => onSelectDay(day.date)}
-              className={`border-l border-[var(--line)] py-4 text-center ${day.date === selectedDate ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
-            >
-              <span className="text-xs capitalize">
-                {day.weekday}, {day.day}
-              </span>
-            </button>
-          ))}
-        </div>
+      <div
+        role="region"
+        aria-label="Прокручиваемая сетка расписания"
+        tabIndex={0}
+        className="focus-ring hidden max-h-[calc(100dvh-20rem)] min-w-0 overflow-auto overscroll-contain lg:block"
+      >
+        <div className="min-w-[860px]">
+          <div
+            className={`sticky top-0 z-30 grid border-b border-[var(--line)] bg-[var(--surface)] ${view === "day" ? "grid-cols-[4.5rem_1fr]" : "grid-cols-[4.5rem_repeat(7,1fr)]"}`}
+          >
+            <div />
+            {days.map((day) => (
+              <button
+                key={day.date}
+                type="button"
+                onClick={() => onSelectDay(day.date)}
+              aria-current={day.date === selectedDate ? "date" : undefined}
+              className={`focus-ring border-l border-[var(--line)] py-4 text-center ${day.date === selectedDate ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"}`}
+              >
+                <span className="text-xs capitalize">
+                  {day.weekday}, {day.day}
+                </span>
+              </button>
+            ))}
+          </div>
         <div
           className={`relative grid ${view === "day" ? "grid-cols-[4.5rem_1fr]" : "grid-cols-[4.5rem_repeat(7,1fr)]"}`}
           style={{ height: GRID_HEIGHT }}
@@ -603,8 +612,8 @@ function ScheduleGrid({
               return (
                 <span
                   key={hour}
-                  className="absolute right-2 -translate-y-1/2 text-[9px] text-[var(--muted)]"
-                  style={{ top: index * HOUR_HEIGHT }}
+                  className={`absolute right-2 text-[9px] text-[var(--muted)] ${index === 0 ? "top-2" : "-translate-y-1/2"}`}
+                  style={index === 0 ? undefined : { top: index * HOUR_HEIGHT }}
                 >
                   {String(hour).padStart(2, "0")}:00
                 </span>
@@ -768,6 +777,7 @@ function ScheduleGrid({
             );
           })}
         </div>
+        </div>
       </div>
     </section>
   );
@@ -778,12 +788,14 @@ export function CalendarWorkspace({
   unassignedOrders,
   anchorDate,
   initialView,
+  focusedOrderId,
   canWrite,
 }: {
   visits: ServiceVisit[];
   unassignedOrders: OrderListItem[];
   anchorDate: string;
   initialView: CalendarView;
+  focusedOrderId?: string | null;
   canWrite: boolean;
 }) {
   const [calendarVisits, setCalendarVisits] = useState(visits);
@@ -810,6 +822,8 @@ export function CalendarWorkspace({
   const [ordersPanelOpen, setOrdersPanelOpen] = useState(true);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const calendarHref = (date: string, nextView: CalendarView) =>
+    `/calendar?date=${date}&view=${nextView}${focusedOrderId ? `&order=${focusedOrderId}` : ""}`;
   const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
   const days = useMemo(
     () =>
@@ -1055,7 +1069,7 @@ export function CalendarWorkspace({
           text: `Выезд перенесён на ${localDate}, ${localTime}. Напоминание обновлено.`,
         });
         if (!days.some((day) => day.date === localDate))
-          router.push(`/calendar?date=${localDate}`);
+          router.push(calendarHref(localDate, view));
       } else {
         setMessage({ tone: "error", text: result.message });
       }
@@ -1182,13 +1196,24 @@ export function CalendarWorkspace({
 
   return (
     <div className="mt-[clamp(1.2rem,0.9rem+0.7vw,2rem)]">
+      {focusedOrderId ? <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-xs">
+        <span>Календарь заказа {calendarVisits.find((visit) => visit.orderId === focusedOrderId)?.orderNumber ?? availableOrders.find((order) => order.id === focusedOrderId)?.number ?? ""}</span>
+        <Link href="/calendar" className="focus-ring font-semibold underline">Весь календарь</Link>
+      </div> : null}
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 flex-wrap gap-2">
-          <div className="flex max-w-full overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--surface-raised)] p-1">
+          <div role="group" aria-label="Вид календаря" className="flex max-w-full overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--surface-raised)] p-1">
             {(["day", "week", "month", "list"] as const).map((option) => (
               <button
                 key={option}
-                onClick={() => setView(option)}
+                type="button"
+                aria-pressed={view === option}
+                onClick={() => {
+                  setView(option);
+                  router.replace(calendarHref(selectedDate, option), {
+                    scroll: false,
+                  });
+                }}
                 className={`focus-ring shrink-0 rounded-lg px-4 py-2 text-xs ${view === option ? "bg-[var(--accent)] font-semibold text-[var(--on-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
               >
                 {option === "day"
@@ -1203,7 +1228,7 @@ export function CalendarWorkspace({
           </div>
           <div className="flex items-center rounded-xl border border-[var(--line)] bg-[var(--surface)]">
             <Link
-              href={`/calendar?date=${navigation.previous}&view=${view}`}
+              href={calendarHref(navigation.previous, view)}
               aria-label={`Предыдущий ${navigation.unit}`}
               className="focus-ring grid size-10 place-items-center text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"
             >
@@ -1213,7 +1238,7 @@ export function CalendarWorkspace({
               {navigation.label}
             </span>
             <Link
-              href={`/calendar?date=${navigation.next}&view=${view}`}
+              href={calendarHref(navigation.next, view)}
               aria-label={`Следующий ${navigation.unit}`}
               className="focus-ring grid size-10 place-items-center text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)]"
             >
@@ -1225,10 +1250,11 @@ export function CalendarWorkspace({
           type="button"
           onClick={() => setOrdersPanelOpen((open) => !open)}
           aria-expanded={ordersPanelOpen}
+          aria-controls="calendar-unassigned-orders"
           className="focus-ring flex h-11 items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-strong)]"
         >
           <ListPlus className="size-4" />
-          Выбрать заказ для выезда
+          {ordersPanelOpen ? "Скрыть заказы без выезда" : "Выбрать заказ для выезда"}
         </button>
       </div>
 
@@ -1375,7 +1401,7 @@ export function CalendarWorkspace({
         />
       ) : view === "month" ? (
         <div
-          className={`mt-3 grid gap-3 ${ordersPanelOpen ? "xl:grid-cols-[minmax(0,1fr)_20rem]" : "grid-cols-1"}`}
+          className={`mt-3 grid gap-3 ${ordersPanelOpen ? "2xl:grid-cols-[minmax(0,1fr)_20rem]" : "grid-cols-1"}`}
         >
           <section className="surface-panel p-3 sm:p-4">
             <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl bg-[var(--line)]">
@@ -1385,9 +1411,14 @@ export function CalendarWorkspace({
                 return (
                   <button
                     key={day.date}
+                    type="button"
+                    aria-current={day.date === selectedDate ? "date" : undefined}
                     onClick={() => {
                       setSelectedDate(day.date);
                       setView("day");
+                      router.replace(calendarHref(day.date, "day"), {
+                        scroll: false,
+                      });
                     }}
                     onDragOver={(event) => {
                       if (canWrite && draggingId) {
@@ -1396,7 +1427,7 @@ export function CalendarWorkspace({
                       }
                     }}
                     onDrop={(event) => handleDropDay(day.date, event, 9 * 60)}
-                    className={`min-h-20 bg-[var(--surface)] p-2 text-left sm:min-h-28 ${day.date === selectedDate ? "bg-[var(--accent-soft)]" : ""} ${inMonth ? "" : "opacity-35"} ${draggingId ? "hover:bg-[var(--surface-soft)]" : ""}`}
+                    className={`focus-ring min-h-20 bg-[var(--surface)] p-2 text-left sm:min-h-28 ${day.date === selectedDate ? "bg-[var(--accent-soft)]" : ""} ${inMonth ? "" : "opacity-35"} ${draggingId ? "hover:bg-[var(--surface-soft)]" : ""}`}
                   >
                     <span className="text-xs text-[var(--text)]">
                       {day.day}
@@ -1427,7 +1458,7 @@ export function CalendarWorkspace({
         </div>
       ) : (
         <div
-          className={`mt-3 grid gap-3 ${ordersPanelOpen ? "xl:grid-cols-[minmax(0,1fr)_20rem]" : "grid-cols-1"}`}
+          className={`mt-3 grid gap-3 ${ordersPanelOpen ? "2xl:grid-cols-[minmax(0,1fr)_20rem]" : "grid-cols-1"}`}
         >
           <ScheduleGrid
             days={displayedDays}
@@ -1441,6 +1472,9 @@ export function CalendarWorkspace({
             onSelectDay={(date) => {
               setSelectedDate(date);
               setView("day");
+              router.replace(calendarHref(date, "day"), {
+                scroll: false,
+              });
             }}
             onDragStart={handleDragStart}
             onDragEnd={() => {

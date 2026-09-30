@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CalendarDays, MapPin, MessageCircle, Phone, Route } from "lucide-react";
+import { CalendarDays, MapPin, MessageCircle, Phone, Route } from "lucide-react";
 import { EditMasterButton } from "@/components/masters/master-dialog";
-import { formatMoneyMinor, getInitials } from "@/lib/format";
+import { BackLink } from "@/components/ui/back-link";
+import { formatMoneyMinor } from "@/lib/format";
+import { Avatar } from "@/components/ui/avatar";
 import { getAuthMode } from "@/server/auth/config";
 import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
@@ -67,6 +70,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
   if (!parsedId.success) notFound();
 
   const member = await requireOfficeSession();
+  requirePagePermission(member, "masters.read");
   const preview = getAuthMode() === "preview";
   let master;
 
@@ -86,14 +90,10 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
   return <div className="mx-auto max-w-[1720px]">
     <header className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <Link href="/masters" className="focus-ring inline-flex items-center gap-2 rounded-full px-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]">
-          <ArrowLeft className="size-4" />
-          К списку мастеров
-        </Link>
+        <BackLink href="/masters">К списку мастеров</BackLink>
         <div className="mt-4 flex min-w-0 items-center gap-3 sm:gap-4">
-          <span className="grid size-12 shrink-0 place-items-center rounded-full border border-[var(--support)]/30 bg-[var(--support-soft)] font-display text-xs text-[var(--support-strong)] sm:size-14 sm:text-sm">
-            {getInitials(master.fullName)}
-          </span>
+          <Avatar name={master.fullName} size="lg" tone="violet" className="!size-12 border border-[var(--support)]/30 sm:!size-14"
+            src={`/api/v1/masters/${master.id}/avatar`} />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <h1 className="display-title min-w-0 text-[var(--text)]">{master.fullName}</h1>
@@ -186,7 +186,7 @@ export default async function MasterDetailPage({ params }: PageProps<"/masters/[
         </div> : null}
       </aside>
 
-      <section className="surface-panel overflow-hidden">
+      <section className="surface-panel panel-stack overflow-hidden">
         <header className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
           <div>
             <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Журнал работы</p>

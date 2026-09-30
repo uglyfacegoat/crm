@@ -16,3 +16,9 @@ test("quick order renders one continuous workspace with stable navigation landma
   assert.match(source, /data-testid="quick-submit"/);
   assert.doesNotMatch(source, /step === [0-3] \?/);
 });
+
+test("continue and final submit have distinct DOM identities", async () => {
+  const source = await readFile(componentUrl, "utf8");
+  assert.match(source, /key="continue"\s+data-testid="quick-next"\s+type="button"/);
+  assert.match(source, /key="submit"\s+data-testid="quick-submit"\s+type="submit"/);
+});

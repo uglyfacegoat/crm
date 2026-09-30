@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createContractSchema, renewContractSchema } from "./schemas.ts";
+import { createContractSchema, linkContractSchema, renewContractSchema } from "./schemas.ts";
 
 const valid = {
   idempotencyKey: "ed0a2a49-51e4-40a4-9c1c-5207b61cf7c4",
@@ -33,4 +33,16 @@ test("renewal preserves optimistic concurrency and explicit schedule choice", ()
   const renewal = { idempotencyKey: valid.idempotencyKey, sourceContractId: valid.clientId, expectedVersion: 2, contractNumber: "Д-2027/14", startsOn: "2027-09-01", endsOn: "2028-08-31", renewalNoticeDays: 30, copySchedule: true };
   assert.equal(renewContractSchema.safeParse(renewal).success, true);
   assert.equal(renewContractSchema.safeParse({ ...renewal, expectedVersion: 0 }).success, false);
+});
+
+test("contract relation requires two distinct contracts and a known relation type", () => {
+  const relation = {
+    contractId: valid.clientId,
+    relatedContractId: valid.objectId,
+    relationType: "supplement",
+    note: "Дополнительные сезонные работы",
+  };
+  assert.equal(linkContractSchema.safeParse(relation).success, true);
+  assert.equal(linkContractSchema.safeParse({ ...relation, relatedContractId: relation.contractId }).success, false);
+  assert.equal(linkContractSchema.safeParse({ ...relation, relationType: "duplicate" }).success, false);
 });

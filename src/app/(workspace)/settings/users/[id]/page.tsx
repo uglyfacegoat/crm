@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { notFound, redirect } from "next/navigation";
 import { MemberAccountWorkspace } from "@/components/settings/member-account-workspace";
 import { getAuthMode } from "@/server/auth/config";
@@ -11,6 +12,7 @@ export const metadata: Metadata = { title: "Настройка пользова�
 
 export default async function MemberSettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const currentMember = await requireOfficeSession();
+  requirePagePermission(currentMember, "settings.write");
   if (!hasPermission(currentMember, "settings.write")) redirect("/");
   const { id } = await params;
   if (getAuthMode() === "preview") {

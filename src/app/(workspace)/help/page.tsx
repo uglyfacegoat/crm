@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -40,11 +41,18 @@ const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
 
 export default async function HelpPage() {
   const member = await requireSession();
+  requirePagePermission(member, "help.read");
   if (!hasPermission(member, "help.read")) redirect("/");
   const support =
     getAuthMode() === "preview"
-      ? { administrators: [], requests: [] }
+      ? { developers: [], requests: [] }
       : await getSupportCenterSnapshot(member);
+  const fieldRole = member.role === "master" || member.role === "foreman";
+  const visibleSections = helpSections.filter(
+    (section) =>
+      (fieldRole ? section.audience === "all" || section.audience === "field" : section.audience !== "field") &&
+      (!section.permission || hasPermission(member, section.permission)),
+  );
 
   return (
     <div className="space-y-6">
@@ -99,9 +107,9 @@ export default async function HelpPage() {
             </h2>
           </div>
           <p className="mt-4 text-xs leading-5 text-[var(--text-secondary)]">
-            На любом рабочем экране нажмите{" "}
+            На доступном рабочем экране нажмите{" "}
             <kbd className="rounded-md border border-[var(--line)] bg-[var(--surface-inset)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">
-              Ctrl K
+              Ctrl K / ⌘ K
             </kbd>
             , чтобы найти клиента, заказ, объект, документ, мастера или дату
             выезда.
@@ -119,7 +127,7 @@ export default async function HelpPage() {
             Содержание
           </p>
           <nav aria-label="Разделы документации" className="grid gap-1">
-            {helpSections.map((section) => (
+            {visibleSections.map((section) => (
               <Link
                 key={section.id}
                 href={`#${section.id}`}
@@ -134,8 +142,8 @@ export default async function HelpPage() {
             ))}
           </nav>
         </aside>
-        <main className="space-y-5">
-          {helpSections.map((section) => {
+        <section aria-label="Материалы помощи" className="space-y-5">
+          {visibleSections.map((section) => {
             const Icon = section.icon;
             return (
               <section
@@ -169,7 +177,7 @@ export default async function HelpPage() {
                   <figure className="mt-6 overflow-hidden rounded-[16px] border border-[var(--line)] bg-[var(--surface-inset)] p-3">
                     <figcaption className="mb-3 flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
                       <span className="size-1.5 rounded-full bg-[var(--accent)]" />
-                      Актуальный снимок интерфейса
+                      Снимок интерфейса с демонстрационными данными
                     </figcaption>
                     <Image
                       src={section.screenshot}
@@ -212,10 +220,22 @@ export default async function HelpPage() {
                     ))}
                   </ol>
                 </div>
+                {section.sources?.length ? (
+                  <div className="mt-6 border-t border-[var(--line)] pt-4">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Инструкции производителей</p>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+                      {section.sources.map((source) => (
+                        <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer" className="focus-ring text-xs text-[var(--accent-ink)] underline underline-offset-2">
+                          {source.label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </section>
             );
           })}
-        </main>
+        </section>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
@@ -223,26 +243,26 @@ export default async function HelpPage() {
           <div className="flex items-center gap-2">
             <LifeBuoy className="size-4 text-[var(--warning)]" />
             <h2 className="text-sm font-semibold text-[var(--text)]">
-              Контакты администратора
+              Контакты разработчика
             </h2>
           </div>
-          {support.administrators.length ? (
+          {support.developers.length ? (
             <div className="mt-4 divide-y divide-[var(--line)]">
-              {support.administrators.map((administrator) => (
+              {support.developers.map((developer) => (
                 <a
-                  key={administrator.id}
-                  href={`mailto:${administrator.email}`}
+                  key={developer.email}
+                  href={`mailto:${developer.email}`}
                   className="focus-ring flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:text-[var(--accent-ink)]"
                 >
                   <span className="grid size-9 place-items-center rounded-full bg-[var(--warning-bg)] text-[10px] font-semibold text-[var(--warning)]">
-                    {administrator.name.slice(0, 1).toUpperCase()}
+                    {developer.name.slice(0, 1).toUpperCase()}
                   </span>
                   <span className="min-w-0">
                     <strong className="block truncate text-xs text-[var(--text)]">
-                      {administrator.name}
+                      {developer.name}
                     </strong>
                     <span className="mt-1 block truncate text-[9px] text-[var(--muted)]">
-                      {administrator.email}
+                      {developer.email}
                     </span>
                   </span>
                   <Mail className="ml-auto size-4 text-[var(--muted)]" />
@@ -251,8 +271,7 @@ export default async function HelpPage() {
             </div>
           ) : (
             <p className="mt-4 text-xs leading-5 text-[var(--text-secondary)]">
-              Контакт поддержки появится после настройки администратора
-              организации.
+              Контакт разработчика пока не настроен.
             </p>
           )}
         </article>

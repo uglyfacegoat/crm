@@ -7,8 +7,10 @@ const card: VisitDispatchCard = {
   orderId: "order-1",
   orderNumber: "№1248",
   client: "ООО «Домжилсервис»",
+  clientKind: "legal_entity",
   object: "Жилой дом",
   address: "Москва, ул. Ленина, 15",
+  areaSquareMeters: 250.5,
   contactName: "Ирина Иванова",
   contactPhone: "+7 916 000-00-00",
   scheduledStartAt: "2026-08-25T06:00:00.000Z",
@@ -26,13 +28,16 @@ test("dispatch card formatter includes visit-specific operational data", () => {
   const text = formatVisitDispatchCardText(card);
   assert.match(text, /вт, 25 августа 2026 г\., 09:00–11:00/);
   assert.match(text, /1\. Дезинсекция — 2 \(Подвал и подъезд\)/);
-  assert.match(text, /Выплата мастеру: 4\s000\s₽/);
+  assert.match(text, /Тип заказа: Юридическое лицо/);
+  assert.match(text, /Площадь объекта: 250,5 м²/);
+  assert.match(text, /Зарплата: 4\s000\s₽/);
+  assert.match(text, /Фотографии подписанных актов и журнала обработки/i);
   assert.match(text, /Позвонить за 30 минут/);
 });
 
 test("dispatch card omits finance field when API does not authorize it", () => {
   const text = formatVisitDispatchCardText({ ...card, masterPaymentMinor: undefined });
-  assert.doesNotMatch(text, /Выплата мастеру/);
+  assert.doesNotMatch(text, /Зарплата:/);
 });
 
 test("dispatch card response schema rejects invalid timestamps", () => {

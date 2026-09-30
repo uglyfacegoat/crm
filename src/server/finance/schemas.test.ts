@@ -11,7 +11,7 @@ test("invoice requires a positive amount and ordered dates", () => {
 });
 
 test("client payments and master payouts require explicit ledger metadata", () => {
-  const payment = { idempotencyKey: id, invoiceId: id, amount: "5000", receivedOn: "2026-08-31", paymentMethod: "bank_transfer", reference: "ПП-18", note: "" };
+  const payment = { idempotencyKey: id, receiptDocumentId: id, invoiceId: id, amount: "5000", receivedOn: "2026-08-31", paymentMethod: "bank_transfer", reference: "ПП-18", note: "" };
   assert.equal(createPaymentSchema.safeParse(payment).success, true);
   assert.equal(createPaymentSchema.safeParse({ ...payment, paymentMethod: "crypto" }).success, false);
   assert.equal(createPayoutSchema.safeParse({ ...payment, orderId: id, paidOn: payment.receivedOn }).success, true);

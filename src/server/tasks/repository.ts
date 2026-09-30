@@ -1,10 +1,12 @@
 import "server-only";
 import { z } from "zod";
 import { requirePermission } from "@/server/auth/permissions";
-import type { AuthenticatedMember } from "@/server/auth/types";
+import { organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
-import type { CancelTaskInput, CreateTaskInput, RescheduleTaskInput, TaskMutationInput, UpdateTaskInput } from "./schemas";
-import type { CompletedTaskCard, TaskAssigneeOption, TaskCard, TaskColumn, TaskHistoryFeed, TaskSnapshot } from "./types";
+import type { CancelTaskInput, CreateTaskInput, RescheduleTaskInput, TaskMutationInput, UpdateTaskInput, taskPickerQuerySchema, myTaskPageQuerySchema } from "./schemas";
+import { createTaskInTransaction, TaskCreateTargetError } from "./create-command";
+import { notifyTaskAssignee, resolveTaskAssignmentNotification } from "./assignment-notification";
+import type { CompletedTaskCard, TaskAssigneeOption, TaskCard, TaskColumn, TaskDashboardSummary, TaskHistoryFeed, TaskOrderOption, TaskSnapshot } from "./types";
 
 const uuidSchema = z.string().uuid();
 const taskRowSchema = z.object({
@@ -15,7 +17,8 @@ const taskRowSchema = z.object({
   due_at: z.coerce.date().nullable(),
   assigned_member_id: uuidSchema.nullable(),
   assignee_name: z.string().nullable(),
-  source: z.enum(["manual", "visit_reminder"]),
+  assignee_active: z.boolean().nullable(),
+  source: z.enum(["manual", "visit_reminder", "workflow"]),
   related_order_id: uuidSchema.nullable(),
   order_number: z.string().nullable(),
   client_name: z.string().nullable(),
@@ -28,8 +31,34 @@ const completedTaskRowSchema = taskRowSchema.extend({ completed_at: z.coerce.dat
 const assigneeRowSchema = z.object({
   id: uuidSchema,
   display_name: z.string(),
-  role: z.enum(["admin", "dispatcher", "manager", "accountant", "master"]),
+  role: z.enum(organizationRoles),
 });
+
+const orderOptionRowSchema = z.object({
+  id: uuidSchema,
+  order_number: z.string(),
+  client_name_snapshot: z.string(),
+});
+
+const taskPickerRowSchema = z.object({ id: uuidSchema, name: z.string(), detail: z.string().nullable() });
+
+export async function searchTaskOptions(member: AuthenticatedMember, query: z.infer<typeof taskPickerQuerySchema>) {
+  requirePermission(member, "tasks.write");
+  const sql = getDatabase();
+  const rows = query.type === "assignees"
+    ? await sql`SELECT id, display_name AS name, email AS detail FROM organization_members
+      WHERE organization_id = ${member.organizationId} AND active
+        AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', display_name, email), ${query.q}))
+      ORDER BY display_name, id LIMIT 21`
+    : await sql`SELECT id, order_number AS name, client_name_snapshot AS detail FROM orders
+      WHERE organization_id = ${member.organizationId} AND status <> 'cancelled'
+        AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', order_number, client_name_snapshot), ${query.q}))
+      ORDER BY created_at DESC, id LIMIT 21`;
+  return { items: rows.slice(0, 20).map((value) => {
+    const row = taskPickerRowSchema.parse(value);
+    return { id: row.id, name: row.name, detail: row.detail ?? undefined };
+  }), hasMore: rows.length > 20 };
+}
 
 const taskHistoryRowSchema = z.object({
   id: uuidSchema,
@@ -47,7 +76,7 @@ const mutableTaskRowSchema = z.object({
   priority: z.enum(["low", "normal", "high", "critical"]),
   due_at: z.coerce.date().nullable(),
   assigned_member_id: uuidSchema.nullable(),
-  source: z.enum(["manual", "visit_reminder"]),
+  source: z.enum(["manual", "visit_reminder", "workflow"]),
   status: z.enum(["open", "completed", "cancelled"]),
   version: z.number().int().positive(),
 });
@@ -75,6 +104,10 @@ export class TaskVersionConflictError extends Error {
 
 export class TaskAssigneeNotFoundError extends Error {
   constructor() { super("The selected active assignee was not found."); this.name = "TaskAssigneeNotFoundError"; }
+}
+
+export class TaskOrderNotFoundError extends Error {
+  constructor() { super("The selected active order was not found."); this.name = "TaskOrderNotFoundError"; }
 }
 
 export class TaskManagedByVisitError extends Error {
@@ -137,6 +170,7 @@ function mapTask(row: unknown, now: Date): TaskCard {
     assignee: initials(task.assignee_name),
     assignedMemberId: task.assigned_member_id,
     assigneeName: task.assignee_name,
+    needsAssignment: task.source === "manual" && task.assignee_active !== true,
     column,
     priority: task.priority,
     source: task.source,
@@ -145,20 +179,24 @@ function mapTask(row: unknown, now: Date): TaskCard {
   };
 }
 
-export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapshot> {
+export async function listTasks(member: AuthenticatedMember, focusedOrderId: string | null = null,
+  taskLimit: 50 | 500 = 500, strandedLimit: 50 | 500 = 500): Promise<TaskSnapshot> {
   requirePermission(member, "tasks.read");
+  const orderId = focusedOrderId ? uuidSchema.parse(focusedOrderId) : null;
   const sql = getDatabase();
   const now = new Date();
-  const [rows, completedRows, [summary], assigneeRows, [organization]] = await Promise.all([
+  const [rows, myRows, strandedRows, completedRows, [summary], assigneeRows, orderOptionRows, [organization]] = await Promise.all([
     sql`SELECT tasks.id, tasks.title, tasks.description, tasks.priority, tasks.due_at, tasks.assigned_member_id,
-      members.display_name AS assignee_name, tasks.source, tasks.related_order_id, orders.order_number,
-      orders.client_name_snapshot AS client_name, tasks.version, organizations.timezone
+      members.display_name AS assignee_name, members.active AS assignee_active, tasks.source, tasks.related_order_id, orders.order_number,
+      orders.client_name_snapshot AS client_name, tasks.version, organizations.timezone,
+      count(*) OVER ()::integer AS total_count
       FROM tasks
       JOIN organizations ON organizations.id = tasks.organization_id
       LEFT JOIN organization_members members
         ON members.organization_id = tasks.organization_id AND members.id = tasks.assigned_member_id
       LEFT JOIN orders ON orders.organization_id = tasks.organization_id AND orders.id = tasks.related_order_id
       WHERE tasks.organization_id = ${member.organizationId} AND tasks.status = 'open'
+        AND (${orderId}::uuid IS NULL OR tasks.related_order_id = ${orderId}::uuid)
       ORDER BY
         CASE
           WHEN tasks.due_at < now() THEN 0
@@ -168,10 +206,46 @@ export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapsh
         END,
         CASE WHEN tasks.due_at IS NULL THEN tasks.created_at END DESC,
         tasks.due_at ASC,
-        tasks.created_at DESC
-      LIMIT 500`,
+        tasks.created_at DESC, tasks.id DESC
+      LIMIT ${taskLimit}`,
     sql`SELECT tasks.id, tasks.title, tasks.description, tasks.priority, tasks.due_at, tasks.assigned_member_id,
-      members.display_name AS assignee_name, tasks.source, tasks.related_order_id, orders.order_number,
+      members.display_name AS assignee_name, members.active AS assignee_active, tasks.source, tasks.related_order_id, orders.order_number,
+      orders.client_name_snapshot AS client_name, tasks.version, organizations.timezone,
+      count(*) OVER ()::integer AS total_count
+      FROM tasks
+      JOIN organizations ON organizations.id = tasks.organization_id
+      LEFT JOIN organization_members members
+        ON members.organization_id = tasks.organization_id AND members.id = tasks.assigned_member_id
+      LEFT JOIN orders ON orders.organization_id = tasks.organization_id AND orders.id = tasks.related_order_id
+      WHERE tasks.organization_id = ${member.organizationId} AND tasks.status = 'open'
+        AND tasks.assigned_member_id = ${member.memberId}
+        AND (${orderId}::uuid IS NULL OR tasks.related_order_id = ${orderId}::uuid)
+      ORDER BY
+        CASE
+          WHEN tasks.due_at < now() THEN 0
+          WHEN tasks.due_at < ((date_trunc('day', now() AT TIME ZONE organizations.timezone) + interval '1 day') AT TIME ZONE organizations.timezone) THEN 1
+          WHEN tasks.due_at IS NULL THEN 2
+          ELSE 3
+        END,
+        CASE WHEN tasks.due_at IS NULL THEN tasks.created_at END DESC,
+        tasks.due_at ASC,
+        tasks.created_at DESC, tasks.id DESC
+      LIMIT 50`,
+    sql`SELECT tasks.id, tasks.title, tasks.description, tasks.priority, tasks.due_at, tasks.assigned_member_id,
+      members.display_name AS assignee_name, members.active AS assignee_active, tasks.source, tasks.related_order_id, orders.order_number,
+      orders.client_name_snapshot AS client_name, tasks.version, organizations.timezone,
+      count(*) OVER ()::integer AS total_count
+      FROM tasks
+      JOIN organizations ON organizations.id = tasks.organization_id
+      LEFT JOIN organization_members members
+        ON members.organization_id = tasks.organization_id AND members.id = tasks.assigned_member_id
+      LEFT JOIN orders ON orders.organization_id = tasks.organization_id AND orders.id = tasks.related_order_id
+      WHERE tasks.organization_id = ${member.organizationId} AND tasks.status = 'open' AND tasks.source = 'manual'
+        AND (tasks.assigned_member_id IS NULL OR members.active IS DISTINCT FROM TRUE)
+        AND (${orderId}::uuid IS NULL OR tasks.related_order_id = ${orderId}::uuid)
+      ORDER BY tasks.created_at DESC, tasks.id DESC LIMIT ${strandedLimit}`,
+    sql`SELECT tasks.id, tasks.title, tasks.description, tasks.priority, tasks.due_at, tasks.assigned_member_id,
+      members.display_name AS assignee_name, members.active AS assignee_active, tasks.source, tasks.related_order_id, orders.order_number,
       orders.client_name_snapshot AS client_name, tasks.version, organizations.timezone, tasks.completed_at
       FROM tasks
       JOIN organizations ON organizations.id = tasks.organization_id
@@ -179,19 +253,34 @@ export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapsh
         ON members.organization_id = tasks.organization_id AND members.id = tasks.assigned_member_id
       LEFT JOIN orders ON orders.organization_id = tasks.organization_id AND orders.id = tasks.related_order_id
       WHERE tasks.organization_id = ${member.organizationId} AND tasks.status = 'completed'
+        AND (${orderId}::uuid IS NULL OR tasks.related_order_id = ${orderId}::uuid)
       ORDER BY tasks.completed_at DESC
       LIMIT 50`,
     sql`SELECT count(*)::integer AS completed_count FROM tasks
-      WHERE organization_id = ${member.organizationId} AND status = 'completed' AND completed_at >= now() - interval '30 days'`,
-    sql`SELECT id, display_name, role FROM organization_members
-      WHERE organization_id = ${member.organizationId} AND active
-      ORDER BY display_name
+      WHERE organization_id = ${member.organizationId} AND status = 'completed' AND completed_at >= now() - interval '30 days'
+        AND (${orderId}::uuid IS NULL OR related_order_id = ${orderId}::uuid)`,
+    sql`SELECT members.id, members.display_name,
+        CASE WHEN developers.email IS NOT NULL THEN developers.account_role ELSE members.role END AS role
+      FROM organization_members members
+      LEFT JOIN developer_accounts developers ON developers.email = members.email
+      WHERE members.organization_id = ${member.organizationId} AND members.active
+      ORDER BY members.display_name
       LIMIT 500`,
+    sql`SELECT id, order_number, client_name_snapshot
+      FROM orders
+      WHERE organization_id = ${member.organizationId} AND status <> 'cancelled'
+      ORDER BY (id = ${orderId}::uuid) DESC NULLS LAST, created_at DESC
+      LIMIT 200`,
     sql`SELECT timezone FROM organizations WHERE id = ${member.organizationId}`,
   ]);
   if (!organization) throw new Error("The task organization was not found.");
   return {
     tasks: rows.map((row) => mapTask(row, now)),
+    tasksTotal: rows.length ? z.number().int().nonnegative().parse(rows[0].total_count) : 0,
+    myTasks: myRows.map((row) => mapTask(row, now)),
+    myTasksTotal: myRows.length ? z.number().int().nonnegative().parse(myRows[0].total_count) : 0,
+    strandedTasks: strandedRows.map((row) => mapTask(row, now)),
+    strandedTotal: strandedRows.length ? z.number().int().nonnegative().parse(strandedRows[0].total_count) : 0,
     completedTasks: completedRows.map((row): CompletedTaskCard => {
       const completedTask = completedTaskRowSchema.parse(row);
       return { ...mapTask(row, now), completedAt: completedTask.completed_at.toISOString() };
@@ -200,59 +289,120 @@ export async function listTasks(member: AuthenticatedMember): Promise<TaskSnapsh
       const assignee = assigneeRowSchema.parse(row);
       return { id: assignee.id, displayName: assignee.display_name, role: assignee.role };
     }),
+    orderOptions: orderOptionRows.map((row): TaskOrderOption => {
+      const order = orderOptionRowSchema.parse(row);
+      return { id: order.id, orderNumber: order.order_number, clientName: order.client_name_snapshot };
+    }),
     timeZone: z.string().min(1).parse(organization.timezone),
     currentMemberId: member.memberId,
     completedLast30Days: z.number().int().nonnegative().parse(summary?.completed_count ?? 0),
   };
 }
 
+export async function getTaskDashboardSummary(member: AuthenticatedMember,
+  timeZone: string, endDate: string): Promise<TaskDashboardSummary> {
+  requirePermission(member, "tasks.read");
+  const parsedEndDate = z.iso.date().parse(endDate);
+  const end = new Date(`${parsedEndDate}T00:00:00Z`);
+  const dates = Array.from({ length: 7 }, (_, index) =>
+    new Date(end.getTime() - (6 - index) * 86_400_000).toISOString().slice(0, 10));
+  const startDate = dates[0];
+  const sql = getDatabase();
+  const [overdueRows, dailyRows] = await Promise.all([
+    sql`SELECT count(*)::integer AS task_count FROM tasks
+      WHERE organization_id = ${member.organizationId} AND status = 'open' AND due_at < now()`,
+    sql`SELECT to_char(due_at AT TIME ZONE ${timeZone}, 'YYYY-MM-DD') AS due_date,
+        count(*)::integer AS task_count
+      FROM tasks
+      WHERE organization_id = ${member.organizationId} AND status = 'open'
+        AND due_at >= (${startDate}::date::timestamp AT TIME ZONE ${timeZone})
+        AND due_at < ((${parsedEndDate}::date + interval '1 day') AT TIME ZONE ${timeZone})
+      GROUP BY due_date`,
+  ]);
+  const daily = new Map(dailyRows.map((row) =>
+    [z.iso.date().parse(row.due_date), z.number().int().nonnegative().parse(row.task_count)]));
+  return {
+    overdueCount: z.number().int().nonnegative().parse(overdueRows[0].task_count),
+    dailyCounts: dates.map((date) => daily.get(date) ?? 0),
+  };
+}
+
+export async function listTaskPage(member: AuthenticatedMember,
+  query: z.infer<typeof myTaskPageQuerySchema>, scope: "all" | "mine" | "stranded"): Promise<{ tasks: TaskCard[]; total: number }> {
+  requirePermission(member, "tasks.read");
+  const sql = getDatabase();
+  const orderId = query.order || null;
+  const assigneeId = query.assignee || null;
+  const dateFrom = query.dateFrom || null;
+  const dateTo = query.dateTo || null;
+  const offset = query.page * 50;
+  const [countRows, rows] = await Promise.all([
+    sql`SELECT count(*)::integer AS total FROM tasks
+      JOIN organizations ON organizations.id = tasks.organization_id
+      LEFT JOIN organization_members members
+        ON members.organization_id = tasks.organization_id AND members.id = tasks.assigned_member_id
+      LEFT JOIN orders ON orders.organization_id = tasks.organization_id AND orders.id = tasks.related_order_id
+      WHERE tasks.organization_id = ${member.organizationId} AND tasks.status = 'open'
+        AND (${scope} = 'all' OR (${scope} = 'mine' AND tasks.assigned_member_id = ${member.memberId})
+          OR (${scope} = 'stranded' AND tasks.source = 'manual'
+            AND (tasks.assigned_member_id IS NULL OR members.active IS DISTINCT FROM TRUE)))
+        AND (${orderId}::uuid IS NULL OR tasks.related_order_id = ${orderId}::uuid)
+        AND (${assigneeId}::uuid IS NULL OR tasks.assigned_member_id = ${assigneeId}::uuid)
+        AND (${query.priority} = 'all' OR tasks.priority = ${query.priority})
+        AND (${query.source} = 'all' OR tasks.source = ${query.source})
+        AND (${dateFrom}::date IS NULL OR (tasks.due_at AT TIME ZONE organizations.timezone)::date >= ${dateFrom}::date)
+        AND (${dateTo}::date IS NULL OR (tasks.due_at AT TIME ZONE organizations.timezone)::date <= ${dateTo}::date)
+        AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', tasks.title, tasks.description,
+          orders.order_number, orders.client_name_snapshot, members.display_name), ${query.q}))`,
+    sql`SELECT tasks.id, tasks.title, tasks.description, tasks.priority, tasks.due_at, tasks.assigned_member_id,
+        members.display_name AS assignee_name, members.active AS assignee_active, tasks.source, tasks.related_order_id,
+        orders.order_number, orders.client_name_snapshot AS client_name, tasks.version, organizations.timezone
+      FROM tasks
+      JOIN organizations ON organizations.id = tasks.organization_id
+      LEFT JOIN organization_members members
+        ON members.organization_id = tasks.organization_id AND members.id = tasks.assigned_member_id
+      LEFT JOIN orders ON orders.organization_id = tasks.organization_id AND orders.id = tasks.related_order_id
+      WHERE tasks.organization_id = ${member.organizationId} AND tasks.status = 'open'
+        AND (${scope} = 'all' OR (${scope} = 'mine' AND tasks.assigned_member_id = ${member.memberId})
+          OR (${scope} = 'stranded' AND tasks.source = 'manual'
+            AND (tasks.assigned_member_id IS NULL OR members.active IS DISTINCT FROM TRUE)))
+        AND (${orderId}::uuid IS NULL OR tasks.related_order_id = ${orderId}::uuid)
+        AND (${assigneeId}::uuid IS NULL OR tasks.assigned_member_id = ${assigneeId}::uuid)
+        AND (${query.priority} = 'all' OR tasks.priority = ${query.priority})
+        AND (${query.source} = 'all' OR tasks.source = ${query.source})
+        AND (${dateFrom}::date IS NULL OR (tasks.due_at AT TIME ZONE organizations.timezone)::date >= ${dateFrom}::date)
+        AND (${dateTo}::date IS NULL OR (tasks.due_at AT TIME ZONE organizations.timezone)::date <= ${dateTo}::date)
+        AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', tasks.title, tasks.description,
+          orders.order_number, orders.client_name_snapshot, members.display_name), ${query.q}))
+      ORDER BY
+        CASE
+          WHEN tasks.due_at < now() THEN 0
+          WHEN tasks.due_at < ((date_trunc('day', now() AT TIME ZONE organizations.timezone) + interval '1 day') AT TIME ZONE organizations.timezone) THEN 1
+          WHEN tasks.due_at IS NULL THEN 2
+          ELSE 3
+        END,
+        CASE WHEN tasks.due_at IS NULL THEN tasks.created_at END DESC,
+        tasks.due_at ASC, tasks.created_at DESC, tasks.id DESC
+      LIMIT 50 OFFSET ${offset}`,
+  ]);
+  const now = new Date();
+  return { tasks: rows.map((row) => mapTask(row, now)), total: z.number().int().nonnegative().parse(countRows[0].total) };
+}
+
+export async function listMyTaskPage(member: AuthenticatedMember,
+  query: z.infer<typeof myTaskPageQuerySchema>): Promise<{ tasks: TaskCard[]; total: number }> {
+  return listTaskPage(member, query, "mine");
+}
+
 export async function createTask(member: AuthenticatedMember, input: CreateTaskInput) {
   requirePermission(member, "tasks.write");
   const sql = getDatabase();
-  return sql.begin(async (transaction) => {
-    if (input.assignedMemberId) {
-      const assignee = await transaction`SELECT id FROM organization_members
-        WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMemberId} AND active
-        FOR KEY SHARE`;
-      if (!assignee.length) throw new TaskAssigneeNotFoundError();
-    }
-    const [due] = input.localDate && input.localTime
-      ? await transaction`SELECT ((${input.localDate} || ' ' || ${input.localTime})::timestamp AT TIME ZONE timezone) AS due_at
-          FROM organizations WHERE id = ${member.organizationId}`
-      : [{ due_at: null }];
-    const insertedTasks = await transaction`INSERT INTO tasks (
-      organization_id, title, description, priority, due_at, assigned_member_id, source,
-      idempotency_key, created_by, updated_by
-    ) VALUES (
-      ${member.organizationId}, ${input.title}, ${input.description}, ${input.priority}, ${due?.due_at ?? null},
-      ${input.assignedMemberId}, 'manual', ${input.idempotencyKey}, ${member.memberId}, ${member.memberId}
-    ) ON CONFLICT (organization_id, idempotency_key) DO NOTHING
-      RETURNING id`;
-    if (!insertedTasks.length) {
-      const [existingTask] = await transaction`SELECT id FROM tasks
-        WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
-      if (!existingTask) throw new Error("Idempotent task creation could not resolve the existing task.");
-      return uuidSchema.parse(existingTask.id);
-    }
-    const [task] = insertedTasks;
-    const taskId = uuidSchema.parse(task.id);
-    const createdState = {
-      title: input.title,
-      description: input.description,
-      priority: input.priority,
-      dueAt: due?.due_at ?? null,
-      assignedMemberId: input.assignedMemberId,
-      status: "open",
-      source: "manual",
-      version: 1,
-    };
-    await transaction`INSERT INTO task_events (organization_id, task_id, actor_id, event_type, after_state)
-      VALUES (${member.organizationId}, ${taskId}, ${member.memberId}, 'created', ${transaction.json(createdState)})`;
-    await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
-      VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'task.create', 'task', ${taskId},
-        ${transaction.json(createdState)})`;
-    return taskId;
-  });
+  try { return await sql.begin((transaction) => createTaskInTransaction(transaction, member, input, "manual")); }
+  catch (error) {
+    if (error instanceof TaskCreateTargetError && error.reason === "assignee") throw new TaskAssigneeNotFoundError();
+    if (error instanceof TaskCreateTargetError && error.reason === "order") throw new TaskOrderNotFoundError();
+    throw error;
+  }
 }
 
 export async function completeTask(member: AuthenticatedMember, input: TaskMutationInput) {
@@ -272,13 +422,14 @@ export async function completeTask(member: AuthenticatedMember, input: TaskMutat
     const version = z.number().int().positive().parse(task.version);
     const beforeState = taskState(existing);
     const afterState = { ...beforeState, status: "completed", version };
-    if (existing.source === "manual") {
+    if (existing.source !== "visit_reminder") {
       await transaction`INSERT INTO task_events (organization_id, task_id, actor_id, event_type, before_state, after_state)
         VALUES (${member.organizationId}, ${input.taskId}, ${member.memberId}, 'completed', ${transaction.json(beforeState)}, ${transaction.json(afterState)})`;
     }
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'task.complete', 'task', ${input.taskId},
         ${transaction.json({ before: beforeState, after: afterState })})`;
+    await resolveTaskAssignmentNotification(transaction, member.organizationId, input.taskId);
     return version;
   });
 }
@@ -379,6 +530,16 @@ export async function updateTask(member: AuthenticatedMember, input: UpdateTaskI
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'task.update', 'task', ${input.taskId},
         ${transaction.json({ before: beforeState, after: afterState })})`;
+    if (input.assignedMemberId !== existing.assigned_member_id) {
+      await resolveTaskAssignmentNotification(transaction, member.organizationId, input.taskId);
+      await notifyTaskAssignee(transaction, {
+        organizationId: member.organizationId,
+        taskId: input.taskId,
+        assigneeId: input.assignedMemberId,
+        title: input.title,
+        version,
+      });
+    }
     return version;
   });
 }
@@ -409,6 +570,7 @@ export async function cancelTask(member: AuthenticatedMember, input: CancelTaskI
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'task.cancel', 'task', ${input.taskId},
         ${transaction.json({ before: beforeState, after: afterState, reason: input.reason })})`;
+    await resolveTaskAssignmentNotification(transaction, member.organizationId, input.taskId);
     return version;
   });
 }

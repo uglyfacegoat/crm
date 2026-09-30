@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { z } from "zod";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { CalendarWorkspace } from "@/components/calendar/calendar-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getAuthMode } from "@/server/auth/config";
@@ -20,9 +22,11 @@ function validView(value: string | undefined) {
   return value === "day" || value === "week" || value === "month" || value === "list" ? value : "week";
 }
 
-export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ date?: string; view?: string }> }) {
+export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ date?: string; view?: string; order?: string }> }) {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "visits.read");
   const query = await searchParams;
+  const focusedOrderId = z.string().uuid().safeParse(query.order).data ?? null;
   const anchorDate = validAnchorDate(query.date);
   const initialView = validView(query.view);
   const anchor = new Date(`${anchorDate}T12:00:00Z`);
@@ -32,8 +36,8 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const rangeEnd = new Date(weekStart); rangeEnd.setUTCDate(weekStart.getUTCDate() + 46);
   const preview = getAuthMode() === "preview";
   const [visits, orders] = preview
-    ? [getPreviewVisits(), getPreviewOrders()]
-    : await Promise.all([listVisits(member, rangeStart.toISOString(), rangeEnd.toISOString()), listOrdersWithoutActiveVisit(member)]);
+    ? [getPreviewVisits().filter((visit) => !focusedOrderId || visit.orderId === focusedOrderId), getPreviewOrders().filter((order) => !focusedOrderId || order.id === focusedOrderId)]
+    : await Promise.all([listVisits(member, rangeStart.toISOString(), rangeEnd.toISOString(), focusedOrderId), hasPermission(member, "orders.read") ? listOrdersWithoutActiveVisit(member, focusedOrderId) : Promise.resolve([])]);
   const scheduledOrderIds = new Set(visits.filter((visit) => visit.statusCode !== "completed" && visit.statusCode !== "cancelled").flatMap((visit) => visit.orderId ? [visit.orderId] : []));
   const unassignedOrders = preview
     ? orders.filter((order) => order.status !== "Выполнен" && order.status !== "Отменён" && !scheduledOrderIds.has(order.id))
@@ -41,7 +45,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   return (
     <div>
       <PageHeading eyebrow="Планирование" title="Календарь выездов" description="Все заказы и даты выездов в одном расписании без ручных списков в комментариях." />
-      <CalendarWorkspace key={`${anchorDate}:${initialView}:${visits.map((visit) => `${visit.id}:${visit.version}`).join(",")}`} visits={visits} unassignedOrders={unassignedOrders} anchorDate={anchorDate} initialView={initialView} canWrite={hasPermission(member, "visits.write")} />
+      <CalendarWorkspace key={`${anchorDate}:${initialView}:${focusedOrderId}:${visits.map((visit) => `${visit.id}:${visit.version}`).join(",")}`} visits={visits} unassignedOrders={unassignedOrders} anchorDate={anchorDate} initialView={initialView} focusedOrderId={focusedOrderId} canWrite={hasPermission(member, "visits.write")} />
     </div>
   );
 }

@@ -1,14 +1,17 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { requireSession } from "@/server/auth/session";
 import {
   createOrganizationMember,
   MemberIdentityConflictError,
+  MemberLegacyRoleChangeError,
   MemberMasterConflictError,
   MemberMasterNotFoundError,
   MemberNotFoundError,
+  MemberProtectedAccountError,
   MemberSelfPasswordResetError,
   MemberSelfModificationError,
   MemberVersionConflictError,
@@ -48,7 +51,7 @@ function unexpected(operation: string, actorId: string, error: unknown) {
     operation,
     category: "unexpected",
     actorId,
-    error: error instanceof Error ? error.message : "Unknown error",
+    errorCode: safeErrorCode(error),
   }));
 }
 
@@ -78,6 +81,9 @@ export async function createMemberAction(
   } catch (error) {
     if (error instanceof MemberIdentityConflictError) {
       return { status: "error", message: "Этот e-mail или телефон уже используется.", fieldErrors: { email: ["Проверьте уникальность логина"] } };
+    }
+    if (error instanceof MemberProtectedAccountError) {
+      return { status: "error", message: "Этот адрес зарезервирован для системной учётной записи разработчика.", fieldErrors: { email: ["Используйте другой адрес"] } };
     }
     if (error instanceof MemberMasterConflictError) {
       return { status: "error", message: "Карточка мастера уже привязана к другой учётной записи.", fieldErrors: { masterId: ["Выберите другого мастера"] } };
@@ -114,6 +120,12 @@ export async function updateMemberAccessAction(
   } catch (error) {
     if (error instanceof MemberSelfModificationError) {
       return { status: "error", message: "Нельзя менять собственную роль или отключать свою учётную запись.", fieldErrors: {} };
+    }
+    if (error instanceof MemberProtectedAccountError) {
+      return { status: "error", message: "Системной учётной записью разработчика нельзя управлять из настроек организации.", fieldErrors: {} };
+    }
+    if (error instanceof MemberLegacyRoleChangeError) {
+      return { status: "error", message: "Устаревшую роль можно сохранить только у сотрудника, которому она уже назначена. Выберите новый уровень.", fieldErrors: { role: ["Выберите новый уровень"] } };
     }
     if (error instanceof MemberVersionConflictError) {
       return { status: "error", message: "Данные уже изменил другой администратор. Обновите страницу и повторите.", fieldErrors: {} };
@@ -156,6 +168,9 @@ export async function resetMemberPasswordAction(
   } catch (error) {
     if (error instanceof MemberSelfPasswordResetError) {
       return { status: "error", message: "Собственный пароль меняется в разделе безопасности профиля.", fieldErrors: {} };
+    }
+    if (error instanceof MemberProtectedAccountError) {
+      return { status: "error", message: "Пароль системной учётной записи разработчика нельзя менять из настроек организации.", fieldErrors: {} };
     }
     if (error instanceof MemberVersionConflictError) {
       return { status: "error", message: "Данные сотрудника уже изменились. Обновите страницу и повторите.", fieldErrors: {} };

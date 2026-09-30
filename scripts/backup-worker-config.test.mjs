@@ -12,6 +12,7 @@ test("backup worker uses safe production defaults", () => {
     pollIntervalMs: 60_000,
     retryIntervalMs: 900_000,
     retentionDays: 30,
+    snapshotCopyTimeoutMs: 30_000,
   });
 });
 
@@ -20,6 +21,8 @@ test("backup worker validates scheduling and retention bounds", () => {
   assert.throws(() => parseBackupWorkerConfig({ BACKUP_INTERVAL_MS: "1000" }));
   assert.throws(() => parseBackupWorkerConfig({ BACKUP_WORKER_POLL_MS: "1.5" }));
   assert.throws(() => parseBackupWorkerConfig({ BACKUP_RETENTION_DAYS: "0" }));
+  assert.throws(() => parseBackupWorkerConfig({ BACKUP_SNAPSHOT_COPY_TIMEOUT_MS: "999" }));
+  assert.throws(() => parseBackupWorkerConfig({ BACKUP_SNAPSHOT_COPY_TIMEOUT_MS: "120001" }));
 });
 
 test("backup health window allows missed polls", () => {

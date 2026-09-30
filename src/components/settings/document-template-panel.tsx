@@ -2,7 +2,8 @@
 
 import { Check, Download, FileCheck2, FileUp, LoaderCircle, Plus, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useState } from "react";
+import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
+import type { FormEvent } from "react";
 import {
   type DocumentTemplateMutationState,
   updateDocumentTemplateStatusAction,
@@ -21,14 +22,31 @@ function Status({ state }: { state: DocumentTemplateMutationState }) {
 }
 
 function UploadTemplateForm({ requestKey, onComplete }: { requestKey: string; onComplete: () => void }) {
-  const [state, action, pending] = useActionState(uploadDocumentTemplateAction, initialState);
+  const [state, setState] = useState<DocumentTemplateMutationState>(initialState);
+  const [pending, startTransition] = useTransition();
   const router = useRouter();
   useEffect(() => {
-    if (state.status !== "success") return;
+    if (state.status !== "success" || state.refreshRequired) return;
     const timeout = window.setTimeout(() => { onComplete(); router.refresh(); }, 650);
     return () => window.clearTimeout(timeout);
-  }, [onComplete, router, state.status]);
-  return <form action={action} className="flex min-h-full flex-1 flex-col">
+  }, [onComplete, router, state.status, state.refreshRequired]);
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(async () => {
+      try {
+        const result = await uploadDocumentTemplateAction(state, formData);
+        startTransition(() => setState(result));
+      } catch {
+        startTransition(() => setState({
+          status: "error",
+          message: "Не удалось получить ответ сервера. Проверьте список шаблонов перед повторной отправкой.",
+          fieldErrors: {},
+        }));
+      }
+    });
+  };
+  return <form onSubmit={submit} className="flex min-h-full flex-1 flex-col">
     <input type="hidden" name="idempotencyKey" value={requestKey} />
     <div className="flex-1 space-y-5 p-5 sm:p-7">
       <OrderField label="Название формы" required errors={state.fieldErrors.title}><input name="title" required minLength={2} maxLength={240} placeholder="Акт выполненных работ — стандартный" className={orderInputClass} /></OrderField>

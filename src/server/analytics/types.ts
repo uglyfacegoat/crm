@@ -31,5 +31,12 @@ export type AnalyticsSnapshot = {
   teamPerformance: Array<{ id: string; name: string; visits: number; completion: number; orderValueMinor: number }>;
   topClients: Array<{ id: string; name: string; orders: number; agreedMinor: number }>;
   repeatClientRate: number;
+  repeatClientCounts: { repeat: number; firstTime: number };
   completedVisitRate: number;
+  visitActivity: Array<{ key: string; label: string; value: number }>;
+  orderStatusBreakdown: Array<{
+    id: "new" | "in_progress" | "scheduled" | "approved" | "completed" | "cancelled";
+    label: string;
+    value: number;
+  }>;
 };

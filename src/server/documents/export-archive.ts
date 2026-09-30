@@ -81,5 +81,9 @@ export function createDocumentExportArchive(files: Array<DocumentExportFile & { 
     }
     entries[createDocumentArchivePath(file, occupiedPaths)] = file.content;
   }
-  return { archive: Buffer.from(zipSync(entries, { level: 0 })), totalSizeBytes };
+  const compressed = zipSync(entries, { level: 0 });
+  return {
+    archive: Buffer.from(compressed.buffer, compressed.byteOffset, compressed.byteLength),
+    totalSizeBytes,
+  };
 }

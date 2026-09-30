@@ -3,9 +3,10 @@ import test from "node:test";
 import { cancelTaskSchema, createTaskSchema, rescheduleTaskSchema, updateTaskSchema } from "./schemas.ts";
 
 test("manual tasks accept either a complete local deadline or no deadline", () => {
-  const base = { idempotencyKey: "5c24bda8-8e16-4f3a-bf11-67f7e383ecb9", title: "Подготовить акт", description: "", priority: "normal", assignedMemberId: "" };
+  const base = { idempotencyKey: "5c24bda8-8e16-4f3a-bf11-67f7e383ecb9", title: "Подготовить акт", description: "", priority: "normal", assignedMemberId: "", relatedOrderId: "" };
   assert.equal(createTaskSchema.safeParse({ ...base, localDate: "", localTime: "" }).success, true);
   assert.equal(createTaskSchema.safeParse({ ...base, localDate: "2026-08-30", localTime: "09:15" }).success, true);
+  assert.equal(createTaskSchema.safeParse({ ...base, relatedOrderId: "unknown", localDate: "", localTime: "" }).success, false);
   assert.equal(createTaskSchema.safeParse({ ...base, localDate: "2026-08-30", localTime: "" }).success, false);
 });
 

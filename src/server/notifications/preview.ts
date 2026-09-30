@@ -58,6 +58,7 @@ export function getPreviewNotifications(limit: number, unreadOnly: boolean): Not
     items: visible,
     unreadCount: items.filter((item) => item.readAt === null).length,
     criticalUnreadCount: items.filter((item) => item.readAt === null && item.severity === "critical").length,
+    nextCursor: null,
     generatedAt: new Date(now).toISOString(),
   };
 }

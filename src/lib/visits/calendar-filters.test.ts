@@ -25,6 +25,7 @@ function visit(overrides: Partial<ServiceVisit>): ServiceVisit {
     address: "Москва, Тверская, 1",
     scheduledStartAt: "2026-09-04T07:00:00.000Z",
     scheduledEndAt: "2026-09-04T09:00:00.000Z",
+    arrivalMode: "window",
     timezone: "Europe/Moscow",
     statusCode: "planned",
     status: "Запланирован",

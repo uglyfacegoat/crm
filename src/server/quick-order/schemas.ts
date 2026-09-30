@@ -50,10 +50,6 @@ const newClientSchema = z.object({
     contactPosition: optionalText(120),
     phone: contactPhone,
     email: optionalEmail,
-  }).superRefine((value, context) => {
-    if (value.kind === "legal_entity" && !value.taxId) {
-      context.addIssue({ code: "custom", path: ["taxId"], message: "Для юридического лица укажите ИНН" });
-    }
   }),
   object: newObjectSchema,
 });

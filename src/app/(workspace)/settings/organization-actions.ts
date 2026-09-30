@@ -1,5 +1,6 @@
 "use server";
 
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { revalidatePath } from "next/cache";
 import { getAuthMode } from "@/server/auth/config";
 import { AuthorizationError } from "@/server/auth/permissions";
@@ -27,7 +28,7 @@ export async function createOrganizationAction(_previous: OrganizationMutationSt
     if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для создания компании.", fieldErrors: {} };
     if (error instanceof OrganizationNameConflictError) return { status: "error", message: "Компания с таким названием уже есть в центре.", fieldErrors: { name: ["Введите другое название"] } };
     if (error instanceof OrganizationAccessError) return { status: "error", message: "Создавать компании можно только из Центра компаний.", fieldErrors: {} };
-    console.error(JSON.stringify({ operation: "organization.create", actorId: member.memberId, error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "organization.create", actorId: member.memberId, errorCode: safeErrorCode(error) }));
     return { status: "error", message: "Не удалось создать компанию.", fieldErrors: {} };
   }
 }

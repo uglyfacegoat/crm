@@ -1,11 +1,10 @@
 "use client";
 
-import { AlertTriangle, Building2, CalendarClock, Check, ClipboardCopy, Copy, LoaderCircle, MapPin, Phone, UserRound, Wrench } from "lucide-react";
+import { AlertTriangle, Check, ClipboardCopy, Copy, LoaderCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { z } from "zod";
 import { Dialog } from "@/components/ui/dialog";
-import { formatMoneyMinor } from "@/lib/format";
-import { formatVisitDispatchCardText, formatVisitDispatchWindow, visitDispatchCardSchema, type VisitDispatchCard } from "@/lib/visits/dispatch-card";
+import { formatVisitDispatchCardText, visitDispatchCardSchema, type VisitDispatchCard } from "@/lib/visits/dispatch-card";
 
 const dispatchCardResponseSchema = z.object({ data: visitDispatchCardSchema });
 const dispatchCardErrorSchema = z.object({ error: z.object({ message: z.string() }) });
@@ -33,41 +32,18 @@ async function copyText(text: string) {
   if (!copied) throw new Error("Browser rejected clipboard operation.");
 }
 
-function CardField({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return <div className="flex min-w-0 gap-3 rounded-[13px] border border-[var(--line)] bg-[var(--surface-inset)] p-3.5"><span className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-[var(--surface-soft)] text-[var(--support-strong)]">{icon}</span><div className="min-w-0"><p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</p><p className="mt-1.5 break-words text-xs leading-5 text-[var(--text-secondary)]">{value}</p></div></div>;
-}
-
 function DispatchCardContent({ card, copyState, onCopy }: { card: VisitDispatchCard; copyState: CopyState; onCopy: () => void }) {
   const text = formatVisitDispatchCardText(card);
   return <div className="flex min-h-full flex-col">
-    <div className="flex-1 space-y-5 p-4 sm:p-6">
-      <section className="overflow-hidden rounded-[18px] border border-[var(--line-strong)] bg-[var(--accent-soft)] p-4 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--accent-ink)]">Задание на выезд</p><p className="mt-2 font-display text-xl font-semibold tracking-[-0.035em] text-[var(--text)]">{card.orderNumber ?? "Без номера заказа"}</p></div><span className="rounded-full border border-[var(--line-strong)] bg-[var(--surface-raised)] px-3 py-1.5 text-[9px] text-[var(--text-secondary)]">{card.status}</span></div>
-        <p className="mt-5 flex items-start gap-2 text-sm font-medium leading-6 text-[var(--text)]"><CalendarClock className="mt-0.5 size-4 shrink-0 text-[var(--accent-ink)]" />{formatVisitDispatchWindow(card)}</p>
-      </section>
-
-      <div className="grid gap-2.5 sm:grid-cols-2">
-        <CardField icon={<Building2 className="size-4" />} label="Юридическое лицо" value={card.client} />
-        <CardField icon={<MapPin className="size-4" />} label="Объект" value={`${card.object} · ${card.address}`} />
-        <CardField icon={<Phone className="size-4" />} label="Контакт на объекте" value={`${card.contactName ?? "Не указан"}${card.contactPhone ? ` · ${card.contactPhone}` : ""}`} />
-        <CardField icon={<UserRound className="size-4" />} label="Мастер" value={`${card.master ?? "Не назначен"}${card.masterPhone ? ` · ${card.masterPhone}` : ""}`} />
-      </div>
-
-      <section className="border-y border-[var(--line)] py-4">
-        <div className="flex items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-xs font-semibold text-[var(--text)]"><Wrench className="size-4 text-[var(--support-strong)]" />Состав работ</h3><span className="text-[9px] text-[var(--muted)]">{card.services.length} поз.</span></div>
-        {card.services.length ? <ol className="mt-3 divide-y divide-[var(--line)]">{card.services.map((service, index) => <li key={`${service.name}-${index}`} className="grid gap-1 py-3 first:pt-1 last:pb-0 sm:grid-cols-[1.5rem_minmax(0,1fr)_auto]"><span className="font-display text-[10px] text-[var(--accent)]">{String(index + 1).padStart(2, "0")}</span><div><p className="text-xs text-[var(--text-secondary)]">{service.name}</p>{service.note ? <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">{service.note}</p> : null}</div><span className="text-[10px] text-[var(--muted)]">× {Number(service.quantity).toLocaleString("ru-RU", { maximumFractionDigits: 3 })}</span></li>)}</ol> : <p className="mt-3 text-xs text-[var(--muted)]">Работы в заказе не указаны.</p>}
-      </section>
-
-      {card.masterPaymentMinor !== undefined || card.notes ? <div className="grid gap-2.5 sm:grid-cols-2">{card.masterPaymentMinor !== undefined ? <CardField icon={<span className="font-display text-xs">₽</span>} label="Выплата мастеру" value={card.masterPaymentMinor === null ? "Не указана для этого мастера" : formatMoneyMinor(card.masterPaymentMinor)} /> : null}{card.notes ? <CardField icon={<ClipboardCopy className="size-4" />} label="Комментарий к выезду" value={card.notes} /> : null}</div> : null}
-
-      <label className="block"><span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Готовый текст</span><textarea readOnly value={text} rows={12} onFocus={(event) => event.currentTarget.select()} className="focus-ring mt-2 w-full resize-none rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-inset)] p-4 font-mono text-[11px] leading-5 text-[var(--text-secondary)]" /></label>
+    <div className="flex-1 space-y-4 p-4 sm:p-6">
+      <pre className="whitespace-pre-wrap break-words rounded-[14px] border border-[var(--line)] bg-[var(--surface-inset)] p-4 font-mono text-xs leading-6 text-[var(--text)] select-text sm:p-5">{text}</pre>
       {copyState === "error" ? <p role="alert" className="flex items-center gap-2 rounded-[12px] border border-[var(--danger-border)] bg-[var(--danger-bg)] p-3 text-xs text-[var(--danger-ink)]"><AlertTriangle className="size-4" />Автокопирование недоступно. Выделите текст в поле вручную.</p> : null}
     </div>
     <footer className="sticky bottom-0 border-t border-[var(--line)] bg-[var(--surface-raised)]/95 p-4 backdrop-blur-xl sm:px-6"><button type="button" onClick={onCopy} className="focus-ring flex h-12 w-full items-center justify-center gap-2 rounded-[13px] bg-[var(--accent)] text-xs font-semibold text-[var(--on-accent)]">{copyState === "success" ? <><Check className="size-4" />Текст скопирован</> : <><Copy className="size-4" />Скопировать для мастера</>}</button></footer>
   </div>;
 }
 
-export function VisitDispatchCardButton({ visitId, compact = false, className = "" }: { visitId: string | null; compact?: boolean; className?: string }) {
+export function VisitDispatchCardButton({ visitId, compact = false, className = "", label = "Карточка мастеру" }: { visitId: string | null; compact?: boolean; className?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [card, setCard] = useState<VisitDispatchCard | null>(null);
@@ -118,9 +94,9 @@ export function VisitDispatchCardButton({ visitId, compact = false, className = 
 
   return <>
     <button type="button" draggable={false} disabled={!visitId} onPointerDown={(event) => event.stopPropagation()} onClick={openCard} aria-label={compact ? "Открыть карточку мастеру" : undefined} title={!visitId ? "Сначала добавьте выезд" : "Открыть готовое задание мастеру"} className={`${compact ? "grid size-7 place-items-center rounded-[8px] border border-[var(--line-strong)] bg-[var(--surface-inset)] text-[var(--text-secondary)] hover:text-[var(--text)]" : "soft-button flex h-10 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-[13px] px-3 text-xs font-medium text-[var(--text-secondary)]"} focus-ring disabled:cursor-not-allowed disabled:opacity-40 ${className}`}>
-      <ClipboardCopy className={compact ? "size-3.5" : "size-4"} />{compact ? null : <span>Карточка мастеру</span>}
+      <ClipboardCopy className={compact ? "size-3.5" : "size-4"} />{compact ? null : <span className="truncate">{label}</span>}
     </button>
-    <Dialog open={open} onClose={close} title="Карточка выезда" description="Готовое задание можно проверить и отправить мастеру без ручного переписывания.">
+    <Dialog open={open} onClose={close} title="Карточка мастеру">
       {loading ? <div className="grid min-h-80 place-items-center p-6 text-center"><div><LoaderCircle className="mx-auto size-6 animate-spin text-[var(--accent)]" /><p className="mt-3 text-xs text-[var(--muted)]">Собираем актуальные данные…</p></div></div> : error ? <div className="grid min-h-80 place-items-center p-6 text-center"><div className="max-w-sm"><AlertTriangle className="mx-auto size-7 text-[var(--danger)]" /><p role="alert" className="mt-3 text-sm text-[var(--text)]">{error}</p><button type="button" onClick={openCard} className="focus-ring mt-5 h-10 rounded-[12px] border border-[var(--line-strong)] px-4 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]">Повторить</button></div></div> : card ? <DispatchCardContent card={card} copyState={copyState} onCopy={handleCopy} /> : null}
     </Dialog>
   </>;

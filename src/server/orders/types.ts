@@ -15,6 +15,8 @@ export const orderStatusLabels: Record<OrderStatus, OrderDisplayStatus> = {
 
 export type OrderListItem = {
   id: string;
+  organizationId?: string;
+  organizationName?: string;
   number: string;
   client: string;
   object: string;
@@ -28,10 +30,14 @@ export type OrderListItem = {
 
 export type OrderServiceLine = {
   id: string;
+  catalogItemId?: string | null;
+  kind?: "service" | "product";
+  unit?: string;
   name: string;
   quantity: string;
   unitPriceMinor: number;
   lineTotalMinor: number;
+  pricePending?: boolean;
   note: string | null;
 };
 
@@ -44,8 +50,12 @@ export type OrderExpense = {
 };
 
 export type OrderDetail = OrderListItem & {
+  pricePending?: boolean;
+  relatedContacts?: Array<{ id: string; name: string; phone: string; email: string | null; position: string | null }>;
+  relatedObjects?: Array<{ id: string; name: string; address: string }>;
+  relatedPhones?: Array<{ id: string; label: string; phone: string; contactName: string | null }>;
   clientId: string;
-  objectId: string;
+  objectId: string | null;
   contactId: string | null;
   contactName: string;
   contactPhone: string;
@@ -69,6 +79,8 @@ export type OrderDetail = OrderListItem & {
 };
 
 export type OrderCreationOptions = {
+  remote?: boolean;
+  catalogItems?: import("@/server/catalog/repository").CatalogItem[];
   clients: Array<{ id: string; name: string }>;
   objects: Array<{ id: string; clientId: string; name: string; address: string }>;
   contacts: Array<{ id: string; clientId: string; name: string; phone: string; isPrimary: boolean }>;

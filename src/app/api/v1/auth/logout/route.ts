@@ -1,8 +1,10 @@
+import { safeErrorCode } from "@/server/observability/safe-error";
 import { NextRequest, NextResponse } from "next/server";
 import { isSameOriginRequest } from "@/server/auth/request";
 import { shouldUseSecureSessionCookie } from "@/server/auth/config";
 import { endSession } from "@/server/auth/service";
 import { SESSION_COOKIE_NAME } from "@/server/auth/session";
+import { EMAIL_CHALLENGE_COOKIE_NAME } from "@/server/auth/email-otp-repository";
 
 export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) return NextResponse.json({ error: { code: "invalid_origin", message: "Недопустимый источник запроса." } }, { status: 403 });
@@ -10,10 +12,11 @@ export async function POST(request: NextRequest) {
   try {
     if (token) await endSession(token);
   } catch (error) {
-    console.error(JSON.stringify({ operation: "api.auth.logout", category: "unexpected", error: error instanceof Error ? error.message : "Unknown error" }));
+    console.error(JSON.stringify({ operation: "api.auth.logout", category: "unexpected", errorCode: safeErrorCode(error) }));
     return NextResponse.json({ error: { code: "service_unavailable", message: "Не удалось завершить сессию." } }, { status: 503 });
   }
   const response = NextResponse.json({ data: { authenticated: false } });
   response.cookies.set(SESSION_COOKIE_NAME, "", { httpOnly: true, secure: shouldUseSecureSessionCookie(), sameSite: "lax", path: "/", maxAge: 0 });
+  response.cookies.set(EMAIL_CHALLENGE_COOKIE_NAME, "", { httpOnly: true, secure: shouldUseSecureSessionCookie(), sameSite: "lax", path: "/", maxAge: 0 });
   return response;
 }

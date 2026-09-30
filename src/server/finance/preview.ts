@@ -11,7 +11,7 @@ export function getPreviewFinanceSnapshot(): FinanceSnapshot {
         invoices: [{
           id: "00000000-0000-4000-8000-000000000203", number: "СЧ-1248", amountMinor: 2500000, paidMinor: 1500000, outstandingMinor: 1000000,
           issuedOn: "2026-08-20", dueOn: "2026-08-28", status: "issued", overdue: true, note: "Оплата по договору", voidReason: null, version: 1,
-          payments: [{ id: "00000000-0000-4000-8000-000000000204", amountMinor: 1500000, receivedOn: "2026-08-25", method: "bank_transfer", reference: "ПП-401", note: null, status: "posted", reversalReason: null, version: 1 }],
+          payments: [{ id: "00000000-0000-4000-8000-000000000204", amountMinor: 1500000, receivedOn: "2026-08-25", method: "bank_transfer", reference: "ПП-401", note: null, status: "posted", reversalReason: null, receiptDocumentId: null, version: 1 }],
         }],
       },
       {
@@ -22,8 +22,8 @@ export function getPreviewFinanceSnapshot(): FinanceSnapshot {
       },
     ],
     payouts: [
-      { id: "00000000-0000-4000-8000-000000000208", orderId: "00000000-0000-4000-8000-000000000205", orderNumber: "№1247", masterId: "00000000-0000-4000-8000-000000000206", masterName: "Дмитрий Кузнецов", amountMinor: 350000, paidOn: "2026-08-26", method: "bank_transfer", reference: "ВЕД-88", note: null, status: "posted", reversalReason: null, version: 1 },
-      { id: "00000000-0000-4000-8000-000000000209", orderId: "00000000-0000-4000-8000-000000000201", orderNumber: "№1248", masterId: "00000000-0000-4000-8000-000000000202", masterName: "Алексей Смирнов", amountMinor: 200000, paidOn: "2026-08-25", method: "cash", reference: null, note: "Аванс", status: "posted", reversalReason: null, version: 1 },
+      { id: "00000000-0000-4000-8000-000000000208", orderId: "00000000-0000-4000-8000-000000000205", orderNumber: "№1247", masterId: "00000000-0000-4000-8000-000000000206", masterName: "Дмитрий Кузнецов", amountMinor: 350000, paidOn: "2026-08-26", method: "bank_transfer", reference: "ВЕД-88", note: null, status: "posted", reversalReason: null, receiptDocumentId: null, version: 1 },
+      { id: "00000000-0000-4000-8000-000000000209", orderId: "00000000-0000-4000-8000-000000000201", orderNumber: "№1248", masterId: "00000000-0000-4000-8000-000000000202", masterName: "Алексей Смирнов", amountMinor: 200000, paidOn: "2026-08-25", method: "cash", reference: null, note: "Аванс", status: "posted", reversalReason: null, receiptDocumentId: null, version: 1 },
     ],
     summary: { agreedMinor: 4350000, invoicedMinor: 4350000, receivedMinor: 3350000, receivableMinor: 1000000, overdueMinor: 1000000, masterAccruedMinor: 750000, masterPaidMinor: 550000, masterDueMinor: 200000 },
   };

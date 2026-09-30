@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePagePermission } from "@/server/auth/page-access";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { ContractDetailWorkspace } from "@/components/contracts/contract-detail-workspace";
@@ -21,6 +22,7 @@ export default async function ContractDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const member = await requireOfficeSession();
+  requirePagePermission(member, "contracts.read");
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const preview = getAuthMode() === "preview";
@@ -43,21 +45,20 @@ export default async function ContractDetailPage({
               objectId: contract.objectId,
               orderId: null,
               category: "contract",
+              folderId: null,
+              favoriteOnly: false,
             })
           : Promise.resolve([]),
         listContractHistory(member, contract.id),
       ]);
-  const orderedDocuments = documents.toSorted(
-    (left, right) =>
-      Number(right.contractId === contract.id) -
-      Number(left.contractId === contract.id),
-  );
+  const orderedDocuments = documents.filter((document) => document.contractId === contract.id);
   return (
     <ContractDetailWorkspace
       contract={contract}
       documents={orderedDocuments}
       history={history}
       canWrite={hasPermission(member, "contracts.write") && !preview}
+      canReplaceDocuments={hasPermission(member, "documents.write") && !preview}
       currentDate={new Intl.DateTimeFormat("en-CA", {
         timeZone: "Europe/Moscow",
         year: "numeric",

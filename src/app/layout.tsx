@@ -6,16 +6,44 @@ import { APPEARANCE_THEME_COOKIE, DIGIT_STYLE_COOKIE, FONT_SCALE_COOKIE, parseAp
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.CRM_PUBLIC_ORIGIN ?? "https://workspace-90780.tehstroinvest.ru"),
   title: {
-    default: "CRM — рабочее пространство",
-    template: "%s · CRM",
+    default: "CORE — рабочее пространство",
+    template: "%s · CORE",
   },
   description: "Управление заказами, клиентами, выездами и документами",
+  applicationName: "CORE",
+  openGraph: {
+    type: "website",
+    siteName: "CORE",
+    title: "CORE — рабочее пространство",
+    description: "Управление заказами, клиентами, выездами и документами",
+    images: [{ url: "/core-share.png", width: 1200, height: 630, alt: "CORE — рабочее пространство" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "CORE — рабочее пространство",
+    description: "Управление заказами, клиентами, выездами и документами",
+    images: ["/core-share.png"],
+  },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml", sizes: "any" }],
+    shortcut: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "CORE",
+  },
 };
 
 export const viewport: Viewport = {
   colorScheme: "light dark",
-  themeColor: "#f6f5f0",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F6F5F0" },
+    { media: "(prefers-color-scheme: dark)", color: "#25272C" },
+  ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",

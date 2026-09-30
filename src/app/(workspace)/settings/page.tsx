@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { SettingsWorkspace } from "@/components/settings/settings-workspace";
 import { PageHeading } from "@/components/ui/page-heading";
-import { getAuthMode } from "@/server/auth/config";
+import { emailOtpEnabled, getAuthMode } from "@/server/auth/config";
+import { emailOtpDeliveryReady } from "@/server/auth/email-otp-repository";
+import { getOwnSecurityState } from "@/server/auth/security-settings";
 import { hasPermission } from "@/server/auth/permissions";
-import { requireOfficeSession } from "@/server/auth/session";
+import { requireSession } from "@/server/auth/session";
 import { getBackupSystemSnapshot, getPreviewBackupSystemSnapshot } from "@/server/backups/repository";
 import type { BackupSystemSnapshot } from "@/server/backups/types";
-import { listRecentImportJobs } from "@/server/imports/repository";
-import type { ImportJobListItem } from "@/server/imports/types";
 import { listDocumentTemplates } from "@/server/document-templates/repository";
 import type { DocumentTemplateListItem } from "@/server/document-templates/types";
 import { listMemberMasterOptions, listOrganizationMembers } from "@/server/members/repository";
+import { listMemberActivity, type MemberActivity } from "@/server/members/activity";
 import type { MemberMasterOption, OrganizationMemberListItem } from "@/server/members/types";
 import { listOrganizationSummaries } from "@/server/organizations/repository";
 import type { OrganizationSummary } from "@/server/organizations/types";
@@ -20,21 +20,33 @@ import { APPEARANCE_THEME_COOKIE, DIGIT_STYLE_COOKIE, FONT_SCALE_COOKIE, parseAp
 
 export const metadata: Metadata = { title: "Настройки" };
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const cookieStore = await cookies();
   const fontScale = parseFontScale(cookieStore.get(FONT_SCALE_COOKIE)?.value);
   const digitStyle = parseDigitStyle(cookieStore.get(DIGIT_STYLE_COOKIE)?.value);
   const theme = parseAppearanceTheme(cookieStore.get(APPEARANCE_THEME_COOKIE)?.value);
-  const member = await requireOfficeSession();
-  if (!hasPermission(member, "settings.write")) redirect("/");
+  const member = await requireSession();
+  const canManageSettings = hasPermission(member, "settings.write") && member.role !== "master" && member.role !== "foreman";
   const preview = getAuthMode() === "preview";
+  const [query, security, securityMailReady] = await Promise.all([
+    searchParams,
+    preview ? Promise.resolve({ enabled: false, pending: false }) : getOwnSecurityState(member),
+    preview || !emailOtpEnabled() ? Promise.resolve(false) : emailOtpDeliveryReady(),
+  ]);
   let members: OrganizationMemberListItem[];
   let masterOptions: MemberMasterOption[];
   let templates: DocumentTemplateListItem[];
   let backupSnapshot: BackupSystemSnapshot;
-  let importJobs: ImportJobListItem[];
   let organizations: OrganizationSummary[];
-  if (preview) {
+  let activity: MemberActivity[];
+  if (!canManageSettings && !preview) {
+    members = [];
+    masterOptions = [];
+    templates = [];
+    backupSnapshot = getPreviewBackupSystemSnapshot();
+    organizations = [];
+    activity = [];
+  } else if (preview) {
     members = [{
         id: member.memberId,
         displayName: member.displayName,
@@ -51,11 +63,16 @@ export default async function SettingsPage() {
     masterOptions = [];
     templates = [];
     backupSnapshot = getPreviewBackupSystemSnapshot();
-    importJobs = [];
-    organizations = [{ id: member.organizationId, name: "Центр компаний", kind: "center", current: true, clientCount: 0, orderCount: 0, activeOrderCount: 0, upcomingVisitCount: 0, openTaskCount: 0, receivedMinor: 0 }];
+    organizations = [{ id: member.organizationId, name: "Центр CRM", kind: "center", current: true, clientCount: 0, orderCount: 0, activeOrderCount: 0, upcomingVisitCount: 0, openTaskCount: 0, receivedMinor: 0 }];
+    activity = [];
   } else {
-    [members, masterOptions, templates, backupSnapshot, importJobs, organizations] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), listDocumentTemplates(member), getBackupSystemSnapshot(member), listRecentImportJobs(member), listOrganizationSummaries(member)]);
+    [members, masterOptions, templates, backupSnapshot, organizations, activity] = await Promise.all([listOrganizationMembers(member), listMemberMasterOptions(member), hasPermission(member, "document_templates.read") ? listDocumentTemplates(member) : Promise.resolve([]), getBackupSystemSnapshot(member), listOrganizationSummaries(member), listMemberActivity(member)]);
   }
 
-  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Управление системой, компаниями, пользователями и защищёнными данными." /><SettingsWorkspace members={members} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} importJobs={importJobs} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} /></div>;
+  const initialTab = query.tab === "security" ? "security" : query.tab === "notifications" || !canManageSettings ? "notifications" : systemTab(query.tab);
+  return <div><PageHeading eyebrow="Конфигурация" title="Настройки" description="Личные уведомления, безопасность и параметры CRM." /><SettingsWorkspace key={initialTab} members={members} activity={activity} masterOptions={masterOptions} templates={templates} backupSnapshot={backupSnapshot} currentMemberId={member.memberId} preview={preview} organizations={organizations} theme={theme} fontScale={fontScale} digitStyle={digitStyle} canManageSettings={canManageSettings} initialTab={initialTab} securityEmail={member.email} securityEnabled={security.enabled} securityPending={security.pending} securityMailReady={securityMailReady} canChatPush={hasPermission(member, "chat.read")} canEventPush={hasPermission(member, "notifications.read")} /></div>;
+}
+
+function systemTab(value: string | undefined) {
+  return value === "members" || value === "activity" || value === "organizations" || value === "appearance" || value === "templates" || value === "system" ? value : "notifications";
 }

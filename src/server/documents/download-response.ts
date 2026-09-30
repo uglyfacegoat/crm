@@ -1,7 +1,8 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { MAX_DOCUMENT_SIZE_BYTES } from "@/lib/file-limits";
+import { FileProcessingBusyError, withFileProcessingResponse } from "@/server/file-scan/processing-slots";
 import type { DocumentDownload } from "./types";
-import { readDocumentFile } from "./storage";
+import { readVerifiedDocumentFile as readStoredFile, StoredFileIntegrityError } from "./storage";
 
 function encodedFilename(filename: string) {
   return encodeURIComponent(filename).replace(
@@ -14,22 +15,20 @@ export async function readVerifiedDocumentFile(
   document: DocumentDownload,
   operation: string,
 ) {
-  const file = await readDocumentFile(document.storageKey);
-  const actualSha256 = createHash("sha256").update(file).digest("hex");
-  if (file.length !== document.sizeBytes || actualSha256 !== document.sha256) {
+  try {
+    return await readStoredFile(document.storageKey, document, MAX_DOCUMENT_SIZE_BYTES);
+  } catch (error) {
     console.error(
       JSON.stringify({
         operation,
-        category: "integrity_mismatch",
+        category: error instanceof StoredFileIntegrityError ? "integrity_mismatch" : "storage_read_failed",
         documentId: document.documentId,
         versionId: document.id,
         expectedSize: document.sizeBytes,
-        actualSize: file.length,
       }),
     );
-    throw new Error("Document file integrity check failed.");
+    throw error;
   }
-  return file;
 }
 
 export async function createDocumentDownloadResponse(
@@ -37,19 +36,24 @@ export async function createDocumentDownloadResponse(
   operation: string,
   disposition: "attachment" | "inline" = "attachment",
 ) {
-  let file: Buffer;
   try {
-    file = await readVerifiedDocumentFile(document, operation);
-  } catch {
+    return await withFileProcessingResponse(async () => {
+      const file = await readVerifiedDocumentFile(document, operation);
+      return { body: file, init: {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "Content-Disposition": `${disposition}; filename="document.${document.filename.split(".").at(-1) ?? "bin"}"; filename*=UTF-8''${encodedFilename(document.filename)}`,
+          "Content-Length": String(file.length),
+          "Content-Type": document.mimeType,
+          "X-Content-Type-Options": "nosniff",
+        },
+      } };
+    });
+  } catch (error) {
+    if (error instanceof FileProcessingBusyError) {
+      return Response.json({ error: "processing_busy" }, { status: 429,
+        headers: { "Cache-Control": "private, no-store", "Retry-After": "3" } });
+    }
     return Response.json({ error: "file_integrity_error" }, { status: 500 });
   }
-  return new Response(Uint8Array.from(file), {
-    headers: {
-      "Cache-Control": "private, no-store",
-      "Content-Disposition": `${disposition}; filename="document.${document.filename.split(".").at(-1) ?? "bin"}"; filename*=UTF-8''${encodedFilename(document.filename)}`,
-      "Content-Length": String(file.length),
-      "Content-Type": document.mimeType,
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
 }

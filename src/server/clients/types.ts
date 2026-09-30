@@ -27,6 +27,7 @@ export type ClientObject = {
 };
 
 export type ClientDetail = {
+  phoneNumbers?: Array<{ id: string; contactId: string | null; label: string; phone: string }>;
   id: string;
   legalName: string;
   kind: ClientKind;

@@ -1,3 +1,4 @@
+import "./require-flow-check-target.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import postgres from "postgres";

@@ -110,7 +110,7 @@ export async function listAccessibleOrganizations(
 export async function listOrganizationSummaries(
   member: AuthenticatedMember,
 ): Promise<OrganizationSummary[]> {
-  requirePermission(member, "settings.write");
+  requirePermission(member, "companies.read");
   const rows = await getDatabase()`WITH principal AS (
       SELECT organization_id, member_id FROM auth_sessions WHERE id = ${member.sessionId} AND revoked_at IS NULL
     ), available AS (
@@ -214,7 +214,7 @@ export async function switchActiveOrganization(
   member: AuthenticatedMember,
   organizationId: string,
 ) {
-  requirePermission(member, "companies.read");
+  requirePermission(member, "companies.switch");
   const targetId = z.string().uuid().parse(organizationId);
   const sql = getDatabase();
   return sql.begin(async (transaction) => {
@@ -286,6 +286,19 @@ export async function createOrganization(
       await transaction`INSERT INTO organization_access_grants
         (principal_organization_id, principal_member_id, target_organization_id, target_member_id)
         VALUES (${principalOrganizationId}, ${principalMemberId}, ${organizationId}, ${targetMemberId})`;
+      const developers = await transaction`SELECT members.id, members.display_name, members.email
+        FROM organization_members members
+        JOIN developer_accounts developers ON developers.email = members.email
+        WHERE members.organization_id = ${principalOrganizationId} AND members.active
+          AND members.deleted_at IS NULL AND members.id <> ${principalMemberId}`;
+      for (const developer of developers) {
+        const [developerShadow] = await transaction`INSERT INTO organization_members
+          (organization_id, display_name, email, role)
+          VALUES (${organizationId}, ${developer.display_name}, ${developer.email}, 'admin') RETURNING id`;
+        await transaction`INSERT INTO organization_access_grants
+          (principal_organization_id, principal_member_id, target_organization_id, target_member_id)
+          VALUES (${principalOrganizationId}, ${developer.id}, ${organizationId}, ${developerShadow.id})`;
+      }
       await transaction`UPDATE idempotency_requests SET entity_id = ${organizationId}
         WHERE organization_id = ${principalOrganizationId} AND idempotency_key = ${input.idempotencyKey}`;
       await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)

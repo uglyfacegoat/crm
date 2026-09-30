@@ -2,24 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { matchesRequestOrigin } from "./same-origin.ts";
 
-test("same-origin validation uses the public Host header inside a container", () => {
-  assert.equal(matchesRequestOrigin({
-    origin: "http://127.0.0.1:3000",
-    requestUrl: "http://0.0.0.0:3000/api/v1/documents/export",
-    host: "127.0.0.1:3000",
-    forwardedHost: null,
-    forwardedProtocol: null,
-  }), true);
+test("origin validation accepts only explicitly configured origins including protocol and port", () => {
+  const origins = ["https://crm.example.ru", "http://127.0.0.1:3000"];
+  assert.equal(matchesRequestOrigin("https://crm.example.ru", origins), true);
+  assert.equal(matchesRequestOrigin("http://127.0.0.1:3000", origins), true);
+  assert.equal(matchesRequestOrigin("http://crm.example.ru", origins), false);
+  assert.equal(matchesRequestOrigin("https://crm.example.ru:8443", origins), false);
 });
 
-test("same-origin validation honors forwarded HTTPS and rejects another site", () => {
-  const request = {
-    requestUrl: "http://crm:3000/api/v1/documents/export",
-    host: null,
-    forwardedHost: "crm.example.ru",
-    forwardedProtocol: "https",
-  };
-  assert.equal(matchesRequestOrigin({ ...request, origin: "https://crm.example.ru" }), true);
-  assert.equal(matchesRequestOrigin({ ...request, origin: "https://evil.example" }), false);
-  assert.equal(matchesRequestOrigin({ ...request, origin: "not-a-url" }), false);
+test("missing, opaque, malformed and credential-bearing origins cannot bypass validation", () => {
+  for (const origin of [null, "", "null", "not-a-url", "https://evil.example", "https://crm.example.ru/path", "https://user@crm.example.ru", "https://crm.example.ru#fragment", "https://crm.example.ru, https://evil.example"]) {
+    assert.equal(matchesRequestOrigin(origin, ["https://crm.example.ru"]), false);
+  }
 });

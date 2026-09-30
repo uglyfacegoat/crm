@@ -1,2 +1,0 @@
-external_id;order_number;client_external_id;object_external_id;status;currency;agreed_total_rub;notes
-order-001;OLD-1248;client-001;object-001;scheduled;RUB;25000;Импорт из старой CRM
