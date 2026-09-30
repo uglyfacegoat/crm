@@ -98,14 +98,27 @@ test('personal notes stay private, persist without a date key, and search scoped
   await sql`INSERT INTO organization_access_grants (principal_organization_id, principal_member_id, target_organization_id, target_member_id)
     VALUES (${center.id}, ${principal.id}, ${org.id}, ${author.id})`;
   const centerMember = { ...member(principal.id), organizationId: center.id, role: 'owner', sessionId: session.id };
+  const grantedClientTarget = { kind: 'client', organizationId: org.id, id: client.id };
+  assert.equal(await canAccessNoteTarget(centerMember, grantedClientTarget), true);
+  const grantedClients = await searchNoteDestinations(centerMember, 'Клиент заметки');
+  assert.ok(grantedClients.items.some(item => item.id === client.id && item.detail === 'Notes Test'));
+  currentMember = centerMember;
+  await savePersonalNoteAction({ target: grantedClientTarget, title: 'Center private client note', body: 'Author remains in center' });
+  assert.equal((await searchPersonalNotes(centerMember, grantedClientTarget)).total, 1);
+  assert.equal((await searchPersonalNotes(member(author.id), grantedClientTarget)).items.some(item => item.title === 'Center private client note'), false);
+  currentMember = member(author.id);
   let centerResults = await searchNoteDestinations(centerMember, 'LONG-67');
   assert.equal(centerResults.items[1].detail, 'Notes Test');
   assert.equal(await canAccessNoteTarget(centerMember, centerResults.items[1]), true);
   await sql`UPDATE organization_members SET active = false WHERE id = ${author.id}`;
   assert.equal((await searchNoteDestinations(centerMember, 'LONG-67')).total, 1);
+  assert.equal(await canAccessNoteTarget(centerMember, grantedClientTarget), false);
+  assert.equal((await searchNoteDestinations(centerMember, 'Клиент заметки')).total, 1);
   await sql`UPDATE organization_members SET active = true WHERE id = ${author.id}`;
   await sql`UPDATE auth_sessions SET created_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE id = ${session.id}`;
   assert.equal((await searchNoteDestinations(centerMember, 'LONG-67')).total, 1);
+  assert.equal(await canAccessNoteTarget(centerMember, grantedClientTarget), false);
+  assert.equal((await searchNoteDestinations(centerMember, 'Клиент заметки')).total, 1);
 
   const clientTarget = { kind: 'client', organizationId: org.id, id: client.id };
   const foreignTarget = { kind: 'client', organizationId: otherOrg.id, id: otherClient.id };

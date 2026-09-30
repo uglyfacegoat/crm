@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import postgres from "postgres";
 import sharp from "sharp";
+import { chromium } from "playwright-core";
 import { hashPassword } from "../src/server/auth/password.ts";
 import { runMigrations } from "./migrate.mjs";
 
@@ -27,7 +28,7 @@ const environment = { ...process.env, DATABASE_URL: url.toString(), AUTH_MODE: "
   AUTH_BOOTSTRAP_ADMIN_PASSWORD: password, AUTH_BOOTSTRAP_ORGANIZATION_NAME: "Role acceptance",
   AUTH_BOOTSTRAP_TIMEZONE: "Europe/Moscow", AUTH_BOOTSTRAP_DEVELOPER: "true",
   NEXT_TELEMETRY_DISABLED: "1", HOSTNAME: "127.0.0.1", PORT: "3117" };
-let sql; let server; let serverExit; let created = false;
+let browser; let sql; let server; let serverExit; let created = false;
 const roles = ["deputy", "finance_controller", "sales_lead", "regional_director", "crm_coordinator", "tender_specialist", "foreman"];
 
 async function login(email) {
@@ -62,6 +63,14 @@ try {
   const [companyOrder] = await sql`INSERT INTO orders (organization_id, client_id, order_number, status, currency,
       client_name_snapshot, object_name_snapshot, object_address_snapshot)
     VALUES (${target.id}, ${client.id}, 'ЦЕНТР-101', 'new', 'RUB', 'Клиент другого контура', 'Объект не указан', 'Адрес не указан') RETURNING id`;
+  await sql`INSERT INTO clients (organization_id, legal_name, kind)
+    SELECT ${target.id}, 'Дополнительный клиент ' || lpad(n::text, 3, '0'), 'individual' FROM generate_series(1, 66) n`;
+  const [homeClient] = await sql`INSERT INTO clients (organization_id, legal_name, kind)
+    VALUES (${home.organization_id}, 'Клиент центра', 'individual') RETURNING id`;
+  await sql`INSERT INTO client_contacts (organization_id, client_id, full_name, phone, normalized_phone, is_primary)
+    VALUES (${target.id}, ${client.id}, 'Контакт выданной компании', '+70000000008', '+70000000008', true)`;
+  const [clientObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
+    VALUES (${target.id}, ${client.id}, 'Объект выданной компании', 'Склад', 'Тестовый адрес клиента') RETURNING id`;
   const fileBytes = Buffer.from('center document access test');
   async function seedDocument(organizationId, clientId, orderId, creatorId, title) {
     const id = randomUUID();
@@ -209,6 +218,91 @@ try {
   const [developerSession] = await sql`SELECT active_organization_id FROM auth_sessions
     WHERE organization_id = ${home.organization_id} AND member_id = ${home.id} ORDER BY created_at DESC LIMIT 1`;
   assert.equal(developerSession.active_organization_id, null, "reading from the center must not switch the active company");
+  async function clientPage(cookie, params = '') {
+    const response = await fetch(`${baseUrl}/api/v1/clients${params}`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    return (await response.json()).data;
+  }
+  const firstClients = await clientPage(developerCookie);
+  const nextClients = await clientPage(developerCookie, '?page=2');
+  assert.equal(firstClients.total, 68);
+  assert.equal(firstClients.summary.total, 68);
+  assert.equal(firstClients.summary.active, 1);
+  assert.equal(firstClients.summary.objects, 1);
+  assert.equal(firstClients.items.length, 50);
+  assert.equal(nextClients.items.length, 18);
+  assert.equal(new Set([...firstClients.items, ...nextClients.items].map(item => item.id)).size, 68);
+  const matching = await clientPage(developerCookie, '?q=' + encodeURIComponent('Контакт выданной'));
+  assert.equal(matching.total, 1);
+  assert.equal(matching.items[0].id, client.id);
+  assert.equal(matching.items[0].organizationName, 'Second company');
+  assert.equal(matching.summary.total, 68, 'Search must not shrink full client statistics');
+  const foreignClient = await fetch(`${baseUrl}/clients/${client.id}`, { headers: { Cookie: developerCookie }, redirect: 'manual' });
+  assert.equal(foreignClient.status, 200);
+  const clientHtml = await foreignClient.text();
+  assert.match(clientHtml, /просмотр в центре CRM/);
+  assert.match(clientHtml, /Контакт выданной компании/);
+  assert.match(clientHtml, /Объект выданной компании/);
+  assert.doesNotMatch(clientHtml, />Изменить клиента</);
+  assert.equal((await path(developerCookie, `/clients/${ungrantedClient.id}`)).status, 404);
+  for (const [q, entityId] of [['Клиент другого контура', client.id], ['Объект выданной компании', clientObject.id]]) {
+    const response = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent(q)}`, { headers: { Cookie: developerCookie } });
+    assert.equal(response.status, 200);
+    assert.ok((await response.json()).data.results.some(item => item.id === entityId && item.href === `/clients/${client.id}` && item.subtitle.includes('Second company')));
+  }
+  const hiddenSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Скрытый клиент')}`, { headers: { Cookie: developerCookie } });
+  assert.deepEqual((await hiddenSearch.json()).data.results, []);
+
+  browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.addCookies([{ name: 'crm_session', value: developerCookie.slice('crm_session='.length), url: baseUrl }]);
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  await mkdir('artifacts/business-roles', { recursive: true });
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`${baseUrl}/clients`);
+    await page.getByPlaceholder('Клиент, ИНН, телефон или e-mail').fill('Клиент другого контура');
+    const link = page.getByRole('link', { name: 'Открыть клиента Клиент другого контура', exact: true }).filter({ visible: true });
+    await link.waitFor();
+    await link.click();
+    await page.waitForURL(`${baseUrl}/clients/${client.id}`);
+    await page.getByRole('heading', { name: 'Клиент другого контура', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Изменить клиента', exact: true }).count(), 0);
+    assert.ok(await page.getByText('просмотр в центре CRM', { exact: false }).isVisible());
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: `artifacts/business-roles/center-client-${width}.png`, fullPage: true });
+  }
+  const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Мои заметки', exact: true }) });
+  await panel.getByRole('button', { name: 'Новая заметка', exact: true }).click();
+  await panel.getByPlaceholder('Например, детали объекта').fill('Личная заметка центра');
+  await panel.getByPlaceholder('Запишите важное для себя…').fill('Проверка клиента без смены компании');
+  await panel.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await panel.getByRole('status').filter({ hasText: 'Заметка сохранена' }).waitFor();
+  await page.reload();
+  await panel.getByText('Проверка клиента без смены компании', { exact: true }).waitFor();
+  const [note] = await sql`SELECT owner_organization_id, owner_member_id, target_organization_id, target_id
+    FROM personal_notes WHERE title = 'Личная заметка центра'`;
+  assert.equal(note.owner_organization_id, home.organization_id);
+  assert.equal(note.owner_member_id, home.id);
+  assert.equal(note.target_organization_id, target.id);
+  assert.equal(note.target_id, client.id);
+  await panel.getByRole('button', { name: 'Дублировать', exact: true }).click();
+  await panel.getByPlaceholder('Номер заказа или имя клиента').fill('Клиент центра');
+  await panel.getByRole('button', { name: 'Клиент · Клиент центра', exact: true }).click();
+  await panel.getByRole('status').filter({ hasText: 'Копия создана' }).waitFor();
+  await page.goto(`${baseUrl}/clients/${homeClient.id}`);
+  await page.getByText('Проверка клиента без смены компании', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Дублировать', exact: true }).click();
+  await page.getByPlaceholder('Номер заказа или имя клиента').fill('Клиент другого контура');
+  await page.getByRole('button', { name: 'Клиент · Клиент другого контура Second company', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: 'Копия создана' }).waitFor();
+  assert.deepEqual(errors, []);
+  const [unchangedSession] = await sql`SELECT active_organization_id FROM auth_sessions
+    WHERE organization_id = ${home.organization_id} AND member_id = ${home.id} ORDER BY created_at DESC LIMIT 1`;
+  assert.equal(unchangedSession.active_organization_id, null);
+  await context.close();
   const siteList = await fetch(`${baseUrl}/sites`, { headers: { Cookie: developerCookie }, redirect: "manual" });
   assert.equal(siteList.status, 200);
   const siteListHtml = await siteList.text();
@@ -230,6 +324,12 @@ try {
   await sql`INSERT INTO member_credentials (organization_id, member_id, password_hash)
     VALUES (${target.id}, ${companyCoordinator.id}, ${await hashPassword(password)})`;
   const companyCookie = await login(companyEmail);
+  const companyClients = await clientPage(companyCookie);
+  assert.equal(companyClients.total, 67);
+  assert.ok(!companyClients.items.some(item => item.id === homeClient.id || item.id === ungrantedClient.id));
+  assert.equal((await path(companyCookie, `/clients/${homeClient.id}`)).status, 404);
+  const companyClientDetail = await fetch(`${baseUrl}/clients/${client.id}`, { headers: { Cookie: companyCookie } });
+  assert.doesNotMatch(await companyClientDetail.text(), /Личная заметка центра/);
   await avatar(companyCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`, replacement);
   assert.equal((await path(companyCookie, `/api/v1/masters/${hiddenPhoto.masterId}/avatar`)).status, 404);
   const companyDashboard = await fetch(`${baseUrl}/`, { headers: { Cookie: companyCookie }, redirect: "manual" });
@@ -243,8 +343,13 @@ try {
     AND principal_member_id = ${home.id} AND target_organization_id = ${target.id}`;
   assert.equal((await path(developerCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`)).status, 404, 'Revoked grant must remove master photo access');
   assert.equal((await path(developerCookie, `/api/v1/members/${grantedPhoto.memberId}/avatar`)).status, 404);
-  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
+  assert.equal((await path(developerCookie, `/clients/${client.id}`)).status, 404, 'Revoked grant removes client card access');
+  assert.equal((await clientPage(developerCookie)).total, 1);
+  const revokedSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Клиент другого контура')}`, { headers: { Cookie: developerCookie } });
+  assert.deepEqual((await revokedSearch.json()).data.results, []);
+  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
 } finally {
+  await browser?.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }
   await sql?.end();
   try { if (created) await admin`DROP DATABASE ${admin(databaseName)}`; }

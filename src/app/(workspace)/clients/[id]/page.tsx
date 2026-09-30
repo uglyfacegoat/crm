@@ -5,8 +5,9 @@ import { ClientDetailWorkspace } from "@/components/clients/client-detail-worksp
 import { PersonalNotesPanel } from "@/components/personal-notes/personal-notes-panel";
 import { clients } from "@/lib/mock-data";
 import { getAuthMode } from "@/server/auth/config";
+import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
-import { ClientNotFoundError, getClientDetail } from "@/server/clients/repository";
+import { ClientNotFoundError, getClientDetail, resolveClientReadScope } from "@/server/clients/repository";
 import { clientIdSchema } from "@/server/clients/schemas";
 import type { ClientDetail } from "@/server/clients/types";
 import { searchPersonalNotes, searchPersonalNoteTemplates, type NoteTarget } from "@/server/personal-notes/repository";
@@ -39,17 +40,19 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   if (getAuthMode() === "preview") {
     const client = previewClientDetail(id);
     if (!client) notFound();
-    return <ClientDetailWorkspace client={client} notes={<PersonalNotesPanel target={{ kind: "client", organizationId: member.organizationId, id: client.id }} initialNotes={{ items: [], total: 0, nextOffset: null }} initialTemplates={{ items: [], total: 0, nextOffset: null }} objectName={client.objects[0]?.name} />} />;
+    return <ClientDetailWorkspace client={client} canWrite={hasPermission(member, "clients.write")} notes={<PersonalNotesPanel target={{ kind: "client", organizationId: member.organizationId, id: client.id }} initialNotes={{ items: [], total: 0, nextOffset: null }} initialTemplates={{ items: [], total: 0, nextOffset: null }} objectName={client.objects[0]?.name} />} />;
   }
   if (!clientIdSchema.safeParse(id).success) notFound();
+  const clientMember = await resolveClientReadScope(member, id);
+  const acrossCompanies = clientMember.organizationId !== member.organizationId;
   let client: ClientDetail;
   try {
-    client = await getClientDetail(member, id);
+    client = await getClientDetail(clientMember, id);
   } catch (error) {
     if (error instanceof ClientNotFoundError) notFound();
     throw error;
   }
-  const target: NoteTarget = { kind: "client", organizationId: member.organizationId, id: client.id };
+  const target: NoteTarget = { kind: "client", organizationId: clientMember.organizationId, id: client.id };
   const [notes, templates] = await Promise.all([searchPersonalNotes(member, target), searchPersonalNoteTemplates(member)]);
-  return <ClientDetailWorkspace client={client} notes={<PersonalNotesPanel key={`${member.organizationId}:${member.memberId}:client:${client.id}`} target={target} initialNotes={notes} initialTemplates={templates} objectName={client.objects[0]?.name} />} />;
+  return <ClientDetailWorkspace client={client} canWrite={!acrossCompanies && hasPermission(member, "clients.write")} organizationName={acrossCompanies ? clientMember.organizationName : undefined} notes={<PersonalNotesPanel key={`${member.organizationId}:${member.memberId}:client:${client.id}`} target={target} initialNotes={notes} initialTemplates={templates} objectName={client.objects[0]?.name} />} />;
 }

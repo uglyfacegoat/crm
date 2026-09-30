@@ -5,6 +5,7 @@ import { normalizeSearchText } from "@/lib/search-normalization";
 import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { readableOrganizationIds } from "@/server/organizations/read-scope";
 
 const searchRowSchema = z.object({
   id: z.string().uuid(),
@@ -41,6 +42,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
   requirePermission(member, "search.use");
 
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const normalized = normalizeSearchText(query);
   const escaped = escapeSearchPattern(normalized);
   const containsPattern = `%${escaped}%`;
@@ -53,7 +55,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
   if (hasPermission(member, "clients.read")) {
     searches.push(sql`
       SELECT clients.id, 'client' AS entity_type, clients.legal_name AS title,
-        coalesce(nullif(concat_ws(' · ', CASE WHEN clients.tax_id IS NOT NULL THEN 'ИНН ' || clients.tax_id END, clients.primary_phone), ''), 'Карточка клиента') AS subtitle,
+        coalesce(nullif(concat_ws(' · ', CASE WHEN clients.tax_id IS NOT NULL THEN 'ИНН ' || clients.tax_id END, clients.primary_phone), ''), 'Карточка клиента') || CASE WHEN clients.organization_id <> ${member.organizationId} THEN ' · ' || organizations.name ELSE '' END AS subtitle,
         clients.primary_email AS detail, '/clients/' || clients.id::text AS href,
         CASE
           WHEN lower(clients.legal_name) LIKE ${containsPattern} ESCAPE '\' THEN 'Название клиента'
@@ -69,8 +71,8 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
           WHEN lower(coalesce(clients.tax_id, '')) = ${normalized} THEN 85
           ELSE 65
         END AS score
-      FROM clients
-      WHERE clients.organization_id = ${member.organizationId}
+      FROM clients JOIN organizations ON organizations.id = clients.organization_id
+      WHERE clients.organization_id IN ${sql(organizationIds)}
         AND (
           crm_search_matches(concat_ws(' ', clients.legal_name, clients.tax_id, clients.primary_phone, clients.primary_email), ${query})
           OR (${phonePattern}::text IS NOT NULL AND regexp_replace(coalesce(clients.primary_phone, ''), '\D', '', 'g') LIKE ${phonePattern})
@@ -89,7 +91,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
 
     searches.push(sql`
       SELECT client_objects.id, 'object' AS entity_type, client_objects.name AS title,
-        clients.legal_name AS subtitle, client_objects.address AS detail,
+        clients.legal_name || CASE WHEN clients.organization_id <> ${member.organizationId} THEN ' · ' || organizations.name ELSE '' END AS subtitle, client_objects.address AS detail,
         '/clients/' || clients.id::text AS href,
         CASE
           WHEN lower(client_objects.address) LIKE ${containsPattern} ESCAPE '\' THEN 'Адрес объекта'
@@ -104,7 +106,8 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
         END AS score
       FROM client_objects
       JOIN clients ON clients.organization_id = client_objects.organization_id AND clients.id = client_objects.client_id
-      WHERE client_objects.organization_id = ${member.organizationId}
+      JOIN organizations ON organizations.id = clients.organization_id
+      WHERE client_objects.organization_id IN ${sql(organizationIds)}
         AND crm_search_matches(concat_ws(' ', client_objects.name, client_objects.address, client_objects.onsite_contact), ${query})
       ORDER BY score DESC, client_objects.name
       LIMIT 5

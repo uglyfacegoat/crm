@@ -2,7 +2,7 @@ import "server-only";
 import { hasPermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
-import { centerRecordIsAccessible } from "@/server/organizations/center-feed";
+import { readableOrganizationIds } from "@/server/organizations/read-scope";
 
 export type NoteTarget = { kind: "dashboard"; organizationId: null; id: null } |
   { kind: "order" | "client"; organizationId: string; id: string };
@@ -19,8 +19,9 @@ export async function canAccessNoteTarget(member: AuthenticatedMember, target: N
   if (target.kind === "dashboard") return true;
   if (!hasPermission(member, target.kind === "order" ? "orders.read" : "clients.read")) return false;
   if (target.organizationId !== member.organizationId) {
-    return target.kind === "order" && hasPermission(member, "companies.read") &&
-      centerRecordIsAccessible(member, "order", target.organizationId, target.id);
+    if (!hasPermission(member, "companies.read")) return false;
+    const organizationIds = await readableOrganizationIds(member);
+    if (!organizationIds.includes(target.organizationId)) return false;
   }
   const sql = getDatabase();
   const table = target.kind === "order" ? "orders" : "clients";
@@ -85,29 +86,16 @@ export async function searchNoteDestinations(member: AuthenticatedMember, query:
   const sql = getDatabase();
   const normalizedQuery = query.trim().slice(0, 120);
   const safeOffset = Math.max(0, Math.trunc(offset));
-  // Foreign orders must use the same active center grant as the final transfer.
-  // Client destinations remain in the current organization, like canAccessNoteTarget.
-  const matches = sql`WITH readable_order_organizations AS (
-      SELECT ${member.organizationId}::uuid AS id
-      UNION
-      SELECT grants.target_organization_id FROM auth_sessions sessions
-      JOIN organizations center ON center.id = sessions.organization_id AND center.organization_kind = 'center'
-      JOIN organization_access_grants grants ON grants.principal_organization_id = sessions.organization_id
-        AND grants.principal_member_id = sessions.member_id
-      JOIN organizations company ON company.id = grants.target_organization_id AND company.organization_kind = 'company'
-      JOIN organization_members target ON target.organization_id = grants.target_organization_id
-        AND target.id = grants.target_member_id AND target.active AND target.deleted_at IS NULL
-      WHERE ${hasPermission(member, "companies.read")} AND sessions.id = ${member.sessionId}
-        AND sessions.organization_id = ${member.organizationId} AND sessions.member_id = ${member.memberId}
-        AND sessions.revoked_at IS NULL AND sessions.expires_at > now()
-    ), matches AS (
+  // Destination search and final transfer share the same active center grant.
+  const organizationIds = await readableOrganizationIds(member);
+  const matches = sql`WITH matches AS (
       SELECT 'order' AS kind, orders.id, orders.organization_id,
         concat('Заказ ', orders.order_number, ' · ', COALESCE(NULLIF(orders.client_name_snapshot, ''), clients.legal_name)) AS label,
         companies.name AS organization_name, orders.created_at AS updated_at,
         CASE WHEN lower(orders.order_number) = lower(${normalizedQuery}) THEN 0 ELSE 1 END AS rank
       FROM orders JOIN clients ON clients.organization_id = orders.organization_id AND clients.id = orders.client_id
       JOIN organizations companies ON companies.id = orders.organization_id
-      WHERE ${hasPermission(member, "orders.read")} AND orders.organization_id IN (SELECT id FROM readable_order_organizations)
+      WHERE ${hasPermission(member, "orders.read")} AND orders.organization_id IN ${sql(organizationIds)}
         AND (${normalizedQuery} = '' OR crm_search_matches(concat_ws(' ', orders.order_number,
           clients.legal_name, orders.client_name_snapshot, orders.object_name_snapshot, companies.name), ${normalizedQuery}))
       UNION ALL
@@ -115,7 +103,7 @@ export async function searchNoteDestinations(member: AuthenticatedMember, query:
         companies.name, clients.updated_at,
         CASE WHEN lower(clients.legal_name) = lower(${normalizedQuery}) THEN 0 ELSE 1 END
       FROM clients JOIN organizations companies ON companies.id = clients.organization_id
-      WHERE ${hasPermission(member, "clients.read")} AND clients.organization_id = ${member.organizationId}
+      WHERE ${hasPermission(member, "clients.read")} AND clients.organization_id IN ${sql(organizationIds)}
         AND (${normalizedQuery} = '' OR crm_search_matches(clients.legal_name, ${normalizedQuery}))
     )`;
   const [rows, counts] = await Promise.all([

@@ -45,6 +45,8 @@ export type WorkTask = {
 };
 
 export type Client = {
+  organizationId?: string;
+  organizationName?: string;
   id: string;
   name: string;
   kind: "Юр. лицо" | "Физ. лицо";

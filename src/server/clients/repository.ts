@@ -5,11 +5,13 @@ import { CLIENT_PAGE_SIZE, type ClientListPage, type ClientListQuery } from "@/l
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { readableOrganizationIds } from "@/server/organizations/read-scope";
 import { normalizeContactPhone } from "./phone";
 import type { CompleteClientContactInput, CompleteClientObjectInput, CreateClientContactInput, CreateClientInput, CreateClientObjectInput, UpdateClientInput } from "./schemas";
 import type { ClientDetail } from "./types";
 
 const clientListRowSchema = z.object({
+  organization_id: z.string().uuid(), organization_name: z.string(),
   id: z.string().uuid(), legal_name: z.string(), kind: z.enum(["legal_entity", "individual"]), tax_id: z.string().nullable(),
   contact_name: z.string().nullable(), phone: z.string().nullable(), email: z.string().nullable(),
   object_count: z.number().int().nonnegative(), order_count: z.number().int().nonnegative(),
@@ -55,21 +57,22 @@ function databaseConstraint(error: unknown) {
 export async function listClientsPage(member: AuthenticatedMember, query: ClientListQuery): Promise<ClientListPage> {
   requirePermission(member, "clients.read");
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const kind = query.kind === "all" ? null : query.kind === "Юр. лицо" ? "legal_entity" : "individual";
   const offset = (query.page - 1) * CLIENT_PAGE_SIZE;
   const [rows, summaryRows] = await Promise.all([
     sql`
       WITH client_rows AS (
-        SELECT clients.id, clients.legal_name, clients.kind, clients.tax_id,
+        SELECT clients.organization_id, organizations.name AS organization_name, clients.id, clients.legal_name, clients.kind, clients.tax_id,
           primary_contact.full_name AS contact_name,
           coalesce(nullif(primary_contact.phone, ''), clients.primary_phone) AS phone,
           coalesce(primary_contact.email, clients.primary_email) AS email,
           (SELECT count(*)::int FROM client_objects objects WHERE objects.organization_id = clients.organization_id AND objects.client_id = clients.id) AS object_count,
           (SELECT count(*)::int FROM orders WHERE orders.organization_id = clients.organization_id AND orders.client_id = clients.id) AS order_count
-        FROM clients
+        FROM clients JOIN organizations ON organizations.id = clients.organization_id
         LEFT JOIN client_contacts primary_contact ON primary_contact.organization_id = clients.organization_id
           AND primary_contact.client_id = clients.id AND primary_contact.is_primary
-        WHERE clients.organization_id = ${member.organizationId}
+        WHERE clients.organization_id IN ${sql(organizationIds)}
           AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', clients.legal_name, clients.tax_id,
             clients.primary_phone, clients.primary_email, primary_contact.full_name, primary_contact.phone, primary_contact.email), ${query.q}))
           AND (${kind}::text IS NULL OR clients.kind = ${kind})
@@ -87,9 +90,9 @@ export async function listClientsPage(member: AuthenticatedMember, query: Client
     sql`
       SELECT count(*)::int AS total,
         count(*) FILTER (WHERE EXISTS (SELECT 1 FROM orders WHERE orders.organization_id = clients.organization_id AND orders.client_id = clients.id))::int AS active,
-        (SELECT count(*)::int FROM client_objects WHERE organization_id = ${member.organizationId}) AS objects,
-        (SELECT count(*)::int FROM orders WHERE organization_id = ${member.organizationId}) AS orders
-      FROM clients WHERE organization_id = ${member.organizationId}
+        (SELECT count(*)::int FROM client_objects WHERE organization_id IN ${sql(organizationIds)}) AS objects,
+        (SELECT count(*)::int FROM orders WHERE organization_id IN ${sql(organizationIds)}) AS orders
+      FROM clients WHERE organization_id IN ${sql(organizationIds)}
     `,
   ]);
   const summaryRow = z.object({ total: z.number().int(), active: z.number().int(), objects: z.number().int(), orders: z.number().int() }).parse(summaryRows[0]);
@@ -97,10 +100,23 @@ export async function listClientsPage(member: AuthenticatedMember, query: Client
   if (!rows.length && query.page > 1) return listClientsPage(member, { ...query, page: 1 });
   const items: Client[] = rows.map((row) => {
     const parsed = clientListRowSchema.parse(row);
-    return { id: parsed.id, name: parsed.legal_name, kind: parsed.kind === "legal_entity" ? "Юр. лицо" : "Физ. лицо", taxId: parsed.tax_id, phone: parsed.phone ?? "Не указан", email: parsed.email ?? "Не указан", objects: parsed.object_count, orders: parsed.order_count, contact: parsed.contact_name ?? "Не указан" };
+    return { organizationId: parsed.organization_id, organizationName: parsed.organization_id !== member.organizationId ? parsed.organization_name : undefined, id: parsed.id, name: parsed.legal_name, kind: parsed.kind === "legal_entity" ? "Юр. лицо" : "Физ. лицо", taxId: parsed.tax_id, phone: parsed.phone ?? "Не указан", email: parsed.email ?? "Не указан", objects: parsed.object_count, orders: parsed.order_count, contact: parsed.contact_name ?? "Не указан" };
   });
   const total = rows.length ? z.number().int().parse(rows[0].total_count) : 0;
   return { items, total, page: query.page, pageSize: CLIENT_PAGE_SIZE, summary };
+}
+
+/** Resolve a granted company's client without changing the principal session. Read-only. */
+export async function resolveClientReadScope(member: AuthenticatedMember, clientId: string): Promise<AuthenticatedMember> {
+  requirePermission(member, "clients.read");
+  const organizationIds = await readableOrganizationIds(member);
+  if (organizationIds.length === 1) return member;
+  const sql = getDatabase();
+  const [row] = await sql`SELECT clients.organization_id, organizations.name
+    FROM clients JOIN organizations ON organizations.id = clients.organization_id
+    WHERE clients.id = ${clientId} AND clients.organization_id IN ${sql(organizationIds)} LIMIT 1`;
+  if (!row || row.organization_id === member.organizationId) return member;
+  return { ...member, organizationId: String(row.organization_id), organizationName: String(row.name) };
 }
 
 export async function getClientDetail(member: AuthenticatedMember, clientId: string): Promise<ClientDetail> {
