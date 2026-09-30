@@ -105,6 +105,13 @@ try {
   page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await login(page, accounts.owner);
+  async function preventAccidentalSubmit(scope) {
+    await scope.evaluate(el => {
+      const form = el.closest('form'); form.dataset.pickerSubmitCount = '0';
+      form.addEventListener('submit', event => { form.dataset.pickerSubmitCount = String(Number(form.dataset.pickerSubmitCount) + 1); event.preventDefault(); });
+    });
+  }
+  async function submitCount(scope) { return scope.evaluate(el => Number(el.closest('form').dataset.pickerSubmitCount)); }
   async function choose(scope, label, search, option) {
     const summary = scope.locator(`summary[aria-label="${label}"]`);
     await summary.click();
@@ -233,6 +240,7 @@ try {
   await page.goto(`${base}/settings/users/${reader.id}`);
   const roleChoice = page.getByRole('button', { name: 'Роль сотрудника', exact: true });
   const roleBefore = await page.locator('input[name="role"]').inputValue();
+  assert.equal(await roleChoice.evaluate(el => document.getElementById(el.getAttribute('aria-describedby')).textContent.trim()), 'Уровень 3 · Координатор CRM');
   await roleChoice.click();
   await mkdir('artifacts/picker-forms', { recursive: true });
   for (const width of [390, 768, 1440]) {
@@ -244,7 +252,16 @@ try {
   const roleSearch = page.getByRole('textbox', { name: 'Поиск: Роль сотрудника', exact: true });
   await roleSearch.fill('Координатор');
   assert.equal(await page.getByRole('listbox', { name: 'Роль сотрудника' }).getByRole('option').count(), 1);
-  await page.getByRole('option', { name: /Координатор CRM/ }).click();
+  await preventAccidentalSubmit(roleSearch);
+  await roleSearch.press('Enter');
+  assert.equal(await submitCount(roleSearch), 0, 'Enter in role search must not submit access form');
+  await roleSearch.press('ArrowDown');
+  assert.equal(await page.getByRole('option', { name: /Координатор CRM/ }).evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await roleChoice.evaluate(el => el === document.activeElement), true);
+  // Remove the probe before submitting the actual permission change below.
+  await page.reload();
+
   assert.equal(await page.locator('input[name="role"]').inputValue(), roleBefore);
   await roleChoice.click();
   await roleSearch.fill('Такой роли не существует');
@@ -310,6 +327,7 @@ try {
   assert.match(await page.locator('summary[aria-label="Карточка мастера"]').innerText(), /Яков Глубокий/);
   assert.equal(await page.locator('input[name="masterId"]').inputValue(), deepMaster.id);
   const deepMasterSummary = page.locator('summary[aria-label="Карточка мастера"]');
+  assert.equal(await deepMasterSummary.evaluate(el => document.getElementById(el.getAttribute('aria-describedby')).textContent.trim()), 'Яков Глубокий');
   for (const width of [390, 768, 1440]) {
     await viewport(page, width);
     await deepMasterSummary.scrollIntoViewIfNeeded(); await deepMasterSummary.click();
@@ -322,6 +340,39 @@ try {
     assert.equal(await deepMasterSummary.locator('..').getAttribute('open'), null);
     assert.equal(await page.locator('input[name="masterId"]').inputValue(), deepMaster.id);
   }
+  await deepMasterSummary.click();
+  const remoteMasterMenu = deepMasterSummary.locator('..');
+  const remoteMasterSearch = remoteMasterMenu.getByRole('textbox');
+  await page.route('**/api/v1/settings/masters?**', route => route.fulfill({ status: 503, json: { error: 'temporary' } }));
+  await remoteMasterSearch.fill('Нет такого мастера');
+  await remoteMasterMenu.getByText('Не удалось обновить список. Повторите запрос.', { exact: true }).waitFor();
+  assert.equal(await remoteMasterMenu.getByText('Загрузка…', { exact: true }).count(), 0);
+  await preventAccidentalSubmit(remoteMasterSearch);
+  await remoteMasterSearch.press('Enter');
+  assert.equal(await submitCount(remoteMasterSearch), 0, 'Enter in remote search must not submit access form');
+  assert.equal(await page.locator('input[name="masterId"]').inputValue(), deepMaster.id);
+  // Cached matches still show the failure and retry, not a silently truncated list.
+  const failedMasterMatch = page.waitForResponse(response => response.url().includes('/api/v1/settings/masters?') && new URL(response.url()).searchParams.get('q') === 'Глубокий' && response.status() === 503);
+  await remoteMasterSearch.fill('Глубокий'); await failedMasterMatch;
+  await remoteMasterMenu.getByText('Не удалось обновить список. Повторите запрос.', { exact: true }).waitFor();
+  await remoteMasterMenu.getByRole('button', { name: 'Яков Глубокий +79995550011', exact: true }).waitFor();
+  await page.unroute('**/api/v1/settings/masters?**');
+  await remoteMasterMenu.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await remoteMasterMenu.getByText('Не удалось обновить список. Повторите запрос.', { exact: true }).waitFor({ state: 'hidden' });
+  await remoteMasterSearch.fill('');
+  await remoteMasterMenu.getByRole('button', { name: 'Выберите мастера', exact: true }).waitFor();
+  await remoteMasterSearch.press('ArrowDown');
+  assert.equal(await remoteMasterMenu.locator('button[data-picker-option]').first().evaluate(el => el === document.activeElement), true, 'ArrowDown must move once to the first option');
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await remoteMasterMenu.locator('button[data-picker-option]').nth(1).evaluate(el => el === document.activeElement), true, 'ArrowDown must move once to the second option');
+  await remoteMasterSearch.fill('Глубокий');
+  await remoteMasterMenu.getByRole('button', { name: 'Яков Глубокий +79995550011', exact: true }).waitFor();
+  await remoteMasterSearch.press('ArrowDown'); await page.keyboard.press('End');
+  assert.equal(await remoteMasterMenu.getByRole('button', { name: 'Яков Глубокий +79995550011', exact: true }).evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await deepMasterSummary.locator('..').getAttribute('open'), null);
+  assert.equal(await deepMasterSummary.evaluate(el => el === document.activeElement), true);
+  assert.equal(await page.locator('input[name="masterId"]').inputValue(), deepMaster.id);
   await page.goto(`${base}/settings?tab=members`);
   const memberSearch = page.getByRole('textbox', { name: 'Поиск сотрудников', exact: true });
   const memberPages = page.getByRole('navigation', { name: 'Страницы сотрудников', exact: true });
@@ -392,7 +443,15 @@ try {
   await page.getByRole('button', { name: 'Новая задача', exact: true }).click();
   const taskDialog = page.getByRole('dialog', { name: 'Новая задача', exact: true });
   await taskDialog.locator('input[name="title"]').fill('Picker priority task');
-  await choose(taskDialog, 'Приоритет', 'Крит', 'Критичный');
+  const prioritySummary = taskDialog.locator('summary[aria-label="Приоритет"]');
+  await prioritySummary.click();
+  const prioritySearch = prioritySummary.locator('..').getByRole('textbox');
+  await prioritySearch.fill('Крит'); await prioritySearch.press('ArrowDown');
+  assert.equal(await prioritySummary.locator('..').getByRole('button', { name: 'Критичный', exact: true }).evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await taskDialog.locator('input[name="priority"]').inputValue(), 'critical');
+  assert.equal(await prioritySummary.evaluate(el => el === document.activeElement), true);
+
   await taskDialog.getByRole('button', { name: 'Создать задачу', exact: true }).click();
   await taskDialog.waitFor({ state: 'hidden' });
   assert.equal((await sql`SELECT priority FROM tasks WHERE title = 'Picker priority task'`)[0].priority, 'critical');

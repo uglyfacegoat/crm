@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, Search } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { focusPickerOption } from "@/lib/picker-keyboard";
 import { matchesSearchText } from "@/lib/search-normalization";
 import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 
@@ -34,6 +35,7 @@ export function CustomSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
+  const selectionId = useId();
   const selected =
     options.find((option) => option.value === value) ?? options[0];
 
@@ -62,6 +64,11 @@ export function CustomSelect({
   return (
     <div
       ref={rootRef}
+      onKeyDown={(event) => {
+        if (open && event.target instanceof HTMLButtonElement && event.target.hasAttribute("data-picker-option") && focusPickerOption(rootRef.current, event.key)) {
+          event.preventDefault(); event.stopPropagation();
+        }
+      }}
       className={`relative min-w-0 ${open ? "z-[90]" : "z-0"}`}
     >
       {name ? <input type="hidden" name={name} value={value} /> : null}
@@ -69,6 +76,7 @@ export function CustomSelect({
         type="button"
         disabled={disabled}
         aria-label={ariaLabel}
+        aria-describedby={selectionId}
         aria-haspopup="listbox"
         aria-controls={open ? listboxId : undefined}
         aria-expanded={open}
@@ -83,7 +91,7 @@ export function CustomSelect({
         }}
         className={`focus-ring flex w-full items-center justify-between gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
       >
-        <span className="min-w-0 truncate">
+        <span id={selectionId} className="min-w-0 truncate">
           {selected?.label ?? "Выберите значение"}
         </span>
         <ChevronDown
@@ -101,6 +109,7 @@ export function CustomSelect({
             <input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={100}
               placeholder="Найти вариант" className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none"
               onKeyDown={(event) => {
+                if (event.key === "Enter" || focusPickerOption(rootRef.current, event.key)) { event.preventDefault(); event.stopPropagation(); }
                 if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); setQuery(""); rootRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus(); }
               }} />
           </label>
@@ -108,6 +117,7 @@ export function CustomSelect({
           {visibleOptions.map((option) => (
             <button
               key={option.value || "empty"}
+              data-picker-option
               type="button"
               role="option"
               aria-selected={option.value === value}
@@ -116,6 +126,7 @@ export function CustomSelect({
                 onChange(option.value);
                 setOpen(false);
                 setQuery("");
+                rootRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus();
               }}
               className={`focus-ring flex min-h-10 w-full items-center justify-between gap-3 rounded-[10px] px-3 text-left text-xs transition-colors disabled:opacity-40 ${option.value === value ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
             >

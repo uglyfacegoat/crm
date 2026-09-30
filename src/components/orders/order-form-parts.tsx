@@ -1,9 +1,10 @@
 "use client";
 
 import { Check, ChevronDown, LoaderCircle, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { OrderMutationState } from "@/app/(workspace)/orders/actions";
 import { ORDER_PICKER_PAGE_SIZE, type OrderPickerQuery, type OrderPickerResult } from "@/lib/order-picker";
+import { focusPickerOption } from "@/lib/picker-keyboard";
 import { filterPickerOptions } from "@/lib/picker-options";
 
 export const orderInputClass =
@@ -73,6 +74,7 @@ export function OrderPicker({
   pinnedValues?: string[];
   onSelected?: (option: PickerOption) => void;
 }) {
+  const selectionId = useId();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [remoteOptions, setRemoteOptions] = useState<{ key: string; items: PickerOption[] } | null>(null);
@@ -149,7 +151,9 @@ export function OrderPicker({
           if (!event.currentTarget.open) setQuery("");
         }}
         onKeyDown={(event) => {
-          if (event.key !== "Escape" || !event.currentTarget.open) return;
+          if (!event.currentTarget.open) return;
+          if (focusPickerOption(detailsRef.current, event.key)) { event.preventDefault(); event.stopPropagation(); return; }
+          if (event.key !== "Escape") return;
           event.preventDefault();
           event.stopPropagation();
           event.currentTarget.removeAttribute("open");
@@ -159,6 +163,8 @@ export function OrderPicker({
       >
         <summary
           aria-label={label}
+          aria-describedby={selectionId}
+          aria-expanded={open}
           aria-disabled={disabled}
           onClick={(event) => {
             if (disabled) event.preventDefault();
@@ -166,6 +172,7 @@ export function OrderPicker({
           className={`focus-ring flex h-12 list-none items-center justify-between gap-3 rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface-inset)] px-3.5 text-left text-sm [&::-webkit-details-marker]:hidden ${disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer"}`}
         >
           <span
+            id={selectionId}
             className={
               selected
                 ? "truncate text-[var(--text)]"
@@ -189,6 +196,10 @@ export function OrderPicker({
                   onChange={(event) => setQuery(event.target.value)}
                   maxLength={100}
                   onKeyDown={(event) => {
+                    if (event.key === "Enter" || focusPickerOption(detailsRef.current, event.key)) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }
                     if (event.key === "Escape") {
                       event.preventDefault();
                       detailsRef.current?.removeAttribute("open");
@@ -211,10 +222,15 @@ export function OrderPicker({
                 ) : null}
               </label>
             ) : null}
+            {(remoteType || remoteUrl) && loadError ? <div role="status" className="rounded-[10px] border border-[var(--line)] p-3 text-xs text-[var(--muted)]">
+              <p>Не удалось обновить список. Повторите запрос.</p>
+              <button type="button" onClick={() => setRetry(value => value + 1)} className="focus-ring mt-2 rounded-lg border border-[var(--line)] px-3 py-2 text-[var(--accent)]">Повторить</button>
+            </div> : null}
             {visibleOptions.length ? (
               visibleOptions.map((option) => (
                 <button
                   key={option.value}
+                  data-picker-option
                   type="button"
                   onClick={(event) => {
                     onChange(option.value, option);
@@ -224,6 +240,7 @@ export function OrderPicker({
                     event.currentTarget
                       .closest("details")
                       ?.removeAttribute("open");
+                    detailsRef.current?.querySelector("summary")?.focus();
                   }}
                   className={`focus-ring block w-full rounded-[10px] px-3 py-2.5 text-left ${option.value === value ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
                 >
@@ -237,10 +254,9 @@ export function OrderPicker({
               ))
             ) : (
               <p className="px-3 py-5 text-center text-xs text-[var(--muted)]">
-                {loading || (Boolean(query) && (remoteType || remoteUrl) && remoteOptions?.key !== remoteKey) ? "Загрузка…" : loadError ? "Не удалось загрузить варианты" : "Поиск не дал результатов"}
+                {loadError ? "Нет совпадений среди загруженных вариантов." : loading || (Boolean(query) && (remoteType || remoteUrl) && remoteOptions?.key !== remoteKey) ? "Загрузка…" : "Поиск не дал результатов"}
               </p>
             )}
-            {(remoteType || remoteUrl) && loadError && visibleOptions.length === 0 ? <button type="button" onClick={() => setRetry((value) => value + 1)} className="focus-ring w-full rounded-[10px] px-3 py-2 text-xs text-[var(--accent)]">Повторить</button> : null}
             {(remoteType || remoteUrl) && !loading && !loadError && remoteHasMore ? <p className="px-3 py-2 text-[10px] text-[var(--muted)]">Показаны первые 20. Уточните поиск.</p> : null}
           </div>
         ) : null}
