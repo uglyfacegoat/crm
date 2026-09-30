@@ -68,6 +68,8 @@ async function uploadDocumentTemplateActionImpl(
     fileWritten = true;
     await createDocumentTemplate(member, { ...parsed.data, ...file, extension, storageKey });
     committed = true;
+    revalidatePath("/settings");
+    revalidatePath("/my-visits");
     return { status: "success", message: "Шаблон акта опубликован.", fieldErrors: {} };
   } catch (error) {
     if (committed) {

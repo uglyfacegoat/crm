@@ -11,6 +11,7 @@ const root = new URL("../src/", import.meta.url);
 const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
   if (context.parentURL?.startsWith(new URL("app/", root).href)) {
     if (specifier === "next/cache") return nextResolve("next/cache.js", context);
+    if (specifier === "next/server") return nextResolve("next/server.js", context);
     if (specifier.startsWith("@/")) return nextResolve(new URL(`${specifier.slice(2)}${/\.(ts|mjs)$/.test(specifier) ? "" : ".ts"}`, root).href, context);
   }
   return nextResolve(specifier, context);
@@ -40,6 +41,8 @@ const FileWriteLeaseLostError = class extends Error {};
 const withFileWriteLease = mock.fn(async (operation) => operation());
 const markFileWriteUncertain = mock.fn();
 mock.module("next/cache.js", { namedExports: { revalidatePath } });
+mock.module("next/server.js", { namedExports: { after: mock.fn() } });
+mock.module(new URL("server/chat/push.ts", root), { namedExports: { sendChatPush: mock.fn() } });
 mock.module(new URL("server/auth/config.ts", root), { namedExports: { getAuthMode: () => "required" } });
 mock.module(new URL("server/auth/session.ts", root), { namedExports: { requireSession: async () => ({ organizationId: "test", memberId: "test" }) } });
 mock.module(new URL("server/file-writes/gate.mjs", root), { namedExports: {

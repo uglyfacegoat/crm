@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { S3Client, CreateBucketCommand } from "@aws-sdk/client-s3";
 
-// Compatibility fixture only, not a recommendation to deploy this archived MinIO release.
-const image = "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e";
+// Isolated S3-compatible test server; this image is not used by production storage.
+const image = "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z";
 
 export async function startS3Fixture({ publishAppPort = false } = {}) {
   const name = `crm-s3-test-${randomUUID()}`;
