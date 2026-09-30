@@ -120,6 +120,36 @@ test("upgrade from the committed 049 baseline preserves existing business record
   assert.deepEqual(legacyImportTables, { jobs: null, issues: null, links: null });
 });
 
+test("mail thread upgrade preserves historical MIME, sent letters and explicit replies", async (t) => {
+  const { sql, databaseUrl } = await databaseFixture(t);
+  const directory = await migrationDirectory(t, {});
+  const files = (await readdir(resolve('db/migrations'))).filter(name => name.endsWith('.sql') && name < '101_mail_threads.sql').sort();
+  for (const name of files) await cp(resolve('db/migrations', name), join(directory, name));
+  await runMigrations({ databaseUrl, migrationsDirectory: directory, onApplied: quiet });
+  const [org] = await sql`INSERT INTO organizations (name, timezone) VALUES ('Historical mail', 'Europe/Moscow') RETURNING id`;
+  const [member] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
+    VALUES (${org.id}, 'Historical coordinator', 'legacy@fixture.invalid', 'crm_coordinator') RETURNING id`;
+  const [source] = await sql`INSERT INTO mail_sources (organization_id, address, display_name)
+    VALUES (${org.id}, 'office@fixture.invalid', 'Office') RETURNING id`;
+  const raw = Buffer.from('Message-ID: <historic@fixture.invalid>\r\n\r\nHistorical mail body');
+  const [incoming] = await sql`INSERT INTO mail_messages (organization_id, mailbox_address, uid_validity, imap_uid,
+    from_address, subject, body_text, raw_message, received_at, source_id)
+    VALUES (${org.id}, 'office@fixture.invalid', 1, 1, 'client@fixture.invalid', 'Historical subject',
+      'Historical mail body', ${raw}, now(), ${source.id}) RETURNING id`;
+  const [outgoing] = await sql`INSERT INTO mail_outbox (organization_id, source_id, sender_member_id, from_address,
+    to_address, subject, body_text, reply_to_message_id, status, sent_at, attempts)
+    VALUES (${org.id}, ${source.id}, ${member.id}, 'office@fixture.invalid', 'client@fixture.invalid',
+      'Re: Historical subject', 'Historical reply', ${incoming.id}, 'sent', now(), 2) RETURNING id, sent_at`;
+  await runMigrations({ databaseUrl, onApplied: quiet });
+  const [retained] = await sql`SELECT raw_message, body_text, thread_id, headers_imported FROM mail_messages WHERE id = ${incoming.id}`;
+  assert.deepEqual(retained.raw_message, raw); assert.equal(retained.body_text, 'Historical mail body');
+  assert.equal(retained.thread_id, incoming.id); assert.equal(retained.headers_imported, false);
+  const [reply] = await sql`SELECT status, sent_at, attempts, body_text, reply_to_message_id, thread_id, internet_message_id FROM mail_outbox WHERE id = ${outgoing.id}`;
+  assert.equal(reply.status, 'sent'); assert.equal(reply.attempts, 2); assert.equal(reply.body_text, 'Historical reply');
+  assert.deepEqual(reply.sent_at, outgoing.sent_at); assert.equal(reply.reply_to_message_id, incoming.id);
+  assert.equal(reply.thread_id, incoming.id); assert.equal(reply.internet_message_id, `<crm-outbox-${outgoing.id}@fixture.invalid>`);
+});
+
 test("concurrent deployments serialize bootstrap and execute each migration exactly once", async (t) => {
   const { sql, databaseUrl } = await databaseFixture(t);
   const directory = await migrationDirectory(t, {

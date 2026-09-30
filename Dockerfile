@@ -59,6 +59,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts/workflow-worker.mjs ./scr
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/mail-worker.mjs ./scripts/mail-worker.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/auth/email-otp-code.mjs ./src/server/auth/email-otp-code.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/mail/email-template.mjs ./src/server/mail/email-template.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/src/server/mail/ingest.mjs /app/src/server/mail/thread-headers.mjs ./src/server/mail/
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/workflow/worker-engine.ts /app/src/server/workflow/automation-plan.ts /app/src/server/workflow/schemas.ts ./src/server/workflow/
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/tasks/create-command.ts /app/src/server/tasks/schemas.ts /app/src/server/tasks/types.ts ./src/server/tasks/
 COPY --from=builder --chown=nextjs:nodejs /app/src/server/auth/permissions.ts /app/src/server/auth/types.ts ./src/server/auth/

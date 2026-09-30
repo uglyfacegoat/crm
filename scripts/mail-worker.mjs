@@ -6,6 +6,8 @@ import { randomInt } from "node:crypto";
 import { hashEmailOtpCode } from "../src/server/auth/email-otp-code.mjs";
 import { renderCrmEmail } from "../src/server/mail/email-template.mjs";
 import { safeCliErrorCode } from "./safe-cli-error.mjs";
+import { saveIncomingMail } from "../src/server/mail/ingest.mjs";
+import { replyHeaders } from "../src/server/mail/thread-headers.mjs";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -94,19 +96,8 @@ async function syncMailbox(account) {
           : safeText(parsed?.text, 100_000);
         const receivedAt = fetched.internalDate instanceof Date && !Number.isNaN(fetched.internalDate.getTime())
           ? fetched.internalDate : new Date();
-        await sql.begin(async (transaction) => {
-          await transaction`INSERT INTO mail_messages
-            (organization_id, mailbox_address, uid_validity, imap_uid, from_address, from_name,
-              to_addresses, subject, body_text, raw_message, received_at, recipient_address, source_id)
-            VALUES (${organizationId}, ${mailbox}, ${validity}, ${uid}, ${fromAddress}, ${fromName},
-              ${toAddresses}, ${subject}, ${bodyText}, ${raw}, ${receivedAt}, ${recipientAddress}, ${sourceRecord?.id ?? null})
-            ON CONFLICT (organization_id, mailbox_address, uid_validity, imap_uid) DO NOTHING`;
-          await transaction`INSERT INTO mail_sync_state
-            (organization_id, mailbox_address, uid_validity, last_uid)
-            VALUES (${organizationId}, ${mailbox}, ${validity}, ${uid})
-            ON CONFLICT (organization_id, mailbox_address) DO UPDATE SET
-              uid_validity = EXCLUDED.uid_validity, last_uid = EXCLUDED.last_uid, updated_at = now()`;
-        });
+        await saveIncomingMail(sql, { organizationId, mailbox, validity, uid, fromAddress, fromName,
+          toAddresses, subject, bodyText, raw, receivedAt, recipientAddress, sourceId: sourceRecord?.id ?? null }, parsed);
         imported += 1;
       }
     } finally { lock.release(); }
@@ -116,9 +107,28 @@ async function syncMailbox(account) {
 
 async function syncInbox() {
   if (!imapReady) return 0;
-  let imported = 0;
-  for (const account of mailboxes) imported += await syncMailbox(account);
+  let imported = 0; let failed = false;
+  for (const account of mailboxes) {
+    try { imported += await syncMailbox(account); }
+    catch (error) {
+      failed = true;
+      console.error(JSON.stringify({ operation: "mail_worker.mailbox", errorCode: safeCliErrorCode(error, "MAIL_IMAP_FAILED") }));
+    }
+  }
+  if (failed) throw Object.assign(new Error("MAIL_IMAP_SYNC_FAILED"), { imported });
   return imported;
+}
+
+async function backfillThreadHeaders() {
+  const rows = await sql`SELECT * FROM mail_messages WHERE NOT headers_imported ORDER BY created_at, id LIMIT 20`;
+  for (const row of rows) {
+    let parsed = null;
+    try { parsed = await PostalMime.parse(row.raw_message); } catch { /* Preserve malformed historical mail. */ }
+    await saveIncomingMail(sql, { organizationId: row.organization_id, mailbox: row.mailbox_address,
+      validity: row.uid_validity, uid: row.imap_uid, fromAddress: row.from_address, fromName: row.from_name,
+      toAddresses: row.to_addresses, subject: row.subject, bodyText: row.body_text, raw: row.raw_message,
+      receivedAt: row.received_at, recipientAddress: row.recipient_address, sourceId: row.source_id }, parsed, false);
+  }
 }
 
 async function claimDelivery() {
@@ -291,6 +301,9 @@ async function deliverOutbox() {
   let sent = 0;
   for (let index = 0; index < 20; index += 1) {
     const job = await sql.begin(async (transaction) => {
+      await transaction`UPDATE mail_outbox SET status = 'failed', locked_at = NULL,
+        last_error_code = 'MAIL_DELIVERY_UNCONFIRMED', updated_at = now()
+        WHERE status = 'sending' AND attempts >= 8 AND locked_at < now() - interval '5 minutes'`;
       const [candidate] = await transaction`SELECT id FROM mail_outbox
         WHERE (status = 'pending' AND next_attempt_at <= now())
           OR (status = 'sending' AND locked_at < now() - interval '5 minutes')
@@ -299,7 +312,7 @@ async function deliverOutbox() {
       const [claimed] = await transaction`UPDATE mail_outbox SET status = 'sending', attempts = attempts + 1,
         locked_at = now(), updated_at = now() WHERE id = ${candidate.id}
         RETURNING id, organization_id, source_id, from_address, to_address, subject, body_text,
-          reply_to_message_id, attempts`;
+          reply_to_message_id, attempts, internet_message_id, in_reply_to, reference_ids`;
       return claimed;
     });
     if (!job) break;
@@ -322,8 +335,15 @@ async function deliverOutbox() {
           pass: useAccountSmtp ? account.smtpPassword : process.env.CRM_MAIL_SMTP_PASSWORD },
         connectionTimeout: 10_000, socketTimeout: 20_000, disableFileAccess: true, disableUrlAccess: true });
       try {
+        let headers = { inReplyTo: job.in_reply_to, references: job.reference_ids };
+        if (job.reply_to_message_id && !headers.inReplyTo) {
+          const [parent] = await sql`SELECT internet_message_id, reference_ids FROM mail_messages
+            WHERE organization_id = ${job.organization_id} AND id = ${job.reply_to_message_id} AND source_id = ${job.source_id}`;
+          if (parent) headers = replyHeaders(parent);
+        }
         await transport.sendMail({ from: job.from_address, to: job.to_address,
-          messageId: `<crm-outbox-${job.id}@${String(job.from_address).split('@')[1]}>`,
+          messageId: job.internet_message_id || `<crm-outbox-${job.id}@${String(job.from_address).split('@')[1]}>`,
+          inReplyTo: headers.inReplyTo || undefined, references: headers.references,
           subject: job.subject, text: job.body_text });
       } finally { transport.close(); }
       await sql`UPDATE mail_outbox SET status = 'sent', sent_at = now(), locked_at = NULL,
@@ -353,14 +373,21 @@ try {
     if (row?.healthy !== true) process.exitCode = 1;
   } else {
     do {
-      let imported = 0; let sent = 0; let otpSent = 0; let outboxSent = 0; let cycleStatus = 'succeeded';
-      try { imported = await syncInbox(); sent = await deliverPending(); otpSent = await deliverEmailChallenges(); outboxSent = await deliverOutbox(); }
-      catch (error) {
-        cycleStatus = 'failed';
-        console.error(JSON.stringify({ operation: "mail_worker.cycle", errorCode: safeCliErrorCode(error, "MAIL_WORKER_FAILED") }));
+      const cycle = { imported: 0, sent: 0, otpSent: 0, outboxSent: 0 };
+      let cycleStatus = 'succeeded';
+      for (const [phase, run] of [['headers', backfillThreadHeaders], ['imported', syncInbox],
+        ['sent', deliverPending], ['otpSent', deliverEmailChallenges], ['outboxSent', deliverOutbox]]) {
+        try {
+          const count = await run();
+          if (phase !== 'headers') cycle[phase] = count;
+        } catch (error) {
+          if (phase === 'imported' && Number.isSafeInteger(error?.imported)) cycle.imported = error.imported;
+          cycleStatus = 'failed';
+          console.error(JSON.stringify({ operation: `mail_worker.${phase}`, errorCode: safeCliErrorCode(error, "MAIL_WORKER_FAILED") }));
+        }
       }
       await sql`INSERT INTO background_job_status (job_name, status, heartbeat_at, last_started_at, last_result)
-        VALUES ('mail.inbox', ${cycleStatus}, now(), now(), ${sql.json({ imported, sent, otpSent, outboxSent, imapReady, smtpReady, otpReady, outboundEnabled })})
+        VALUES ('mail.inbox', ${cycleStatus}, now(), now(), ${sql.json({ ...cycle, imapReady, smtpReady, otpReady, outboundEnabled })})
         ON CONFLICT (job_name) DO UPDATE SET status = EXCLUDED.status, heartbeat_at = now(),
           last_started_at = now(), last_result = EXCLUDED.last_result, updated_at = now()`;
       if (process.argv.includes("--once")) break;

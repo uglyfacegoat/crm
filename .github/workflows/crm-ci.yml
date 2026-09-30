@@ -84,6 +84,10 @@ jobs:
         run: npm run test:production-compose
       - run: npx playwright-core install --with-deps chromium
       - run: docker build -t crm-app:tls-check .
+      - name: Check packaged mail worker dependencies
+        run: >-
+          docker run --rm --network none --entrypoint node crm-app:tls-check
+          --input-type=module -e 'await import("./src/server/mail/ingest.mjs"); await import("./src/server/mail/thread-headers.mjs");'
       - run: npm run test:tls
 
   backup-recovery:
@@ -191,6 +195,9 @@ jobs:
       - run: npm run test:request-limits
       - run: npm run test:chat-access
       - run: npm run test:notifications-pagination
+      - run: npm run test:mail-delivery
+      - run: npm run test:mail-threads
+      - run: npm run test:mail-protocol
       - run: npm run test:client-list-pagination
       - run: npm run test:order-picker
       - run: npm run test:finance-receipts

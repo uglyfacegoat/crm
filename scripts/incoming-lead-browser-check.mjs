@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import postgres from "postgres";
 import { runMigrations } from "./migrate.mjs";
+import { saveIncomingMail } from "../src/server/mail/ingest.mjs";
 
 const adminUrl = process.env.MIGRATION_TEST_ADMIN_URL;
 if (!adminUrl || process.env.CRM_TEST_FIXTURE_URL !== adminUrl || !process.env.INCOMING_LEAD_CHECK_RUNTIME || !process.env.CHROME_PATH) {
@@ -607,9 +608,79 @@ try {
   assert.equal(await composeDialog.locator('textarea[name="bodyText"]').inputValue(), "Этот текст нельзя потерять.");
   await sql`UPDATE mail_sources SET active = true WHERE id = ${salesMailbox.id}`;
   await composeDialog.getByRole("button", { name: "Закрыть" }).click();
+  const [mailRoot] = await sql`UPDATE mail_messages SET internet_message_id = '<root@customer.example.test>', headers_imported = true
+    WHERE organization_id = ${owner.organization_id} AND subject = 'Вопрос об обработке' RETURNING id, thread_id`;
+  await page.getByRole('button', { name: /^Входящие/ }).click();
+  await page.locator('summary[aria-label="Почтовый ящик"]').click();
+  await page.getByPlaceholder('Адрес или компания').fill('office@');
+  await page.getByRole('button', { name: /office@inbox\.example\.test/ }).click();
+  await page.getByRole('searchbox', { name: 'Найти письмо' }).fill('Вопрос об обработке');
+  await page.getByText('Вопрос об обработке', { exact: true }).click();
+  const reader = page.getByRole('article', { name: 'Просмотр письма' });
+  await reader.getByText('Писем в переписке: 1', { exact: true }).waitFor();
+  await reader.getByRole('button', { name: 'Ответить', exact: true }).click();
+  const replyDialog = page.getByRole('dialog', { name: 'Ответить на письмо', exact: true });
+  assert.equal(await replyDialog.locator('input[name="sourceId"]').inputValue(), officeMailbox.id);
+  assert.equal(await replyDialog.locator('input[name="replyToMessageId"]').inputValue(), mailRoot.id);
+  assert.equal(await replyDialog.locator('summary[aria-label="От"]').getAttribute('aria-disabled'), 'true');
+  await replyDialog.locator('textarea[name="bodyText"]').fill('Подтверждаем время обработки.');
+  let replyResponseLost = false;
+  await page.route(`${baseUrl}/mail`, async route => {
+    if (route.request().method() !== 'POST' || !route.request().headers()['next-action'] || replyResponseLost) return route.continue();
+    replyResponseLost = true;
+    const response = await route.fetch(); await response.body();
+    await route.abort('failed');
+  });
+  await replyDialog.getByRole('button', { name: 'Отправить', exact: true }).click();
+  await replyDialog.getByRole('alert').getByText('Соединение прервалось.', { exact: false }).waitFor();
+  assert.equal(await replyDialog.locator('textarea[name="bodyText"]').inputValue(), 'Подтверждаем время обработки.');
+  assert.equal((await sql`SELECT count(*)::integer AS total FROM mail_outbox WHERE body_text = 'Подтверждаем время обработки.'`)[0].total, 1);
+  await page.unroute(`${baseUrl}/mail`);
+  await replyDialog.getByRole('button', { name: 'Отправить', exact: true }).click();
+  await replyDialog.waitFor({ state: 'hidden' });
+  assert.equal((await sql`SELECT count(*)::integer AS total FROM mail_outbox WHERE body_text = 'Подтверждаем время обработки.'`)[0].total, 1);
+  const [reply] = await sql`SELECT id, thread_id, in_reply_to, reference_ids, request_key FROM mail_outbox
+    WHERE organization_id = ${owner.organization_id} AND body_text = 'Подтверждаем время обработки.'`;
+  assert.equal(reply.thread_id, mailRoot.thread_id); assert.equal(reply.in_reply_to, '<root@customer.example.test>');
+  assert.deepEqual(reply.reference_ids, ['<root@customer.example.test>']); assert.ok(reply.request_key);
+  await page.getByText('Re: Вопрос об обработке', { exact: true }).click();
+  await reader.getByText('Писем в переписке: 2', { exact: true }).waitFor();
+  assert.equal(await reader.locator('[data-mail-message-id]').count(), 2);
+  for (let index = 0; index < 35; index++) await saveIncomingMail(sql, {
+    organizationId: owner.organization_id, mailbox: 'office@inbox.example.test', validity: 2, uid: index + 1,
+    fromAddress: 'client@example.test', fromName: 'Клиент', toAddresses: ['office@inbox.example.test'],
+    subject: 'Вопрос об обработке', bodyText: `Продолжение переписки ${index}`, raw: Buffer.from('Thread fixture'),
+    receivedAt: new Date(Date.now() + index * 1000), recipientAddress: 'office@inbox.example.test', sourceId: officeMailbox.id,
+  }, { messageId: `<followup-${index}@customer.example.test>`, inReplyTo: '<root@customer.example.test>', references: '<root@customer.example.test>' });
+  await page.route('**/api/v1/mail/thread?**', route => route.fulfill({ status: 503, json: { error: { message: 'Проверочная ошибка переписки' } } }));
+  await page.locator('.mail-row').filter({ hasText: 'Re: Вопрос об обработке' }).click();
+  await reader.getByRole('alert').getByText('Проверочная ошибка переписки', { exact: false }).waitFor();
+  await page.unroute('**/api/v1/mail/thread?**');
+  await reader.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await reader.getByText('Писем в переписке: 37', { exact: true }).waitFor();
+  assert.equal(await reader.locator('[data-mail-message-id]').count(), 30);
+  await reader.getByRole('button', { name: 'Загрузить предыдущие письма', exact: true }).click();
+  await reader.locator(`[data-mail-message-id="${mailRoot.id}"]`).waitFor();
+  assert.equal(await reader.locator('[data-mail-message-id]').count(), 37);
+  assert.equal(await reader.getByRole('button', { name: 'Загрузить предыдущие письма', exact: true }).count(), 0);
+  const missingThread = await page.request.get(`${baseUrl}/api/v1/mail/thread?folder=inbox&id=${randomUUID()}`);
+  assert.equal(missingThread.status(), 404);
+  const [foreignMessage] = await sql`SELECT id FROM mail_messages WHERE organization_id <> ${owner.organization_id} LIMIT 1`;
+  assert.equal((await page.request.get(`${baseUrl}/api/v1/mail/thread?folder=inbox&id=${foreignMessage.id}`)).status(), 404);
+  assert.equal((await page.request.get(`${baseUrl}/api/v1/mail/thread?folder=inbox&id=bad-id`)).status(), 400);
   for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false, `Mail overflows at ${width}px`);
+    const mailboxFits = await page.locator('.mail-sidebar').evaluate(sidebar => {
+      const trigger = sidebar.querySelector('summary').getBoundingClientRect();
+      const bounds = sidebar.getBoundingClientRect();
+      return trigger.left >= bounds.left && trigger.right <= bounds.right + 1;
+    });
+    assert.equal(mailboxFits, true, `Mailbox picker overlaps the letter list at ${width}px`);
+    if (process.env.CRM_BROWSER_ARTIFACT_DIR) {
+      await mkdir(process.env.CRM_BROWSER_ARTIFACT_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.CRM_BROWSER_ARTIFACT_DIR, `mail-thread-${width}.png`) });
+    }
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${baseUrl}/quick-order`);
@@ -692,7 +763,7 @@ try {
   assert.equal(Number(historicalLine.unit_price_minor), 250);
   assert.equal(Number(historicalLine.line_total_minor), 500);
   assert.equal(historicalOrder.notes, "Историческая услуга сохранена");
-  console.log("Incoming lead browser passed: 270-item lead search, simultaneous regular orders from two accounts, multi-contact intake, contract rates, per-date expenses, selected-date and weekly series, per-date catalog item beyond 1000, mail search and page beyond 500 with source isolation, mail queue, catalog selection/editing beyond 1000 items, and historical order editing after catalog rename/archive.");
+  console.log("Incoming lead browser passed: 270-item lead search, simultaneous regular orders from two accounts, multi-contact intake, contract rates, per-date expenses, selected-date and weekly series, per-date catalog item beyond 1000, mail search and page beyond 500 with source isolation, mail queue, threaded replies and 37-message pagination, retry after lost response without duplicate delivery, catalog selection/editing beyond 1000 items, and historical order editing after catalog rename/archive.");
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }

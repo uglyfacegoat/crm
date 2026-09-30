@@ -1,9 +1,11 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import PostalMime from "postal-mime";
 import { z } from "zod";
 import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import { organizationRoles, type AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
+import { replyHeaders, threadHeaders } from "./thread-headers.mjs";
 
 export const destinationEmailSchema = z.email().trim().toLowerCase().max(254);
 const uuidSchema = z.uuid();
@@ -270,6 +272,7 @@ export const composeMailSchema = z.object({
   subject: z.string().trim().min(1).max(500),
   bodyText: z.string().trim().min(1).max(100_000),
   replyToMessageId: uuidSchema.optional(),
+  requestKey: uuidSchema.optional(),
 });
 
 export async function queueOutgoingMail(member: AuthenticatedMember, input: z.infer<typeof composeMailSchema>) {
@@ -284,14 +287,83 @@ export async function queueOutgoingMail(member: AuthenticatedMember, input: z.in
   const [sourceOrganization] = await sql`SELECT organization_id FROM mail_sources WHERE id = ${data.sourceId}`;
   const membership = memberships.find((item) => item.organizationId === sourceOrganization.organization_id);
   if (!membership) throw new Error("MAIL_SOURCE_NOT_FOUND");
-  if (data.replyToMessageId) {
-    const [message] = await sql`SELECT id FROM mail_messages WHERE organization_id = ${membership.organizationId}
-      AND id = ${data.replyToMessageId} AND source_id = ${data.sourceId}`;
-    if (!message) throw new Error("MAIL_REPLY_NOT_FOUND");
-  }
-  const [row] = await sql`INSERT INTO mail_outbox (organization_id, source_id, sender_member_id,
-    from_address, to_address, subject, body_text, reply_to_message_id)
-    VALUES (${membership.organizationId}, ${data.sourceId}, ${membership.memberId}, ${source.address},
-      ${data.toAddress}, ${data.subject}, ${data.bodyText}, ${data.replyToMessageId ?? null}) RETURNING id`;
-  return uuidSchema.parse(row.id);
+  return sql.begin(async transaction => {
+    const sql = transaction;
+    await sql`SELECT pg_advisory_xact_lock(hashtext(${membership.organizationId}), hashtext(${String(source.address)}))`;
+    let threadId: string = randomUUID();
+    let headers: { inReplyTo: string | null; references: string[] } = { inReplyTo: null, references: [] };
+    if (data.replyToMessageId) {
+      const [message] = await sql`SELECT id, thread_id, internet_message_id, reference_ids, headers_imported, raw_message
+        FROM mail_messages WHERE organization_id = ${membership.organizationId}
+        AND id = ${data.replyToMessageId} AND source_id = ${data.sourceId}`;
+      if (!message) throw new Error("MAIL_REPLY_NOT_FOUND");
+      threadId = uuidSchema.parse(message.thread_id);
+      if (!message.headers_imported) {
+        try {
+          const parsed = threadHeaders(await PostalMime.parse(message.raw_message));
+          message.internet_message_id = parsed.messageId;
+          message.reference_ids = parsed.references;
+        } catch { /* Old malformed mail can still receive a plain reply. */ }
+      }
+      headers = replyHeaders({ internet_message_id: message.internet_message_id, reference_ids: message.reference_ids });
+    }
+    const id = randomUUID();
+    const [row] = await sql`INSERT INTO mail_outbox (id, organization_id, source_id, sender_member_id,
+      from_address, to_address, subject, body_text, reply_to_message_id, thread_id,
+      internet_message_id, in_reply_to, reference_ids, request_key)
+      VALUES (${id}, ${membership.organizationId}, ${data.sourceId}, ${membership.memberId}, ${source.address},
+        ${data.toAddress}, ${data.subject}, ${data.bodyText}, ${data.replyToMessageId ?? null}, ${threadId},
+        ${`<crm-outbox-${id}@${String(source.address).split("@")[1]}>`}, ${headers.inReplyTo}, ${headers.references}, ${data.requestKey ?? null})
+      ON CONFLICT (organization_id, sender_member_id, request_key) WHERE request_key IS NOT NULL DO NOTHING RETURNING id`;
+    if (!row && data.requestKey) {
+      const [existing] = await sql`SELECT id, source_id, to_address, subject, body_text, reply_to_message_id FROM mail_outbox
+        WHERE organization_id = ${membership.organizationId} AND sender_member_id = ${membership.memberId} AND request_key = ${data.requestKey}`;
+      if (!existing || existing.source_id !== data.sourceId || existing.to_address !== data.toAddress
+        || existing.subject !== data.subject || existing.body_text !== data.bodyText
+        || existing.reply_to_message_id !== (data.replyToMessageId ?? null)) throw new Error("MAIL_REQUEST_REUSED");
+      return uuidSchema.parse(existing.id);
+    }
+    return uuidSchema.parse(row.id);
+  });
+}
+
+export const mailThreadQuerySchema = z.object({
+  id: uuidSchema,
+  folder: z.enum(["inbox", "sent"]),
+  page: z.coerce.number().int().min(0).max(100_000).default(0),
+});
+export type MailThreadEntry = { id: string; folder: "inbox" | "sent"; sourceId: string | null;
+  fromAddress: string; recipientAddress: string; subject: string; bodyText: string; date: string;
+  status: OutgoingMail["status"] | null };
+export type MailThreadPage = { items: MailThreadEntry[]; total: number; page: number };
+
+export async function getMailThread(member: AuthenticatedMember, input: z.infer<typeof mailThreadQuerySchema>): Promise<MailThreadPage | null> {
+  requirePermission(member, "leads.read");
+  const { id, folder, page } = mailThreadQuerySchema.parse(input);
+  const organizationIds = (await accessibleMailMemberships(member)).map(item => item.organizationId);
+  const sql = getDatabase();
+  const [anchor] = folder === "inbox"
+    ? await sql`SELECT organization_id, mailbox_address AS mailbox, thread_id FROM mail_messages
+        WHERE organization_id = ANY(${organizationIds}::uuid[]) AND id = ${id}`
+    : await sql`SELECT organization_id, from_address AS mailbox, thread_id FROM mail_outbox
+        WHERE organization_id = ANY(${organizationIds}::uuid[]) AND id = ${id}`;
+  if (!anchor) return null;
+  const rows = await sql`WITH entries AS (
+    SELECT id, 'inbox' AS folder, source_id, from_address, coalesce(recipient_address, mailbox_address) AS recipient_address,
+      subject, body_text, received_at AS date, NULL::text AS status FROM mail_messages
+      WHERE organization_id = ${anchor.organization_id} AND mailbox_address = ${anchor.mailbox} AND thread_id = ${anchor.thread_id}
+    UNION ALL
+    SELECT id, 'sent', source_id, from_address, to_address, subject, body_text, created_at, status FROM mail_outbox
+      WHERE organization_id = ${anchor.organization_id} AND from_address = ${anchor.mailbox} AND thread_id = ${anchor.thread_id}
+  ), slice AS (SELECT * FROM entries ORDER BY date DESC, id DESC LIMIT 30 OFFSET ${page * 30})
+    SELECT (SELECT count(*)::integer FROM entries) AS total, slice.* FROM (VALUES (1)) seed(n) LEFT JOIN slice ON true
+    ORDER BY slice.date, slice.id`;
+  return { page, total: Number(rows[0]?.total ?? 0), items: rows.filter(row => row.id).map(row => ({
+    id: uuidSchema.parse(row.id), folder: z.enum(["inbox", "sent"]).parse(row.folder),
+    sourceId: row.source_id === null ? null : uuidSchema.parse(row.source_id),
+    fromAddress: z.string().parse(row.from_address), recipientAddress: z.string().parse(row.recipient_address),
+    subject: z.string().parse(row.subject), bodyText: z.string().parse(row.body_text),
+    date: z.coerce.date().parse(row.date).toISOString(),
+    status: row.status === null ? null : z.enum(["pending", "sending", "sent", "failed"]).parse(row.status),
+  })) };
 }

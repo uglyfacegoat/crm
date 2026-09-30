@@ -19,6 +19,7 @@ export async function composeMailAction(_previous: ComposeMailResult, formData: 
     subject: formData.get("subject"),
     bodyText: formData.get("bodyText"),
     replyToMessageId: formData.get("replyToMessageId") || undefined,
+    requestKey: formData.get("requestKey") || undefined,
   });
   if (!parsed.success) return { ok: false, message: "Проверьте адрес получателя, тему и текст письма." };
   try {

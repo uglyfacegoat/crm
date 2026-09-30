@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "tailwindcss" source("../");
 
 :root {
   --crm-safe-top: env(safe-area-inset-top, 0px);
@@ -1470,6 +1470,7 @@ a {
 .mail-source-select select { width: 100%; min-width: 0; appearance: none; padding: .8rem 2rem .8rem .75rem; overflow: hidden; text-overflow: ellipsis; background: transparent; font-size: .8rem; }
 .mail-source-select svg { position: absolute; right: .65rem; pointer-events: none; }
 .mail-mailbox-picker { padding: 0 .35rem; }
+.mail-mailbox-picker > div { min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .mail-mailbox-picker > div > span { padding: .45rem .3rem 0; color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
 .mail-compose-button { display: flex; align-items: center; justify-content: center; gap: .5rem; min-height: 2.9rem; border-radius: .85rem; background: var(--accent); color: var(--on-accent); font-size: .85rem; font-weight: 700; }
 .mail-folders { display: grid; gap: .3rem; padding-top: .4rem; }
@@ -1531,6 +1532,8 @@ a {
 .mail-compose-actions button { display: inline-flex; align-items: center; gap: .4rem; padding: .7rem 1rem; border: 1px solid var(--line); border-radius: .7rem; font-size: .82rem; font-weight: 700; }
 .mail-compose-actions button[type="submit"] { background: var(--accent); color: var(--on-accent); }
 .mail-compose-actions button:disabled { opacity: .45; }
+.mail-thread-entry { padding-block: 1.25rem; border-bottom: 1px solid var(--line); }
+.mail-thread-entry:first-of-type { padding-top: .75rem; }
 @media (max-width: 900px) {
   .mail-workspace { grid-template-columns: minmax(11.5rem, 13rem) minmax(0, 1fr); }
   .mail-reader { position: absolute; inset: calc(3.75rem + var(--crm-safe-top)) 0 0; z-index: 2; display: none; }
