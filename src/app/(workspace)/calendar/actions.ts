@@ -14,6 +14,7 @@ import {
   createAssignedVisitEvidence,
   createVisit,
   createVisitSeries,
+  VisitSeriesSelectionError,
   rescheduleVisit,
   startAssignedMasterVisit,
   updateVisit,
@@ -269,6 +270,8 @@ export async function createVisitSeriesAction(_previous: CreateVisitSeriesState,
   const parsed = createVisitSeriesSchema.safeParse({
     idempotencyKey: formData.get("idempotencyKey"),
     orderId: formData.get("orderId"),
+    expectedOrderVersion: formData.get("expectedOrderVersion") ?? undefined,
+    dateOverrides: (() => { try { return JSON.parse(String(formData.get("dateOverrides") ?? "[]")); } catch { return null; } })(),
     scheduleMode: formData.get("scheduleMode") ?? "interval",
     selectedDates: (() => { try { return JSON.parse(String(formData.get("selectedDates") ?? "[]")); } catch { return null; } })(),
     startsOn: formData.get("startsOn"),
@@ -287,13 +290,17 @@ export async function createVisitSeriesAction(_previous: CreateVisitSeriesState,
     const result = await createVisitSeries(member, parsed.data);
     revalidatePath("/");
     revalidatePath("/calendar");
+    revalidatePath("/my-visits");
     revalidatePath("/tasks");
     revalidatePath(`/orders/${parsed.data.orderId}`);
     return { status: "success", message: `Создано выездов: ${result.visitCount}.`, fieldErrors: {}, seriesId: result.seriesId, visitCount: result.visitCount };
   } catch (error) {
+    if (error instanceof VisitSeriesSelectionError) return { status: "error", message: error.message, fieldErrors: {}, seriesId: null, visitCount: null };
+    if (error instanceof VisitVersionConflictError) return { status: "error", message: "Заказ изменился. Обновите карточку и повторите создание серии.", fieldErrors: {}, seriesId: null, visitCount: null };
+    if (error instanceof AuthorizationError) return { status: "error", message: "Недостаточно прав для выбранных настроек выездов.", fieldErrors: {}, seriesId: null, visitCount: null };
     if (error instanceof VisitDuplicateError) return { status: "error", message: "Одна из дат уже занята другим выездом этого заказа. Серия не создана.", fieldErrors: {}, seriesId: null, visitCount: null };
     if (error instanceof VisitScheduleConflictError) return { status: "error", message: "Одна из дат пересекается с расписанием мастера. Серия не создана целиком.", fieldErrors: { assignedMasterId: ["Выберите другого мастера или измените расписание"] }, seriesId: null, visitCount: null };
-    if (error instanceof VisitReferenceError) return { status: "error", message: error.field === "order" ? "Заказ больше не существует или недоступен." : "Мастер больше недоступен.", fieldErrors: {}, seriesId: null, visitCount: null };
+    if (error instanceof VisitReferenceError) return { status: "error", message: error.field === "order" ? "Заказ больше не существует или недоступен." : error.field === "object" ? "Добавьте объект перед созданием выездов." : "Мастер больше недоступен.", fieldErrors: {}, seriesId: null, visitCount: null };
     logUnexpected("service_visit_series.create", member.memberId, error);
     return { status: "error", message: "Не удалось создать серию. Ни один выезд не был сохранён.", fieldErrors: {}, seriesId: null, visitCount: null };
   }

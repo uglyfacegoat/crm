@@ -23,7 +23,7 @@ function SupportForm({ onComplete }: { onComplete: () => void }) {
   return <form action={action} className="flex flex-1 flex-col"><input type="hidden" name="idempotencyKey" value={idempotencyKey} /><div className="flex-1 space-y-5 p-5 sm:p-7">
     <div className="grid gap-2 text-[10px] text-[var(--text-secondary)]">
       <span>Категория</span>
-      <CustomSelect
+      <CustomSelect searchable={false}
         name="category"
         value={category}
         onChange={setCategory}

@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, Search } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { FloatingLayer } from "./floating-layer";
 import { focusPickerOption } from "@/lib/picker-keyboard";
 import { matchesSearchText } from "@/lib/search-normalization";
 import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
@@ -18,6 +19,7 @@ export function CustomSelect({
   options,
   onChange,
   ariaLabel,
+  searchable = true,
   disabled = false,
   className = "",
 }: {
@@ -26,45 +28,36 @@ export function CustomSelect({
   options: readonly CustomSelectOption[];
   onChange: (value: string) => void;
   ariaLabel: string;
+  searchable?: boolean;
   disabled?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [openUpwards, setOpenUpwards] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const listboxRef = useRef<HTMLDivElement>(null);
+  const initialFocusKey = useRef<"ArrowDown" | "ArrowUp" | null>(null);
   const listboxId = useId();
   const selectionId = useId();
   const selected =
     options.find((option) => option.value === value) ?? options[0];
 
   useDismissableLayer(rootRef, open, () => { setOpen(false); setQuery(""); });
-  const visibleOptions = options.filter((option) => matchesSearchText(query, [option.label]));
-
+  const visibleOptions = searchable ? options.filter((option) => matchesSearchText(query, [option.label])) : options;
   useLayoutEffect(() => {
-    if (!open || !rootRef.current || !listboxRef.current) return;
-    const trigger = rootRef.current.getBoundingClientRect();
-    const menuHeight = Math.min(listboxRef.current.scrollHeight, 256) + 8;
-    const roomBelow = window.innerHeight - trigger.bottom;
-    const roomAbove = trigger.top;
-    setOpenUpwards(roomBelow < menuHeight && roomAbove > roomBelow);
-  }, [open, options.length]);
-
-  function moveSelection(direction: 1 | -1) {
-    const enabled = options.filter((option) => !option.disabled);
-    const currentIndex = enabled.findIndex((option) => option.value === value);
-    const nextIndex =
-      currentIndex < 0
-        ? 0
-        : (currentIndex + direction + enabled.length) % enabled.length;
-    if (enabled[nextIndex]) onChange(enabled[nextIndex].value);
-  }
+    if (!open || !initialFocusKey.current) return;
+    const key = initialFocusKey.current;
+    initialFocusKey.current = null;
+    focusPickerOption(rootRef.current, key);
+  }, [open]);
 
   return (
     <div
       ref={rootRef}
       onKeyDown={(event) => {
+        if (open && event.key === "Escape") {
+          event.preventDefault(); event.stopPropagation(); setOpen(false); setQuery("");
+          rootRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus(); return;
+        }
         if (open && event.target instanceof HTMLButtonElement && event.target.hasAttribute("data-picker-option") && focusPickerOption(rootRef.current, event.key)) {
           event.preventDefault(); event.stopPropagation();
         }
@@ -85,8 +78,8 @@ export function CustomSelect({
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
             setQuery("");
-            moveSelection(event.key === "ArrowDown" ? 1 : -1);
-            setOpen(true);
+            if (open) focusPickerOption(rootRef.current, event.key);
+            else { initialFocusKey.current = event.key; setOpen(true); }
           }
         }}
         className={`focus-ring flex w-full items-center justify-between gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
@@ -99,11 +92,11 @@ export function CustomSelect({
         />
       </button>
       {open ? (
-        <div
-          ref={listboxRef}
-          className={`absolute inset-x-0 z-[100] max-h-64 overflow-y-auto rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.24)] ${openUpwards ? "bottom-[calc(100%+0.4rem)]" : "top-[calc(100%+0.4rem)]"}`}
+        <FloatingLayer
+          anchorRef={rootRef} anchorSelector=":scope > button" maxHeight={440}
+          className="rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.24)]"
         >
-          <label className="sticky top-0 z-10 mb-1.5 flex h-11 items-center gap-2 rounded-[10px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 shadow-sm">
+          {searchable ? <label className="sticky top-0 z-10 mb-1.5 flex h-11 items-center gap-2 rounded-[10px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 shadow-sm">
             <Search className="size-3.5 shrink-0 text-[var(--accent)]" />
             <span className="sr-only">Поиск: {ariaLabel}</span>
             <input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={100}
@@ -112,7 +105,7 @@ export function CustomSelect({
                 if (event.key === "Enter" || focusPickerOption(rootRef.current, event.key)) { event.preventDefault(); event.stopPropagation(); }
                 if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); setQuery(""); rootRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus(); }
               }} />
-          </label>
+          </label> : null}
           <div id={listboxId} role="listbox" aria-label={ariaLabel}>
           {visibleOptions.map((option) => (
             <button
@@ -128,9 +121,9 @@ export function CustomSelect({
                 setQuery("");
                 rootRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus();
               }}
-              className={`focus-ring flex min-h-10 w-full items-center justify-between gap-3 rounded-[10px] px-3 text-left text-xs transition-colors disabled:opacity-40 ${option.value === value ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
+              className={`focus-ring flex min-h-10 w-full items-center justify-between gap-3 rounded-[10px] px-3 py-2 text-left text-xs leading-5 transition-colors disabled:opacity-40 ${option.value === value ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"}`}
             >
-              <span className="min-w-0 truncate">{option.label}</span>
+              <span className="min-w-0 whitespace-normal break-words">{option.label}</span>
               {option.value === value ? (
                 <Check className="size-3.5 shrink-0" />
               ) : null}
@@ -138,7 +131,7 @@ export function CustomSelect({
           ))}
           {!visibleOptions.length ? <p className="px-3 py-5 text-center text-xs text-[var(--muted)]">Поиск не дал результатов</p> : null}
           </div>
-        </div>
+        </FloatingLayer>
       ) : null}
     </div>
   );

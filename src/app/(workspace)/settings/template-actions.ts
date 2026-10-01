@@ -14,6 +14,7 @@ import {
   DocumentTemplateVersionConflictError,
   updateDocumentTemplateStatus,
 } from "@/server/document-templates/repository";
+import { inspectGenerationTemplate, DocumentTemplateGenerationError } from "@/server/document-templates/renderer";
 import { createDocumentTemplateSchema, updateDocumentTemplateStatusSchema } from "@/server/document-templates/schemas";
 import { DocumentFileValidationError, assertDocumentFileSize, validateDocumentFile } from "@/server/documents/file-validation";
 import { createDocumentTemplateStorageKey, removeDocumentFile, writeDocumentFile } from "@/server/documents/storage";
@@ -63,10 +64,11 @@ async function uploadDocumentTemplateActionImpl(
       return { status: "error", message: "Для шаблона акта разрешены только PDF и DOCX.", fieldErrors: { file: ["Выберите PDF или DOCX"] } };
     }
     const extension: "pdf" | "docx" = file.extension;
+    const generation = await inspectGenerationTemplate(buffer, extension);
     storageKey = createDocumentTemplateStorageKey(member.organizationId, parsed.data.idempotencyKey, extension);
     await writeDocumentFile(storageKey, buffer);
     fileWritten = true;
-    await createDocumentTemplate(member, { ...parsed.data, ...file, extension, storageKey });
+    await createDocumentTemplate(member, { ...parsed.data, ...file, ...generation, extension, storageKey });
     committed = true;
     revalidatePath("/settings");
     revalidatePath("/my-visits");
@@ -76,6 +78,7 @@ async function uploadDocumentTemplateActionImpl(
       unexpected("document_templates.upload.revalidate", member.memberId, error);
       return { status: "success", refreshRequired: true, message: "Шаблон опубликован, но страницу не удалось обновить. Обновите её вручную.", fieldErrors: {} };
     }
+    if (error instanceof DocumentTemplateGenerationError) return { status: "error", message: error.message, fieldErrors: { file: [error.message] } };
     if (error instanceof DocumentFileValidationError) return { status: "error", message: error.message, fieldErrors: { file: [error.message] } };
     if (errorCode(error) === "EEXIST") {
       if (await documentTemplateExists(member, parsed.data.idempotencyKey)) return { status: "success", message: "Шаблон уже загружен.", fieldErrors: {} };

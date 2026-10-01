@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import postgres from "postgres";
+import { unzipSync } from "fflate";
 import sharp from "sharp";
 import { chromium } from "playwright-core";
 import { hashPassword } from "../src/server/auth/password.ts";
@@ -540,7 +541,6 @@ try {
   const [unchangedSession] = await sql`SELECT active_organization_id FROM auth_sessions
     WHERE organization_id = ${home.organization_id} AND member_id = ${home.id} ORDER BY created_at DESC LIMIT 1`;
   assert.equal(unchangedSession.active_organization_id, null);
-  await context.close();
   const siteList = await fetch(`${baseUrl}/sites`, { headers: { Cookie: developerCookie }, redirect: "manual" });
   assert.equal(siteList.status, 200);
   const siteListHtml = await siteList.text();
@@ -554,6 +554,116 @@ try {
   assert.deepEqual(Buffer.from(await centerDocument.arrayBuffer()), fileBytes);
   assert.equal((await path(developerCookie, `/api/v1/documents/${grantedDocument.id}/versions/${grantedDocument.versionId}/download`)).status, 200);
   assert.equal((await path(developerCookie, `/api/v1/documents/${ungrantedDocument.id}/download`)).status, 404);
+  // Seed after the order and contract assertions: their linked file remains an isolated fixture.
+  const archiveDocuments=[];
+  for (let i=1;i<=501;i++) archiveDocuments.push(await seedDocument(target.id, client.id, companyOrder.id, developerShadow.id, 'Файл архива '+String(i).padStart(4,'0')));
+  const lateDocument=await seedDocument(target.id, client.id, companyOrder.id, developerShadow.id, 'Янтарный файл архива Ёж');
+  const [lateVersion]=await sql`INSERT INTO document_versions (organization_id, document_id, version_number, original_filename, storage_key, mime_type, extension, size_bytes, sha256, uploaded_by)
+    SELECT organization_id, document_id, 2, 'late-v2.pdf', ${target.id+'/'+lateDocument.id+'/v2.pdf'}, mime_type, extension, size_bytes, sha256, uploaded_by FROM document_versions WHERE id=${lateDocument.versionId} RETURNING id`;
+  await mkdir(dirname(join(directory,target.id+'/'+lateDocument.id+'/v2.pdf')), { recursive:true });
+  await writeFile(join(directory,target.id+'/'+lateDocument.id+'/v2.pdf'),fileBytes);
+  await sql`UPDATE documents SET current_version_id=${lateVersion.id},version=2 WHERE id=${lateDocument.id}`;
+  const ownDocuments=[];
+  for(let i=1;i<=51;i++) ownDocuments.push(await seedDocument(home.organization_id,homeClient.id,centerCalendarOrder.id,home.id,'Центр файл '+String(i).padStart(4,'0')));
+  const [ownFolder]=await sql`INSERT INTO document_folders (organization_id,name,created_by) VALUES (${home.organization_id},'Папка переноса',${home.id}) RETURNING id`;
+  async function archivePage(params={}) {
+    const response=await fetch(`${baseUrl}/api/v1/documents?${new URLSearchParams(params)}`,{headers:{Cookie:developerCookie}});
+    assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'private, no-store');return (await response.json()).data;
+  }
+  const documentIds=[];
+  for(let n=1;n<=12;n++){const data=await archivePage({page:String(n)});assert.equal(data.total,554);assert.ok(data.items.length<=50);documentIds.push(...data.items.map(d=>d.id));}
+  assert.equal(new Set(documentIds).size,554);assert.ok(documentIds.includes(lateDocument.id));assert.ok(!documentIds.includes(ungrantedDocument.id));
+  assert.equal((await archivePage({q:'янтарный файл архива еж'})).items[0].id,lateDocument.id);
+  assert.equal((await archivePage({scope:'own'})).total,51);
+  assert.equal((await fetch(`${baseUrl}/api/v1/documents`)).status,401);
+  assert.equal((await path(await login(members.foreman.email),'/api/v1/documents')).status,403);
+  assert.equal((await path(developerCookie,'/api/v1/documents?page=0')).status,400);
+  assert.equal((await path(developerCookie,`/api/v1/documents/${ungrantedDocument.id}`)).status,404);
+  const docSearch=await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Янтарный файл архива Ёж')}`,{headers:{Cookie:developerCookie}});
+  assert.equal(docSearch.status,200);
+  const docResult=(await docSearch.json()).data.results.find(r=>r.id===lateDocument.id);
+  assert.ok(docResult.href.includes(`document=${lateDocument.id}`));assert.ok(docResult.subtitle.includes('Second company'));
+  for(const width of [390,768,1024,1440]){
+    await page.setViewportSize({width,height:900});await page.goto(`${baseUrl}/documents`);
+    await page.getByRole('navigation',{name:'Страницы документов'}).getByText('1 / 12',{exact:true}).waitFor();
+    await page.getByPlaceholder('Документ, клиент, заказ, адрес или автор').fill('янтарный файл архива еж');
+    await page.getByRole('navigation',{name:'Страницы документов'}).getByText('1 из 1 файлов',{exact:false}).waitFor();
+    await settledLayout();
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    await page.screenshot({path:`artifacts/business-roles/center-documents-${width}.png`,fullPage:true});
+    await page.goto(`${baseUrl}${docResult.href}`);
+    await page.getByRole('heading',{name:'Янтарный файл архива Ёж',exact:true}).waitFor();
+    await page.getByText('Файл · версия 2',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Новая версия',exact:true}).count(),0);
+    await settledLayout();
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    await page.getByRole('button',{name:'Закрыть карточку',exact:true}).click();
+  }
+  await page.setViewportSize({width:1024,height:900});await page.goto(`${baseUrl}/documents`);
+  const docPager=page.getByRole('navigation',{name:'Страницы документов'});
+  await docPager.getByText('1 / 12',{exact:true}).waitFor();
+  await page.getByRole('checkbox',{name:/Добавить .* в архив/}).first().click();
+  await docPager.getByRole('button',{name:'Далее',exact:true}).click();
+  await docPager.getByText('2 / 12',{exact:true}).waitFor();
+  await page.getByRole('checkbox',{name:/Добавить .* в архив/}).first().click();
+  const zipDownloadPromise=page.waitForEvent('download');
+  const exportPromise=page.waitForResponse(r=>r.url().endsWith('/api/v1/documents/export')&&r.request().method()==='POST');
+  await page.getByRole('button',{name:'Скачать ZIP',exact:true}).click();
+  const exported=await exportPromise;assert.equal(exported.status(),200);
+  const zipDownload=await zipDownloadPromise;
+  assert.equal(await zipDownload.failure(),null);
+  const zipPath=await zipDownload.path();assert.ok(zipPath);
+  const actualZip=await readFile(zipPath);assert.equal(actualZip.subarray(0,4).toString('hex'),'504b0304');
+  const zipped=unzipSync(actualZip);assert.equal(Object.keys(zipped).filter(k=>k.endsWith('.pdf')).length,2,'selection must span both pages');
+  let docFailure=true;
+  await page.route('**/api/v1/documents?*',async route=>{
+    if(docFailure&&new URL(route.request().url()).searchParams.get('q')==='янтарный'){docFailure=false;await route.fulfill({status:503,json:{error:{message:'Проверка ошибки архива'}}});}else await route.continue();
+  });
+  await page.getByPlaceholder('Документ, клиент, заказ, адрес или автор').fill('янтарный');
+  await page.getByRole('alert').getByText('Проверка ошибки архива',{exact:false}).waitFor();
+  await page.getByRole('button',{name:'Повторить загрузку',exact:true}).click();
+  await docPager.getByText('1 из 1 файлов',{exact:false}).waitFor();
+  assert.equal(await page.getByPlaceholder('Документ, клиент, заказ, адрес или автор').inputValue(),'янтарный');
+  await page.unroute('**/api/v1/documents?*');
+  await page.route('**/api/v1/documents?*',async route=>{
+    if(new URL(route.request().url()).searchParams.get('q')==='файл архива 0001'){
+      const response=await route.fetch();await new Promise(resolve=>setTimeout(resolve,400));await route.fulfill({response}).catch(()=>{});
+    }else await route.continue();
+  });
+  const oldRequest=page.waitForRequest(r=>r.url().includes('/api/v1/documents?')&&new URL(r.url()).searchParams.get('q')==='файл архива 0001');
+  await page.getByPlaceholder('Документ, клиент, заказ, адрес или автор').fill('файл архива 0001');await oldRequest;
+  await page.getByPlaceholder('Документ, клиент, заказ, адрес или автор').fill('янтарный');
+  await docPager.getByText('1 из 1 файлов',{exact:false}).waitFor();await page.waitForTimeout(500);
+  assert.equal(await page.getByRole('button',{name:/Файл архива 0001/}).count(),0,'stale requests cannot replace the current result');
+  await page.unroute('**/api/v1/documents?*');
+  await page.goto(`${baseUrl}/documents/archive`);
+  const managerPager=page.getByRole('navigation',{name:'Страницы документов'});
+  await managerPager.getByText('1 / 2',{exact:true}).waitFor();
+  await page.getByRole('checkbox',{name:/Выбрать документ Центр файл/}).first().check();
+  await managerPager.getByRole('button',{name:'Далее',exact:true}).click();await managerPager.getByText('2 / 2',{exact:true}).waitFor();
+  await page.getByRole('checkbox',{name:/Выбрать документ Центр файл/}).first().check();
+  await page.getByRole('button',{name:'Перенести · 2',exact:true}).click();
+  const moveDialog=page.getByRole('dialog',{name:'Перенести выбранное'});
+  await moveDialog.getByRole('radio',{name:/Папка переноса/}).click();await moveDialog.getByRole('button',{name:'Перенести',exact:true}).click();
+  await moveDialog.waitFor({state:'hidden'});
+  const [moved]=await sql`SELECT count(*)::int AS total FROM documents WHERE folder_id=${ownFolder.id}`;assert.equal(moved.total,2);
+  assert.deepEqual(errors,[]);
+  const [documentSession]=await sql`SELECT active_organization_id FROM auth_sessions WHERE member_id=${home.id} AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`;
+  assert.equal(documentSession.active_organization_id,null,'archive operations must preserve the center');
+  await page.setViewportSize({width:1800,height:1000});await page.goto(`${baseUrl}/documents`);
+  await page.getByPlaceholder('Документ, клиент, заказ, адрес или автор').fill('Центр файл 0001');
+  await page.locator('tbody tr').filter({hasText:'Центр файл 0001'}).waitFor();
+  await page.locator('tbody tr').filter({hasText:'Центр файл 0001'}).click();
+  await page.getByRole('button',{name:'Новая версия',exact:true}).waitFor();
+  const [ownNewVersion]=await sql`INSERT INTO document_versions (organization_id,document_id,version_number,original_filename,storage_key,mime_type,extension,size_bytes,sha256,uploaded_by)
+    SELECT organization_id,document_id,2,'own-v2.pdf',${home.organization_id+'/'+ownDocuments[0].id+'/v2.pdf'},mime_type,extension,size_bytes,sha256,uploaded_by FROM document_versions WHERE id=${ownDocuments[0].versionId} RETURNING id`;
+  await sql`UPDATE documents SET current_version_id=${ownNewVersion.id},version=2 WHERE id=${ownDocuments[0].id}`;
+  await page.getByRole('button',{name:'Добавить в избранное',exact:true}).click();
+  await page.getByText('Файл · версия 2',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Закрыть карточку',exact:true}).click();
+  await page.getByRole('button',{name:'Убрать из избранного',exact:true}).waitFor();
+  assert.deepEqual(errors,[]);
+  await context.close();
   const companyEmail = `company-coordinator-${randomUUID()}@example.invalid`;
   const [companyCoordinator] = await sql`INSERT INTO organization_members (organization_id, display_name, email, role)
     VALUES (${target.id}, 'Company coordinator', ${companyEmail}, 'crm_coordinator') RETURNING id`;
@@ -587,6 +697,12 @@ try {
   assert.equal((await path(developerCookie, `/api/v1/masters/${grantedPhoto.masterId}/avatar`)).status, 404, 'Revoked grant must remove master photo access');
   assert.equal((await path(developerCookie, `/api/v1/members/${grantedPhoto.memberId}/avatar`)).status, 404);
   assert.equal((await path(developerCookie, `/clients/${client.id}`)).status, 404, 'Revoked grant removes client card access');
+  assert.equal((await archivePage()).total,51);
+  assert.equal((await path(developerCookie,`/api/v1/documents/${lateDocument.id}`)).status,404);
+  assert.equal((await path(developerCookie,`/api/v1/documents/${lateDocument.id}/download`)).status,404);
+  assert.equal((await path(developerCookie,`/api/v1/documents/${lateDocument.id}/versions/${lateDocument.versionId}/download`)).status,404);
+  const deniedZip=await fetch(`${baseUrl}/api/v1/documents/export`,{method:'POST',headers:{Cookie:developerCookie,Origin:baseUrl,'Content-Type':'application/json'},body:JSON.stringify({documentIds:[ownDocuments[0].id,lateDocument.id]})});assert.equal(deniedZip.status,404);
+
   assert.equal((await clientPage(developerCookie)).total, 1);
   for (const q of ['ЦЕНТР-101', 'Выезд выданной компании', '05.01.2030']) {
     const response = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent(q)}`, { headers: { Cookie: developerCookie } });
@@ -607,7 +723,7 @@ try {
   assert.deepEqual((await revokedContractSearch.json()).data.results, []);
   const revokedSearch = await fetch(`${baseUrl}/api/v1/search?q=${encodeURIComponent('Клиент другого контура')}`, { headers: { Cookie: developerCookie } });
   assert.deepEqual((await revokedSearch.json()).data.results, []);
-  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, 504 masters with full search/pagination, searchable facets, read-only granted cards and 503 retry, 521 contracts with full search/pagination, contract documents/history/calendar/dispatch and a 75-visit center calendar with pagination and own-only rescheduling at four widths, paginated clients/search/private notes at three widths without switching company, sites and documents, shared member/master photos with replacement and revoked grants, and principal role retention.");
+  console.log("Business role browser access passed for seven roles, full overdue task counts in center/company dashboards, granted orders, 504 masters with full search/pagination, searchable facets, read-only granted cards and 503 retry, 521 contracts with full search/pagination, contract documents/history/calendar/dispatch and a 75-visit center calendar with pagination and own-only rescheduling at four widths, paginated clients/search/private notes at three widths without switching company, sites and 554 documents with 12-page search, direct history, cross-page ZIP/folder move, read-only grants and retry, shared member/master photos with replacement and revoked grants, and principal role retention.");
 } catch (error) {
   const failedPage = browser?.contexts()[0]?.pages()[0];
   if (failedPage) {

@@ -10,7 +10,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Repeat2,
   UserRound,
 } from "lucide-react";
 import {
@@ -32,7 +31,6 @@ import { VisitArrivalModePicker, VisitDurationPicker } from "@/components/visits
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
 import { VisitCompletionForm } from "@/components/visits/visit-completion-form";
 import { VisitHistoryButton } from "@/components/visits/visit-history-dialog";
-import { VisitSeriesForm } from "@/components/visits/visit-series-form";
 import type { OrderCreationOptions } from "@/server/orders/types";
 import type { VisitHistoryFeed } from "@/server/visits/history";
 import {
@@ -514,7 +512,6 @@ export function OrderVisitSection({
 }) {
   const [activeVisitId, setActiveVisitId] = useState<string | null>(null);
   const [createKey, setCreateKey] = useState<string | null>(null);
-  const [seriesKey, setSeriesKey] = useState<string | null>(null);
   const [completionVisitId, setCompletionVisitId] = useState<string | null>(
     null,
   );
@@ -522,7 +519,6 @@ export function OrderVisitSection({
   const close = useCallback(() => {
     setActiveVisitId(null);
     setCreateKey(null);
-    setSeriesKey(null);
     setCompletionVisitId(null);
     setCompletionKey(null);
   }, []);
@@ -557,14 +553,6 @@ export function OrderVisitSection({
           <VisitHistoryButton feed={history} visits={visits} />
           {canWrite ? (
             <>
-              <button
-                aria-label="Создать серию выездов"
-                onClick={() => setSeriesKey(crypto.randomUUID())}
-                className="focus-ring flex h-9 min-w-0 items-center justify-center gap-2 rounded-[11px] border border-[var(--line-strong)] px-2 text-xs text-[var(--text-secondary)] min-[640px]:px-3"
-              >
-                <Repeat2 className="size-3.5 shrink-0" />
-                <span>Серия</span>
-              </button>
               <button
                 aria-label="Добавить выезд"
                 onClick={() => setCreateKey(crypto.randomUUID())}
@@ -613,6 +601,11 @@ export function OrderVisitSection({
                     <UserRound className="size-3.5" />
                     {visit.master ?? "Мастер не назначен"}
                   </p>
+                  {visit.serviceLines ? (
+                    <p className="mt-2 text-xs text-[var(--muted)]">
+                      {visit.serviceLines.length ? visit.serviceLines.map((line) => `${line.name} · ${Number(line.quantity)} ${line.unit}`).join("; ") : "Состав работ не указан"}
+                    </p>
+                  ) : null}
                   {visit.completionNotes ? (
                     <p className="mt-1 truncate text-[10px] text-[var(--success)]">
                       {visit.completionNotes}
@@ -688,22 +681,6 @@ export function OrderVisitSection({
           <CreateVisitForm
             orderId={orderId}
             requestKey={createKey}
-            masters={masters}
-            defaultMasterId={defaultMasterId}
-            onClose={close}
-          />
-        ) : null}
-      </Dialog>
-      <Dialog
-        open={seriesKey !== null}
-        onClose={close}
-        title="Серия выездов"
-        description="Создайте расписание по заказу сразу на срок до одного года."
-      >
-        {seriesKey ? (
-          <VisitSeriesForm
-            orderId={orderId}
-            requestKey={seriesKey}
             masters={masters}
             defaultMasterId={defaultMasterId}
             onClose={close}

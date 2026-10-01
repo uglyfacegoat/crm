@@ -18,7 +18,7 @@ const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
 let sql;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", root), { namedExports: { getDatabase: () => sql } });
-const { getIncomingLeadSnapshot, getIncomingLeadPrefill, getOrderCreatedFromIncomingLead, searchIncomingLeadOptions } = await import("../src/server/incoming-leads/repository.ts");
+const { getIncomingLeadSnapshot, getIncomingLeadPrefill, getOrderCreatedFromIncomingLead, searchIncomingLeadOptions, rejectIncomingLead } = await import("../src/server/incoming-leads/repository.ts");
 
 test("inbox picker searches beyond the initial 250 leads and keeps organization boundaries", async (t) => {
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
@@ -87,6 +87,14 @@ test("inbox picker searches beyond the initial 250 leads and keeps organization 
       'Клиент старой заявки', '', '') RETURNING id`;
   await sql`UPDATE website_leads SET moderation_status = 'accepted', reviewed_by = ${a.member.memberId}, reviewed_at = now()
     WHERE organization_id = ${a.member.organizationId} AND id = ${byName.items[0].id}`;
+  const activeSnapshot = await getIncomingLeadSnapshot(a.member, { status: "active", query: "Очень старая" });
+  assert.equal(activeSnapshot.leads.length, 0);
+  assert.equal((await getIncomingLeadSnapshot(a.member, { status: "accepted", query: "Очень старая" })).leads[0].orderId, order.id);
+  assert.equal((await searchIncomingLeadOptions(a.member, { status: "active", query: "Очень старая" })).items.length, 0);
+  const [rejectable] = await sql`SELECT id, version FROM website_leads WHERE organization_id = ${a.member.organizationId} AND external_event_id = 'event-1'`;
+  await rejectIncomingLead(a.member, { leadId: rejectable.id, expectedVersion: rejectable.version, reason: "Проверка отклонения" });
+  assert.equal((await getIncomingLeadSnapshot(a.member, { status: "active", query: "Клиент 1" })).leads.some((lead) => lead.id === rejectable.id), false);
+  assert.equal((await getIncomingLeadSnapshot(a.member, { status: "rejected", query: "Клиент 1" })).leads[0].reviewNote, "Проверка отклонения");
   await assert.rejects(getIncomingLeadPrefill(a.member, byName.items[0].id));
   assert.equal(await getOrderCreatedFromIncomingLead(a.member, byName.items[0].id), order.id);
   assert.equal(await getOrderCreatedFromIncomingLead(b.member, byName.items[0].id), null);

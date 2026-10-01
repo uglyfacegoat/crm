@@ -73,8 +73,7 @@ export default async function DashboardPage() {
   );
   const visibleTasks = dashboardTasks.tasks
     .filter((task) => task.column === "overdue" || task.column === "today")
-    .toSorted((left, right) => taskUrgency(left) - taskUrgency(right))
-    .slice(0, 6);
+    .toSorted((left, right) => taskUrgency(left) - taskUrgency(right));
   const activeOrders = dashboardOrders.filter(
     (order) => order.status !== "Выполнен" && order.status !== "Отменён",
   );
@@ -184,7 +183,7 @@ export default async function DashboardPage() {
 
       <div className="dashboard-operational-row">
         <div id="dashboard-route"><TodayVisits visits={routeVisits} dateLabel={routeDescription} title={todayVisits.length ? "Маршрут на сегодня" : "Ближайшие выезды"} /></div>
-        <div id="dashboard-tasks"><TaskList tasks={visibleTasks.slice(0, 2)} canWrite={!preview && !isCenter && hasPermission(member, "tasks.write")} /></div>
+        <div id="dashboard-tasks"><TaskList tasks={visibleTasks} canWrite={!preview && !isCenter && hasPermission(member, "tasks.write")} /></div>
       </div>
 
       <div id="dashboard-personal-notes">

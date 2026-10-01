@@ -32,6 +32,7 @@ export const CATALOG_INVENTORY_PAGE_SIZE = 50;
 export const catalogInventoryQuerySchema = z.object({
   q: z.string().trim().max(100).default(""),
   filter: z.enum(["service", "product", "all", "archived"]).default("service"),
+  kind: z.enum(["service", "product"]).optional(),
   page: z.coerce.number().int().min(0).max(1000).default(0),
 });
 export type CatalogInventoryQuery = z.infer<typeof catalogInventoryQuerySchema>;
@@ -51,6 +52,7 @@ export async function searchCatalogInventory(scopes: AuthenticatedMember[], quer
       WHERE items.organization_id = ANY(${organizationIds}::uuid[])
         AND (${query.filter} = 'archived' AND NOT items.active OR ${query.filter} <> 'archived' AND items.active)
         AND (${query.filter} IN ('all', 'archived') OR items.kind = ${query.filter})
+        AND (${query.kind ?? null}::text IS NULL OR items.kind = ${query.kind ?? null})
         AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', items.name, items.sku, items.description, orgs.name), ${query.q}))
       ORDER BY items.name, items.organization_id, items.id
       LIMIT ${CATALOG_INVENTORY_PAGE_SIZE + 1} OFFSET ${query.page * CATALOG_INVENTORY_PAGE_SIZE}`,
@@ -117,8 +119,7 @@ export async function deleteCatalogItem(member: AuthenticatedMember, id: string,
       AND id = ${id} AND version = ${expectedVersion} FOR UPDATE`;
     if (!item) throw new CatalogConflictError();
     const [usage] = await transaction`SELECT
-      (SELECT count(*) FROM order_services WHERE organization_id = ${member.organizationId} AND catalog_item_id = ${id})
-      + (SELECT count(*) FROM object_service_rates WHERE organization_id = ${member.organizationId} AND catalog_item_id = ${id}) AS total`;
+      (SELECT count(*) FROM order_services WHERE organization_id = ${member.organizationId} AND catalog_item_id = ${id}) AS total`;
     if (Number(usage.total) === 0) {
       await transaction`DELETE FROM catalog_items WHERE organization_id = ${member.organizationId} AND id = ${id}`;
       return "deleted" as const;

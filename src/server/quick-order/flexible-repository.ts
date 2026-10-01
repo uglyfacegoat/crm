@@ -143,11 +143,7 @@ export async function createFlexibleOrder(member: AuthenticatedMember, input: Fl
         if (line.catalogItemId) {
           const [item] = await transaction`SELECT ci.kind, ci.unit FROM catalog_items ci
             WHERE ci.organization_id = ${member.organizationId} AND ci.id = ${line.catalogItemId}
-              AND ((ci.active AND ci.name = ${line.name}) OR EXISTS (
-                SELECT 1 FROM object_service_rates rate WHERE rate.organization_id = ci.organization_id
-                  AND rate.object_id = ${primaryObject?.id ?? null} AND rate.catalog_item_id = ci.id
-                AND rate.line_kind = 'contract' AND rate.name = ${line.name}
-              ))`;
+              AND ci.active AND ci.name = ${line.name}`;
           if (!item) throw new FlexibleOrderReferenceError();
           kind = z.enum(["service", "product"]).parse(item.kind);
           unit = z.string().parse(item.unit);

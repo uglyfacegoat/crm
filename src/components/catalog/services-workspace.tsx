@@ -26,7 +26,7 @@ export function ServicesWorkspace({ items, initialInventory, units, profiles, de
         <span className="block text-sm font-semibold">Условия по объектам</span><span className={`mt-1 block text-xs ${tab === "objects" ? "text-white/70" : "text-[var(--muted)]"}`}>{configuredObjects} заполнено · площадь, цены и график</span>
       </button>
     </div>
-    {tab === "catalog" ? <CatalogWorkspace initialInventory={initialInventory} units={units} destinations={destinations} canWrite={canWrite} showOrganizations={showOrganizations} remoteEnabled={remoteEnabled} />
+    {tab === "catalog" ? <CatalogWorkspace currentOrganizationId={currentOrganizationId} initialInventory={initialInventory} units={units} destinations={destinations} canWrite={canWrite} showOrganizations={showOrganizations} remoteEnabled={remoteEnabled} />
       : <ObjectServiceWorkspace initialProfiles={profiles} catalog={items.filter((item) => item.kind === "service" && item.active)} destinations={destinations} currentOrganizationId={currentOrganizationId} canWrite={canWrite} remoteEnabled={remoteEnabled} />}
   </div>;
 }

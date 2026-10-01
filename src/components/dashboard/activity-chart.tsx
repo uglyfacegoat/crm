@@ -1,6 +1,8 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+
+import { FloatingLayer } from "@/components/ui/floating-layer";
 
 type ActivityPoint = { date: string; count: number };
 
@@ -27,6 +29,8 @@ function activityTone(fill: number, selected: boolean) {
 
 export function ActivityChart({ points }: { points: ActivityPoint[] }) {
   const id = useId();
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const [tooltipPoint, setTooltipPoint] = useState<ActivityPoint | null>(null);
   const [activeDate, setActiveDate] = useState<string | null>(null);
   const { total, average, ceiling, step } = useMemo(() => {
     const nextTotal = points.reduce((sum, point) => sum + point.count, 0);
@@ -62,8 +66,8 @@ export function ActivityChart({ points }: { points: ActivityPoint[] }) {
                 const selected = activeDate === point.date;
                 const label = dateFormatter.format(new Date(`${point.date}T00:00:00Z`));
                 return (
-                  <button key={point.date} type="button" aria-pressed={selected} aria-label={`${label}: ${point.count} выездов`}
-                    onPointerEnter={() => setActiveDate(point.date)} onPointerLeave={() => setActiveDate(null)} onFocus={() => setActiveDate(point.date)} onBlur={() => setActiveDate(null)}
+                  <button key={point.date} type="button" aria-pressed={selected} aria-label={`${label}: ${point.count} выездов`} aria-describedby={selected ? `${id}-tooltip` : undefined}
+                    onPointerEnter={event => { anchorRef.current = event.currentTarget; setActiveDate(point.date); setTooltipPoint(point); }} onPointerLeave={() => { setActiveDate(null); setTooltipPoint(null); }} onFocus={event => { anchorRef.current = event.currentTarget; setActiveDate(point.date); setTooltipPoint(point); }} onBlur={() => { setActiveDate(null); setTooltipPoint(null); }}
                     className="focus-ring group relative grid shrink-0 grid-rows-[auto_1.25rem] gap-1 rounded-[4px] px-px">
                     <span aria-hidden="true" className="flex flex-col-reverse gap-[3px]">
                       {Array.from({ length: rows }, (_, index) => {
@@ -72,13 +76,14 @@ export function ActivityChart({ points }: { points: ActivityPoint[] }) {
                       })}
                     </span>
                     <span className="text-[9px] tabular-nums text-[var(--muted)]">{Number(point.date.slice(-2))}</span>
-                    {selected ? <span role="tooltip" className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 w-max -translate-x-1/2 rounded-[9px] bg-[var(--text)] px-2.5 py-2 text-left text-[10px] leading-4 text-[var(--canvas)] shadow-lg"><strong className="block font-semibold">{point.count} выездов</strong><span className="opacity-70">{label}</span></span> : null}
+
                   </button>
                 );
               })}
             </div>
           </div>
       </div>
+      {tooltipPoint ? <FloatingLayer key={tooltipPoint.date} anchorRef={anchorRef} placement="top" align="center" width="content" maxHeight={160} role="tooltip" id={`${id}-tooltip`} className="pointer-events-none rounded-[9px] border-0 bg-[var(--text)] px-2.5 py-2 text-left text-[10px] leading-4 text-[var(--canvas)] shadow-lg"><strong className="block font-semibold">{tooltipPoint.count} выездов</strong><span className="opacity-70">{dateFormatter.format(new Date(`${tooltipPoint.date}T00:00:00Z`))}</span></FloatingLayer> : null}
       <div className="dashboard-activity-mobile" aria-label="Активность по дням">
         <div className="dashboard-activity-mobile-weekdays" aria-hidden="true">
           {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((day) => <span key={day}>{day}</span>)}

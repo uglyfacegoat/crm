@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { favoriteDocumentAction } from "@/app/(workspace)/documents/actions";
 import {
   DocumentArchiveNavigator,
@@ -30,7 +30,9 @@ import { EmptyDocumentsAction } from "@/components/documents/upload-document-dia
 import { UploadDocumentVersionButton } from "@/components/documents/upload-document-version-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { formatDateInput, parseDateInput } from "@/lib/date-input";
-import { matchesSearchText } from "@/lib/search-normalization";
+import { documentListParams, type DocumentListPage, type DocumentListQuery } from "@/lib/document-list";
+import { useDocumentPage } from "./use-document-page";
+import { DocumentPagination, DocumentListStatus } from "./document-pagination";
 import type {
   DocumentArchiveSelection,
   DocumentArchiveTree,
@@ -57,11 +59,10 @@ const categoryPresentation: Record<
   other: { icon: FileText, color: "var(--muted)" },
 };
 
-const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "Europe/Moscow",
-});
+function formatDocumentDate(iso: string, document: DocumentListItem) {
+  return new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short", timeZone: document.organizationTimezone ?? "Europe/Moscow" }).format(new Date(iso));
+}
+type DocumentPanelData = { document: DocumentListItem; related: DocumentListItem[]; relatedTotal: number };
 type FavoriteFilter = "all" | "favorite" | "plain";
 type DocumentSort = "newest" | "oldest" | "size-desc" | "size-asc";
 type DocumentFilters = {
@@ -168,12 +169,14 @@ function FilterChoice<T extends string>({
 function DocumentDetails({
   document,
   related,
+  relatedTotal,
   canWrite,
   onClose,
   onSelect,
 }: {
   document: DocumentListItem;
   related: DocumentListItem[];
+  relatedTotal: number;
   canWrite: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
@@ -204,6 +207,7 @@ function DocumentDetails({
             <p className="mt-1 truncate text-xs text-[var(--muted)]">
               {document.clientName}
             </p>
+            {document.organizationName ? <p className="mt-1 text-xs text-[var(--muted)]">{document.organizationName}</p> : null}
           </div>
           <button
             type="button"
@@ -270,7 +274,7 @@ function DocumentDetails({
             <div className="flex gap-4">
               <dt className="w-20 shrink-0 text-[var(--muted)]">Выезд</dt>
               <dd className="text-[var(--text-secondary)]">
-                {dateFormatter.format(new Date(document.visitScheduledStartAt))}
+                {formatDocumentDate(document.visitScheduledStartAt, document)}
               </dd>
             </div>
           ) : null}
@@ -279,7 +283,7 @@ function DocumentDetails({
             <dd className="text-[var(--text-secondary)]">
               {document.uploadedBy}
               <span className="mt-1 block text-[10px] text-[var(--muted)]">
-                {dateFormatter.format(new Date(document.uploadedAt))}
+                {formatDocumentDate(document.uploadedAt, document)}
               </span>
             </dd>
           </div>
@@ -326,7 +330,7 @@ function DocumentDetails({
                       ) : null}
                     </div>
                     <p className="mt-1 text-[9px] text-[var(--muted)]">
-                      {dateFormatter.format(new Date(version.uploadedAt))} ·{" "}
+                      {formatDocumentDate(version.uploadedAt, document)} ·{" "}
                       {version.uploadedBy}
                     </p>
                     {version.changeNote ? (
@@ -359,7 +363,7 @@ function DocumentDetails({
               Документы заказчика
             </h3>
             <span className="text-[10px] text-[var(--muted)]">
-              {related.length}
+              {relatedTotal}
             </span>
           </div>
           {related.length ? (
@@ -388,7 +392,7 @@ function DocumentDetails({
                   </span>
                 </button>
               ))}
-              {related.length > 8 ? <Link href={`/documents?client=${document.clientId}`} className="focus-ring mt-3 inline-flex rounded-lg text-xs text-[var(--accent)] hover:underline">Все документы заказчика</Link> : null}
+              {relatedTotal > 8 ? <Link href={`/documents?client=${document.clientId}`} className="focus-ring mt-3 inline-flex rounded-lg text-xs text-[var(--accent)] hover:underline">Все документы заказчика</Link> : null}
             </div>
           ) : (
             <p className="mt-3 text-[10px] leading-4 text-[var(--muted)]">
@@ -401,8 +405,26 @@ function DocumentDetails({
   );
 }
 
+function DocumentPanelViewer({ id, initialPanel, refreshPage, canWrite, organizationId, onClose, onSelect }: { id: string; initialPanel: DocumentPanelData | null; refreshPage: DocumentListPage; canWrite: boolean; organizationId: string; onClose: () => void; onSelect: (id: string) => void }) {
+  const [retry, setRetry] = useState(0);
+  const [result, setResult] = useState<{ retry: number; refreshPage: DocumentListPage; data?: DocumentPanelData; error?: string } | null>(null);
+  useEffect(() => {
+    if (initialPanel?.document.id === id && retry === 0) return;
+    const controller = new AbortController();
+    fetch(`/api/v1/documents/${id}`, { signal: controller.signal, cache: "no-store" }).then(async response => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message ?? "Не удалось открыть документ.");
+      if (!controller.signal.aborted) setResult({ retry, refreshPage, data: payload.data });
+    }).catch(error => { if (!controller.signal.aborted) setResult({ retry, refreshPage, error: error instanceof Error ? error.message : "Не удалось открыть документ." }); });
+    return () => controller.abort();
+  }, [id, initialPanel, refreshPage, retry]);
+  const current = result?.retry === retry && result.refreshPage === refreshPage ? result : null;
+  const data = initialPanel?.document.id === id && retry === 0 ? initialPanel : current?.data;
+  return data ? <DocumentDetails document={data.document} related={data.related} relatedTotal={data.relatedTotal} canWrite={canWrite && data.document.organizationId === organizationId} onClose={onClose} onSelect={onSelect} /> : <Dialog open onClose={onClose} title="Документ"><DocumentListStatus loading={!current?.error} error={current?.error} onRetry={() => setRetry(value => value + 1)} /></Dialog>;
+}
+
 export function DocumentsWorkspace({
-  documents,
+  initialPage, initialQuery, initialPanel, organizationId,
   archive,
   folders,
   selection,
@@ -410,7 +432,7 @@ export function DocumentsWorkspace({
   canWrite,
   initialDocumentId = null,
 }: {
-  documents: DocumentListItem[];
+  initialPage: DocumentListPage; initialQuery: DocumentListQuery; initialPanel: DocumentPanelData | null; organizationId: string;
   archive: DocumentArchiveTree;
   folders: DocumentFolder[];
   selection: DocumentArchiveSelection;
@@ -423,50 +445,19 @@ export function DocumentsWorkspace({
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
   const [filterError, setFilterError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(() =>
-    documents.some((document) => document.id === initialDocumentId)
-      ? initialDocumentId
-      : null,
-  );
-  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(initialDocumentId);
+  const [selectedDocumentsById, setSelectedDocumentsById] = useState<Map<string, DocumentListItem>>(() => new Map());
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const selected =
-    documents.find((document) => document.id === selectedId) ?? null;
-  const filtered = useMemo(() => {
-    const dateFrom = parseDateInput(filters.dateFrom);
-    const dateTo = parseDateInput(filters.dateTo);
-    const visible = documents.filter((document) => {
-      if (filters.category !== "all" && document.category !== filters.category)
-        return false;
-      if (filters.favorite === "favorite" && !document.favorite) return false;
-      if (filters.favorite === "plain" && document.favorite) return false;
-      if (dateFrom && document.uploadedAt.slice(0, 10) < dateFrom) return false;
-      if (dateTo && document.uploadedAt.slice(0, 10) > dateTo) return false;
-      return matchesSearchText(query, [
-        document.title,
-        document.filename,
-        document.clientName,
-        document.orderNumber,
-        document.objectName,
-        document.objectAddress,
-        document.categoryLabel,
-        document.uploadedBy,
-      ]);
-    });
-    return visible.toSorted((left, right) => {
-      if (filters.sort === "oldest")
-        return left.uploadedAt.localeCompare(right.uploadedAt);
-      if (filters.sort === "size-desc") return right.sizeBytes - left.sizeBytes;
-      if (filters.sort === "size-asc") return left.sizeBytes - right.sizeBytes;
-      return right.uploadedAt.localeCompare(left.uploadedAt);
-    });
-  }, [documents, filters, query]);
-  const selectedDocuments = documents.filter((document) =>
-    selectedDocumentIds.has(document.id),
-  );
+  const baseQuery: DocumentListQuery = { ...initialQuery, q: query.trim().slice(0, 100), category: filters.category, favorite: filters.favorite, dateFrom: parseDateInput(filters.dateFrom), dateTo: parseDateInput(filters.dateTo), sort: filters.sort, page: 1 };
+  const filterKey = documentListParams(baseQuery).toString();
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const page = pageState.key === filterKey ? pageState.page : 1;
+  const listing = useDocumentPage(initialPage, { ...baseQuery, page }, initialQuery);
+  const documents = listing.data?.items ?? [];
+  const filtered = documents;
+  const selectedDocumentIds = new Set(selectedDocumentsById.keys());
+  const selectedDocuments = Array.from(selectedDocumentsById.values());
   const selectedBytes = selectedDocuments.reduce(
     (total, document) => total + document.sizeBytes,
     0,
@@ -476,13 +467,6 @@ export function DocumentsWorkspace({
   ).length;
   const allVisibleSelected =
     filtered.length > 0 && selectedVisible === filtered.length;
-  const related = selected
-    ? documents.filter(
-        (document) =>
-          document.clientId === selected.clientId &&
-          document.id !== selected.id,
-      )
-    : [];
   const selectionTitle = selection.folderId
     ? (folders.find((folder) => folder.id === selection.folderId)?.name ?? "Папка архива")
     : getArchiveSelectionTitle(archive, selection);
@@ -527,24 +511,24 @@ export function DocumentsWorkspace({
       setExportError("В один архив можно добавить не больше 30 документов.");
       return;
     }
-    setSelectedDocumentIds((current) => {
-      const next = new Set(current);
+    setSelectedDocumentsById((current) => {
+      const next = new Map(current);
       if (next.has(documentId)) next.delete(documentId);
-      else next.add(documentId);
+      else { const document = documents.find(item => item.id === documentId); if (document) next.set(documentId, document); }
       return next;
     });
   }
 
   function toggleVisibleDocuments() {
     setExportError(null);
-    setSelectedDocumentIds((current) => {
-      const next = new Set(current);
+    setSelectedDocumentsById((current) => {
+      const next = new Map(current);
       if (allVisibleSelected)
         filtered.forEach((document) => next.delete(document.id));
       else {
         for (const document of filtered) {
           if (next.size >= 30) break;
-          next.add(document.id);
+          next.set(document.id, document);
         }
       }
       return next;
@@ -605,13 +589,13 @@ export function DocumentsWorkspace({
   if (!archive.documentCount)
     return (
       <section className="surface-panel mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] grid min-h-[20rem] place-items-center px-6 py-14 sm:py-20">
-        <EmptyDocumentsAction options={uploadOptions} />
+        {canWrite ? <EmptyDocumentsAction options={uploadOptions} /> : <p className="text-sm text-[var(--muted)]">В архиве пока нет документов.</p>}
       </section>
     );
 
   return (
     <section
-      className={`mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] grid min-h-0 gap-5 lg:min-h-[36rem] ${selected ? "2xl:grid-cols-[20rem_minmax(0,1fr)_23rem]" : "lg:grid-cols-[20rem_minmax(0,1fr)]"}`}
+      className={`mt-[clamp(1.5rem,1.1rem+0.8vw,2.25rem)] grid min-h-0 gap-5 lg:min-h-[36rem] ${selectedId ? "2xl:grid-cols-[20rem_minmax(0,1fr)_23rem]" : "lg:grid-cols-[20rem_minmax(0,1fr)]"}`}
     >
       <aside className="surface-panel min-w-0 self-start p-3 lg:max-h-[calc(100vh-10rem)] lg:self-stretch lg:overflow-y-auto">
         <div className="mb-3 hidden border-b border-[var(--line)] px-2 pb-3 lg:block">
@@ -637,16 +621,15 @@ export function DocumentsWorkspace({
               </h2>
             </div>
             <p className="shrink-0 text-[10px] text-[var(--muted)]">
-              {documents.length === 500
-                ? "Показаны последние 500 файлов"
-                : `${documents.length} файлов`}
+              {listing.data ? `${listing.data.scopeTotal} файлов` : "Документы"}
             </p>
           </div>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <label className="soft-button flex min-h-11 w-full min-w-0 flex-1 items-center gap-2 rounded-[12px] px-3 sm:max-w-md">
               <Search className="size-4 shrink-0 text-[var(--muted)]" />
               <input
                 value={query}
+                maxLength={100}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Документ, клиент, заказ, адрес или автор"
                 className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
@@ -680,14 +663,14 @@ export function DocumentsWorkspace({
               </button>
             ) : null}
             {selectedDocumentIds.size ? (
-              <div className="flex min-h-11 flex-wrap items-center gap-2 border-y border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3">
+              <div className="flex min-h-11 w-full basis-full flex-wrap items-center gap-2 border-y border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3">
                 <Archive className="size-4 text-[var(--accent)]" />
                 <span className="text-[10px] text-[var(--text-secondary)]">
                   {selectedDocumentIds.size} · {formatBytes(selectedBytes)}
                 </span>
                 <button
                   type="button"
-                  onClick={() => setSelectedDocumentIds(new Set())}
+                  onClick={() => setSelectedDocumentsById(new Map())}
                   className="focus-ring rounded-md px-1.5 py-1 text-[9px] text-[var(--text-secondary)] hover:text-[var(--text)]"
                 >
                   Сбросить выбор
@@ -724,7 +707,7 @@ export function DocumentsWorkspace({
             </p>
           ) : null}
         </div>
-        <div className="hidden overflow-x-auto md:block">
+        <div className="hidden overflow-x-auto 2xl:block">
           <table className="w-full min-w-[800px] text-left">
             <thead>
               <tr className="text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">
@@ -794,7 +777,7 @@ export function DocumentsWorkspace({
                     </td>
                     <td className="px-3 py-3">
                       <p className="text-xs text-[var(--text-secondary)]">
-                        {dateFormatter.format(new Date(document.uploadedAt))}
+                        {formatDocumentDate(document.uploadedAt, document)}
                       </p>
                       <p className="mt-1 text-[10px] text-[var(--muted)]">
                         {document.uploadedBy}
@@ -805,7 +788,7 @@ export function DocumentsWorkspace({
                         <span className="text-xs text-[var(--text-secondary)]">
                           {formatBytes(document.sizeBytes)}
                         </span>
-                        <FavoriteButton document={document} />
+                        {document.organizationId === organizationId ? <FavoriteButton document={document} /> : null}
                       </div>
                     </td>
                   </tr>
@@ -814,7 +797,7 @@ export function DocumentsWorkspace({
             </tbody>
           </table>
         </div>
-        <div className="divide-y divide-[var(--line)] md:hidden">
+        <div className="divide-y divide-[var(--line)] 2xl:hidden">
           {filtered.map((document) => {
             const Icon = categoryPresentation[document.category].icon;
             return (
@@ -844,6 +827,7 @@ export function DocumentsWorkspace({
                     <span className="mt-1 block truncate text-xs text-[var(--muted)]">
                       {document.clientName}
                     </span>
+                    {document.organizationName ? <span className="mt-1 block truncate text-[10px] text-[var(--muted)]">{document.organizationName}</span> : null}
                     <span className="mt-2 block text-[10px] text-[var(--muted-subtle)]">
                       №{document.orderNumber} ·{" "}
                       {formatBytes(document.sizeBytes)}
@@ -854,7 +838,7 @@ export function DocumentsWorkspace({
             );
           })}
         </div>
-        {!filtered.length ? (
+        {!listing.loading && !listing.error && !filtered.length ? (
           <div className="border-y border-[var(--line)] px-6 py-12 text-center">
             <p className="text-sm text-[var(--muted)]">
               Документы по выбранным условиям не найдены
@@ -868,26 +852,10 @@ export function DocumentsWorkspace({
             </button>
           </div>
         ) : null}
-        <footer className="flex items-center justify-between gap-3 border-t border-[var(--line)] px-4 py-3 text-[10px] text-[var(--muted)]">
-          <span>
-            Показано {filtered.length} из {documents.length}
-          </span>
-          <span>
-            {advancedFilterCount
-              ? `${advancedFilterCount} активных условий`
-              : "Без ограничений"}
-          </span>
-        </footer>
+        <DocumentListStatus loading={listing.loading} error={listing.error} onRetry={listing.retry} />
+        {listing.data ? <DocumentPagination page={listing.data} onPage={page => setPageState({ key: filterKey, page })} /> : null}
       </div>
-      {selected ? (
-        <DocumentDetails
-          document={selected}
-          related={related}
-          canWrite={canWrite}
-          onClose={() => setSelectedId(null)}
-          onSelect={setSelectedId}
-        />
-      ) : null}
+      {selectedId ? <DocumentPanelViewer key={selectedId} id={selectedId} initialPanel={initialPanel} refreshPage={initialPage} canWrite={canWrite} organizationId={organizationId} onClose={() => setSelectedId(null)} onSelect={setSelectedId} /> : null}
       <Dialog
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}

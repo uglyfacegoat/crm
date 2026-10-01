@@ -143,8 +143,8 @@ try {
   await sql`INSERT INTO organization_access_grants (principal_organization_id, principal_member_id, target_organization_id, target_member_id)
     VALUES (${owner.organization_id}, ${owner.id}, ${company.id}, ${shadow.id})`;
   await page.goto(`${baseUrl}/services`);
-  await page.getByText(/Единицы измерения ·/).click();
-  await page.getByRole("button", { name: "+ Единица", exact: true }).click();
+  await page.getByRole("button", {name: "Единицы измерения", exact: true}).click();
+  await page.getByRole("button", { name: "Добавить единицу", exact: true }).click();
   const unitDialog = page.getByRole("dialog", { name: "Единица измерения" });
   await unitDialog.locator('summary[aria-label="Компания"]').click();
   await unitDialog.getByPlaceholder("Найти компанию").fill("янтарная");
@@ -155,7 +155,8 @@ try {
   await unitDialog.waitFor({ state: "hidden" });
   const [unit] = await sql`SELECT id FROM catalog_units WHERE organization_id = ${company.id} AND symbol = 'тест.ед.'`;
   assert.ok(unit);
-  await page.getByRole("button", { name: "Добавить позицию" }).click();
+  await page.getByRole("dialog", {name: "Единицы измерения", exact: true}).getByRole("button", {name: "Закрыть окно"}).click();
+  await page.getByRole("button", { name: "Добавить услугу" }).click();
   const itemDialog = page.getByRole("dialog", { name: "Новая позиция" });
   await itemDialog.locator('summary[aria-label="Компания *"]').click();
   await itemDialog.getByPlaceholder("Найти компанию").fill("янтарная");
@@ -173,47 +174,14 @@ try {
   await sql`INSERT INTO catalog_items (organization_id, kind, name, unit, price_mode, default_price_minor)
     SELECT ${company.id}, 'service', 'А-услуга ' || lpad(n::text, 4, '0'), 'усл.', 'fixed', 100
     FROM generate_series(1, 1001) n`;
-  const [profileClient] = await sql`INSERT INTO clients (organization_id, legal_name, kind)
-    VALUES (${company.id}, 'Клиент компании Ёж', 'legal_entity') RETURNING id`;
-  await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
-    SELECT ${company.id}, ${profileClient.id}, 'А-объект ' || lpad(n::text, 4, '0'), 'Office', 'Адрес ' || n::text
-    FROM generate_series(1, 1001) n`;
-  const [profileObject] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
-    VALUES (${company.id}, ${profileClient.id}, 'Объект компании Ёж', 'Office', 'Адрес компании') RETURNING id`;
   await page.goto(`${baseUrl}/services`);
-  await page.getByRole("tab", { name: /Условия по объектам/ }).click();
-  await page.getByRole("button", { name: "Показать ещё" }).click();
-  await page.waitForFunction(() => document.querySelectorAll('aside button').length >= 100);
-  await page.getByPlaceholder("Клиент или объект").fill("Объект компании Ёж");
-  const profileSearch = await page.request.get(`${baseUrl}/api/v1/services/profiles?q=${encodeURIComponent("Объект компании Ёж")}`);
-  assert.equal(profileSearch.status(), 200);
-  assert.equal((await profileSearch.json()).data.items[0]?.objectId, profileObject.id);
-  try { await page.getByRole("button", { name: /Объект компании Ёж/ }).waitFor({ timeout: 10_000 }); }
-  catch { throw new Error(`Object search did not render: ${await page.locator("aside").innerText()}`); }
-  await page.getByRole("button", { name: /Объект компании Ёж/ }).click();
-  await page.getByRole("button", { name: "Строка услуги" }).click();
-  await page.locator('summary[aria-label="Наименование услуги"]').click();
-  await page.getByPlaceholder("Название услуги или товара").fill("Янтарная услуга Ёж");
-  await page.getByRole("button", { name: /Янтарная услуга Ёж/ }).click();
-  await page.getByRole("button", { name: "Сохранить условия" }).click();
-  await page.getByRole("status").filter({ hasText: "Условия объекта сохранены." }).waitFor();
-  const [companyRate] = await sql`SELECT catalog_item_id FROM object_service_rates
-    WHERE organization_id = ${company.id} AND object_id = ${profileObject.id}`;
-  assert.equal(companyRate.catalog_item_id, item.id);
-  await page.reload();
-  await page.getByRole("tab", { name: /Условия по объектам/ }).click();
-  await page.getByPlaceholder("Клиент или объект").fill("Объект компании Ёж");
-  await page.getByRole("button", { name: /Объект компании Ёж/ }).click();
-  await page.locator('summary[aria-label="Наименование услуги"]').getByText("Янтарная услуга Ёж").waitFor();
-  for (const width of [390, 768, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false, `object profile overflows at ${width}px`);
-  }
+  assert.equal(await page.getByRole('tab', {name: /Условия по объектам/}).count(), 0);
+  const companyCatalog = await page.request.get(`${baseUrl}/api/v1/services/options?organizationId=${company.id}&q=Янтарная`);
+  assert.equal(companyCatalog.status(), 200);
+  assert.equal((await companyCatalog.json()).data.items[0].id, item.id);
   const deniedCatalog = await page.request.get(`${baseUrl}/api/v1/services/options?organizationId=${randomUUID()}&q=Янтарная`);
   assert.equal(deniedCatalog.status(), 404, "A company without a center grant must not expose its catalog");
-  const deniedProfile = await page.request.get(`${baseUrl}/api/v1/services/profiles?id=${randomUUID()}`);
-  assert.deepEqual((await deniedProfile.json()).data.items, []);
-  console.log("Contract, company and catalog pickers passed: saved IDs, city/area reset, company catalog and object search beyond 1000, profile reload; 390/768/1440px.");
+  console.log("Contract, company and catalog pickers passed: saved IDs, city/area reset, company catalog without object conditions; 390/768/1440px.");
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await once(server, "exit"); }

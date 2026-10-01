@@ -1,5 +1,8 @@
 "use client";
 
+import { documentListParams, type DocumentListPage, type DocumentListQuery } from "@/lib/document-list";
+import { useDocumentPage } from "./use-document-page";
+import { DocumentPagination, DocumentListStatus } from "./document-pagination";
 import {
   ArrowRight,
   Check,
@@ -19,7 +22,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
   useActionState,
-  useEffect,
+  useEffect, useEffectEvent,
   useMemo,
   useState,
   useTransition,
@@ -33,7 +36,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { matchesSearchText } from "@/lib/search-normalization";
 import type {
   DocumentFolder,
-  DocumentListItem,
 } from "@/server/documents/types";
 
 const initialState: DocumentArchiveActionState = {
@@ -84,14 +86,12 @@ function CreateFolderDialog({
     initialState,
   );
   const router = useRouter();
+  const closeOnSuccess = useEffectEvent(() => { onClose(); router.refresh(); });
   useEffect(() => {
     if (state.status !== "success") return;
-    const timeout = window.setTimeout(() => {
-      onClose();
-      router.refresh();
-    }, 450);
+    const timeout = window.setTimeout(closeOnSuccess, 450);
     return () => window.clearTimeout(timeout);
-  }, [onClose, router, state.status]);
+  }, [state.status]);
   return (
     <Dialog
       open={open}
@@ -185,11 +185,12 @@ function MoveDialog({
         ...folderPath(folder.id, foldersById).map((entry) => entry.name),
       ]),
   );
+  const moveOnSuccess = useEffectEvent(onMoved);
   useEffect(() => {
     if (state.status !== "success") return;
-    const timeout = window.setTimeout(onMoved, 450);
+    const timeout = window.setTimeout(moveOnSuccess, 450);
     return () => window.clearTimeout(timeout);
-  }, [onMoved, state.status]);
+  }, [state.status]);
   return (
     <Dialog
       open={open}
@@ -219,6 +220,7 @@ function MoveDialog({
             <span className="sr-only">Быстрый поиск папки</span>
             <input
               value={query}
+              maxLength={100}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Быстрый поиск места назначения"
               className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
@@ -304,11 +306,11 @@ function MoveDialog({
 
 export function DocumentArchiveManager({
   folders,
-  documents,
+  initialPage, initialQuery,
   canWrite,
 }: {
   folders: DocumentFolder[];
-  documents: DocumentListItem[];
+  initialPage: DocumentListPage; initialQuery: DocumentListQuery;
   canWrite: boolean;
 }) {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -336,23 +338,18 @@ export function DocumentArchiveManager({
         ])
       : folder.parentFolderId === currentFolderId,
   );
-  const visibleDocuments = documents.filter((document) =>
-    searching
-      ? matchesSearchText(query, [
-          document.title,
-          document.filename,
-          document.clientName,
-          document.orderNumber,
-          document.categoryLabel,
-        ])
-      : document.folderId === currentFolderId,
-  );
+  const baseQuery: DocumentListQuery = { ...initialQuery, q: query.trim().slice(0, 100), folderId: searching ? null : currentFolderId, rootOnly: !searching && !currentFolderId, page: 1 };
+  const filterKey = documentListParams(baseQuery).toString();
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const listing = useDocumentPage(initialPage, { ...baseQuery, page: pageState.key === filterKey ? pageState.page : 1 }, initialQuery);
+  const visibleDocuments = listing.data?.items ?? [];
 
   function toggle(key: SelectionKey) {
+    if (!selection.has(key) && selection.size >= 100) { setMessage("Можно перенести до 100 элементов за одну операцию."); return; }
     setSelection((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
-      else next.add(key);
+      else if (next.size < 100) next.add(key);
       return next;
     });
   }
@@ -390,6 +387,7 @@ export function DocumentArchiveManager({
             <span className="sr-only">Поиск по архиву</span>
             <input
               value={query}
+              maxLength={100}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Поиск по архиву"
               className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
@@ -626,7 +624,7 @@ export function DocumentArchiveManager({
             );
           })}
         </div>
-        {!visibleFolders.length && !visibleDocuments.length ? (
+        {!listing.loading && !listing.error && !visibleFolders.length && !visibleDocuments.length ? (
           <div className="grid min-h-80 place-items-center p-8 text-center">
             <div>
               <Folder className="mx-auto size-8 text-[var(--muted-subtle)]" />
@@ -641,6 +639,8 @@ export function DocumentArchiveManager({
             </div>
           </div>
         ) : null}
+        <DocumentListStatus loading={listing.loading} error={listing.error} onRetry={listing.retry} />
+        {listing.data ? <DocumentPagination page={listing.data} onPage={page => setPageState({ key: filterKey, page })} /> : null}
       </section>
       {moving ? (
         <p className="flex items-center gap-2 text-xs text-[var(--muted)]">

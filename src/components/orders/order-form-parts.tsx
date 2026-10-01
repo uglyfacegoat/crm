@@ -5,6 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { OrderMutationState } from "@/app/(workspace)/orders/actions";
 import { ORDER_PICKER_PAGE_SIZE, type OrderPickerQuery, type OrderPickerResult } from "@/lib/order-picker";
 import { focusPickerOption } from "@/lib/picker-keyboard";
+import { FloatingLayer } from "@/components/ui/floating-layer";
 import { filterPickerOptions } from "@/lib/picker-options";
 
 export const orderInputClass =
@@ -37,7 +38,7 @@ export function OrderField({
   );
 }
 
-type PickerOption = { value: string; label: string; detail?: string; clientId?: string; catalogItem?: NonNullable<OrderPickerResult["items"][number]["catalogItem"]> };
+type PickerOption = { value: string; label: string; detail?: string; clientId?: string; areaSquareMeters?: string | null; catalogItem?: NonNullable<OrderPickerResult["items"][number]["catalogItem"]> };
 
 export function OrderPicker({
   label,
@@ -102,7 +103,7 @@ export function OrderPicker({
         if (!response.ok) throw new Error("Order picker request failed");
         const payload = await response.json() as { data: OrderPickerResult };
         if (!controller.signal.aborted) {
-          setRemoteOptions({ key: remoteKey, items: payload.data.items.map((item) => ({ value: item.id, label: item.name, detail: item.detail, clientId: item.clientId, catalogItem: item.catalogItem })) });
+          setRemoteOptions({ key: remoteKey, items: payload.data.items.map((item) => ({ value: item.id, label: item.name, detail: item.detail, clientId: item.clientId, areaSquareMeters: item.areaSquareMeters, catalogItem: item.catalogItem })) });
           setRemoteHasMore(payload.data.hasMore);
         }
       } catch {
@@ -134,10 +135,6 @@ export function OrderPicker({
     },
     [options, query, remoteOptions, remoteKey, remoteType, remoteUrl, searchable, loadError, pinnedValues, selectedOption, value],
   );
-  const menuPosition =
-    (placement ?? (label === "Контакт" ? "top" : "bottom")) === "top"
-      ? "bottom-[3.25rem]"
-      : "top-[3.25rem]";
   return (
     <div className="grid gap-2 text-[10px] text-[var(--muted)]">
       <span className={hideLabel ? "sr-only" : undefined}>
@@ -181,11 +178,11 @@ export function OrderPicker({
           >
             {selected?.label ?? placeholder}
           </span>
-          <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
+          <ChevronDown className={`size-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
         </summary>
-        {!disabled ? (
-          <div
-            className={`absolute left-0 right-0 z-50 max-h-[min(20rem,52dvh)] overflow-y-auto rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_16px_35px_rgba(0,0,0,0.14)] ${menuPosition}`}
+        {open && !disabled ? (
+          <FloatingLayer anchorRef={detailsRef} anchorSelector=":scope > summary" placement={placement ?? (label === "Контакт" ? "top" : "bottom")}
+            className="rounded-[13px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_16px_35px_rgba(0,0,0,0.14)]"
           >
             {searchable ? (
               <label className="sticky top-0 z-10 mb-1.5 flex h-11 items-center gap-2 rounded-[10px] border border-[var(--line)] bg-[var(--surface-inset)] px-3 shadow-sm">
@@ -258,7 +255,7 @@ export function OrderPicker({
               </p>
             )}
             {(remoteType || remoteUrl) && !loading && !loadError && remoteHasMore ? <p className="px-3 py-2 text-[10px] text-[var(--muted)]">Показаны первые 20. Уточните поиск.</p> : null}
-          </div>
+          </FloatingLayer>
         ) : null}
       </details>
       {errors?.length ? (

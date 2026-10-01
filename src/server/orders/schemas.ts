@@ -110,17 +110,16 @@ const uniqueUuidList = (maximum: number) => z.array(z.string().uuid()).max(maxim
   "Один элемент выбран несколько раз",
 );
 
-export const copyOrderSchema = z.object({
-  idempotencyKey: z.string().uuid(),
-  sourceOrderId: z.string().uuid(),
-  expectedVersion: z.coerce.number().int().positive(),
-  copyDate: z.iso.date("Укажите дату новой копии"),
-  copyDates: z.array(z.iso.date()).max(24, "За один раз можно создать до 24 копий").default([]),
-  dateOverrides: z.array(z.object({
+export const orderCopyDateOverrideSchema = z.object({
     date: z.iso.date(),
     assignedMasterId: z.string().uuid().nullable().optional(),
     masterPayment: z.string().trim().regex(/^\d{1,11}(?:[.,]\d{1,2})?$/).nullable().optional(),
     serviceIds: uniqueUuidList(100).optional(),
+    serviceChanges: z.array(z.object({
+      id: z.string().uuid(),
+      quantity,
+      unitPrice: z.union([z.literal(""), money]),
+    })).max(100).refine((rows) => new Set(rows.map((row) => row.id)).size === rows.length, "Одна услуга изменена дважды").optional(),
     expenseIds: uniqueUuidList(100).optional(),
     extraServices: z.array(z.object({
       catalogItemId: z.string().uuid().nullable().optional(),
@@ -135,7 +134,15 @@ export const copyOrderSchema = z.object({
     arrivalMode: z.enum(["fixed", "window"]).optional(),
     startTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
     endTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
-  })).max(24).default([]),
+  });
+
+export const copyOrderSchema = z.object({
+  idempotencyKey: z.string().uuid(),
+  sourceOrderId: z.string().uuid(),
+  expectedVersion: z.coerce.number().int().positive(),
+  copyDate: z.iso.date("Укажите дату новой копии"),
+  copyDates: z.array(z.iso.date()).max(24, "За один раз можно создать до 24 копий").default([]),
+  dateOverrides: z.array(orderCopyDateOverrideSchema).max(24).default([]),
   serviceIds: uniqueUuidList(100),
   expenseIds: uniqueUuidList(100),
   visitIds: uniqueUuidList(100),

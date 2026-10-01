@@ -18,6 +18,7 @@ export type OrderPickerItem = {
   detail?: string;
   clientId?: string;
   isPrimary?: boolean;
+  areaSquareMeters?: string | null;
   catalogItem?: {
     id: string;
     kind: "service" | "product";

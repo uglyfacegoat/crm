@@ -523,7 +523,7 @@ export function TasksWorkspace({
             remoteUrl="/api/v1/tasks/options?type=assignees"
             pinnedValues={[""]}
           />
-          <OrderPicker
+          <OrderPicker searchable={false}
             label="Приоритет"
             value={draftFilters.priority}
             onChange={(priority) =>

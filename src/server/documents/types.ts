@@ -34,6 +34,7 @@ export type DocumentVersionListItem = {
 };
 
 export type DocumentListItem = {
+  organizationId?: string; organizationName?: string; organizationTimezone?: string;
   id: string;
   folderId: string | null;
   contractId: string | null;
@@ -96,6 +97,7 @@ export type DocumentUploadOptions = {
 };
 
 export type DocumentFolder = {
+  organizationId?: string; organizationName?: string;
   id: string;
   parentFolderId: string | null;
   name: string;

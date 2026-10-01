@@ -1,3 +1,5 @@
+import type { DocumentGenerationKind, DocumentTemplateField } from "@/lib/document-template-fields";
+
 export type DocumentTemplateListItem = {
   id: string;
   title: string;
@@ -13,6 +15,9 @@ export type DocumentTemplateListItem = {
   uploadedAt: string;
   uploadedBy: string;
   version: number;
+  generationKind?: DocumentGenerationKind | null;
+  generationFields?: DocumentTemplateField[];
+  generationDefaults?: Record<string, string>;
 };
 
 export type DocumentTemplateDownload = {
@@ -23,3 +28,5 @@ export type DocumentTemplateDownload = {
   sha256: string;
   storageKey: string;
 };
+
+export type OrderGenerationTemplate = Pick<DocumentTemplateListItem, "id" | "title" | "version" | "extension" | "generationKind" | "generationFields" | "generationDefaults">;

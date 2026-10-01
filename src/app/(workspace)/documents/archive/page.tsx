@@ -1,3 +1,4 @@
+import { documentListQuerySchema } from "@/lib/document-list";
 import type { Metadata } from "next";
 import { requirePagePermission } from "@/server/auth/page-access";
 import { DocumentArchiveManager } from "@/components/documents/document-archive-manager";
@@ -8,7 +9,7 @@ import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
 import {
   listDocumentFolders,
-  listDocuments,
+  listDocumentPage,
 } from "@/server/documents/repository";
 
 export const metadata: Metadata = { title: "Управление архивом" };
@@ -19,10 +20,11 @@ export default async function DocumentArchivePage() {
   const canRead = hasPermission(member, "documents.read");
   const canWrite =
     hasPermission(member, "documents.write") && getAuthMode() !== "preview";
-  const [folders, documents] =
+  const initialQuery = documentListQuerySchema.parse({ scope: "own", rootOnly: true });
+  const [folders, initialPage] =
     canRead && getAuthMode() !== "preview"
-      ? await Promise.all([listDocumentFolders(member), listDocuments(member)])
-      : [[], []];
+      ? await Promise.all([listDocumentFolders(member), listDocumentPage(member, initialQuery)])
+      : [[], { items: [], total: 0, scopeTotal: 0, page: 1, pageSize: 50 }];
 
   return (
     <div>
@@ -37,7 +39,9 @@ export default async function DocumentArchivePage() {
       {canRead ? (
         <DocumentArchiveManager
           folders={folders}
-          documents={documents}
+          key={`${member.memberId}:${member.organizationId}`}
+          initialPage={initialPage}
+          initialQuery={initialQuery}
           canWrite={canWrite}
         />
       ) : (

@@ -25,7 +25,7 @@ const hooks = registerHooks({
 let sql;
 mock.module("server-only", { namedExports: {} });
 mock.module(new URL("server/database.ts", sourceRoot), { namedExports: { getDatabase: () => sql } });
-const { createVisit, createVisitSeries, getVisitDispatchCard, VisitScheduleConflictError } = await import("../src/server/visits/repository.ts");
+const { createVisit, createVisitSeries, getVisitDispatchCard, listOrderVisits, updateVisit, VisitSeriesSelectionError, VisitVersionConflictError, VisitScheduleConflictError } = await import("../src/server/visits/repository.ts");
 const { createVisitSeriesSchema } = await import("../src/server/visits/schemas.ts");
 
 test("master schedule rejects sequential and simultaneous conflicting assignments", { timeout: 60_000 }, async (t) => {
@@ -126,4 +126,64 @@ test("master schedule rejects sequential and simultaneous conflicting assignment
   assert.equal(savedManual.frequency_unit, 'custom');
   assert.deepEqual(savedManual.selected_dates, ['2030-02-03', '2030-02-17']);
   assert.equal((await sql`SELECT count(*)::integer AS count FROM service_visits WHERE series_id = ${manualResult.seriesId}`)[0].count, 2);
+  const [alternate] = await sql`INSERT INTO masters (organization_id, full_name, phone, normalized_phone, service_region, service_zone)
+    VALUES (${organization.id}, 'Alternate master', '+70000000001', '+70000000001', 'Test region', 'Test zone') RETURNING id`;
+  const [service] = await sql`INSERT INTO order_services (organization_id, order_id, service_name_snapshot, item_kind_snapshot,
+    unit_snapshot, quantity, unit_price_minor, line_total_minor, position)
+    VALUES (${organization.id}, ${orders[0]}, 'Area treatment', 'service', 'м²', 10, 1000, 10000, 1) RETURNING id`;
+  const financeMember = { ...members[0], role: 'owner', permissionOverrides: { 'finance.write': true, 'finance.read': true } };
+  const configured = createVisitSeriesSchema.parse({ ...manual, idempotencyKey: randomUUID(), expectedOrderVersion: 1,
+    endTime: '', startsOn: '2030-03-03', endsOn: '2030-03-17', selectedDates: ['2030-03-03', '2030-03-17'],
+    assignedMasterId: master.id, arrivalMode: 'fixed', notes: 'Common visit note',
+    dateOverrides: [
+      { date: '2030-03-03', serviceIds: [service.id], masterPayment: '250.50' },
+      { date: '2030-03-17', serviceIds: [service.id], assignedMasterId: alternate.id, arrivalMode: 'window',
+        startTime: '23:30', endTime: '00:30', visitNotes: 'Individual visit note', masterPayment: '125.75',
+        serviceChanges: [{ id: service.id, quantity: '12.5', unitPrice: '20' }],
+        extraServices: [{ name: 'Extra work', kind: 'service', unit: 'усл.', quantity: 2, unitPrice: '50' }] },
+    ] });
+  const result = await createVisitSeries(financeMember, configured);
+  assert.equal(result.visitCount, 2);
+  assert.deepEqual(await createVisitSeries(financeMember, configured), result, 'Retry returns the same series');
+  const configuredVisits = await sql`SELECT * FROM service_visits WHERE series_id = ${result.seriesId} ORDER BY occurrence_number`;
+  assert.deepEqual(configuredVisits.map(row => row.order_id), [orders[0], orders[0]]);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM orders WHERE organization_id = ${organization.id}`)[0].count, 4);
+  assert.equal(configuredVisits[0].notes, 'Common visit note');
+  assert.equal(configuredVisits[1].notes, 'Individual visit note');
+  assert.equal(configuredVisits[1].assigned_master_id, alternate.id);
+  assert.equal((configuredVisits[1].scheduled_end_at - configuredVisits[1].scheduled_start_at) / 60000, 60);
+  assert.equal(configuredVisits[1].service_lines_snapshot[0].lineTotalMinor, 25000);
+  assert.equal(configuredVisits[1].service_lines_snapshot[1].lineTotalMinor, 10000);
+  const card = await getVisitDispatchCard(financeMember, configuredVisits[1].id);
+  assert.equal(card.masterPaymentMinor, 12575);
+  assert.equal(card.services[0].quantity, '12.500');
+  assert.equal(card.services[1].name, 'Extra work');
+  assert.equal((await getVisitDispatchCard(members[0], configuredVisits[1].id)).masterPaymentMinor, undefined);
+  const publicVisit = (await listOrderVisits(members[0], orders[0])).find(row => row.id === configuredVisits[1].id);
+  assert.equal(publicVisit.serviceSummary, 'Area treatment, Extra work');
+  assert.equal(JSON.stringify(publicVisit).includes('unitPriceMinor'), false, 'Operational view does not expose financial snapshot fields');
+  const [unchangedOrder] = await sql`SELECT version, agreed_total_minor, master_payment_snapshot_minor FROM orders WHERE id = ${orders[0]}`;
+  assert.equal(unchangedOrder.version, 1);
+  assert.equal(Number(unchangedOrder.agreed_total_minor), 100000);
+  assert.equal(Number(unchangedOrder.master_payment_snapshot_minor), 100000);
+  assert.equal((await sql`SELECT quantity::text AS quantity FROM order_services WHERE id = ${service.id}`)[0].quantity, '10.000');
+  await assert.rejects(createVisitSeries(members[0], { ...configured, idempotencyKey: randomUUID() }), /not allowed/i);
+  await assert.rejects(createVisitSeries(financeMember, { ...configured, idempotencyKey: randomUUID(), expectedOrderVersion: 999 }), VisitVersionConflictError);
+  await assert.rejects(createVisitSeries(financeMember, { ...configured, idempotencyKey: randomUUID(),
+    dateOverrides: [{ date: '2030-03-03', serviceIds: [randomUUID()] }] }), VisitSeriesSelectionError);
+  await assert.rejects(createVisitSeries(financeMember, { ...configured, idempotencyKey: randomUUID(),
+    dateOverrides: [{ date: '2030-03-03', extraServices: [{ catalogItemId: randomUUID(), name: 'Foreign catalog', kind: 'service', unit: 'усл.', quantity: 1, unitPrice: '10' }] }] }), VisitSeriesSelectionError);
+  await assert.rejects(createVisitSeries({ ...members[0], permissionOverrides: { 'orders.write': false } },
+    { ...configured, idempotencyKey: randomUUID(), dateOverrides: [{ date: '2030-03-03', serviceIds: [] }] }), /not allowed/i);
+  await updateVisit(financeMember, { visitId: configuredVisits[0].id, expectedVersion: 1, localDate: '2030-03-03', localTime: '10:00',
+    arrivalMode: 'fixed', endTime: null, durationMinutes: 60, status: 'planned', assignedMasterId: alternate.id,
+    cancellationReason: null, rescheduleReason: null, notes: 'Changed master after creation' });
+  assert.equal((await getVisitDispatchCard(financeMember, configuredVisits[0].id)).masterPaymentMinor, null, 'Changing a master clears the old visit payment');
+  const seriesCount = (await sql`SELECT count(*)::integer AS count FROM service_visit_series`)[0].count;
+  await assert.rejects(createVisitSeries(financeMember, { ...configured, idempotencyKey: randomUUID(),
+    startsOn: '2030-03-01', endsOn: '2030-03-03', selectedDates: ['2030-03-01', '2030-03-03'],
+    dateOverrides: [] }), /already has|already.*visit/i);
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM service_visit_series`)[0].count, seriesCount, 'One conflicting date rolls back the whole series');
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM service_visits WHERE order_id = ${orders[0]} AND scheduled_start_at::date = '2030-03-01'`)[0].count, 0);
+
 });

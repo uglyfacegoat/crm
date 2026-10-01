@@ -34,6 +34,7 @@ export type ServiceVisit = {
   masterPhone: string | null;
   masterRegion: string | null;
   serviceSummary: string;
+  serviceLines?: Array<{ name: string; quantity: string; unit: string; note: string | null }> | null;
   cancellationReason: string | null;
   notes: string | null;
   completionNotes: string | null;

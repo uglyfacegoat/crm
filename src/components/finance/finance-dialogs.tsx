@@ -42,7 +42,7 @@ function FormFooter({ pending, saved, onClose, submitLabel, danger = false }: { 
 
 function PaymentMethodField({ errors }: { errors?: string[] }) {
   const [method, setMethod] = useState("bank_transfer");
-  return <div><input type="hidden" name="paymentMethod" value={method} /><OrderPicker label="Способ" value={method} onChange={setMethod} options={Object.entries(paymentMethodLabels).map(([value, label]) => ({ value, label }))} placeholder="Выберите способ оплаты" required errors={errors} /></div>;
+  return <div><input type="hidden" name="paymentMethod" value={method} /><OrderPicker searchable={false} label="Способ" value={method} onChange={setMethod} options={Object.entries(paymentMethodLabels).map(([value, label]) => ({ value, label }))} placeholder="Выберите способ оплаты" required errors={errors} /></div>;
 }
 
 function ReceiptUploadField({ errors }: { errors?: string[] }) {

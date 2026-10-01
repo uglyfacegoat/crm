@@ -32,6 +32,7 @@ export type DocumentArchiveObjectNode = {
 };
 
 export type DocumentArchiveClientNode = {
+  organizationName?: string;
   id: string;
   name: string;
   documentCount: number;
@@ -47,6 +48,7 @@ export type DocumentArchiveTree = {
 };
 
 export type DocumentArchiveBranch = {
+  organizationName?: string;
   clientId: string;
   clientName: string;
   objectId: string;
@@ -95,7 +97,7 @@ export function buildDocumentArchiveTree(branches: DocumentArchiveBranch[]): Doc
   for (const branch of branches) {
     let client = clients.get(branch.clientId);
     if (!client) {
-      client = { id: branch.clientId, name: branch.clientName, documentCount: 0, objects: [] };
+      client = { id: branch.clientId, name: branch.clientName, organizationName: branch.organizationName, documentCount: 0, objects: [] };
       clients.set(branch.clientId, client);
     }
 

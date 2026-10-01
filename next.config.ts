@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   devIndicators: false,
   output: "standalone",
+  outputFileTracingIncludes: { "/*": ["./src/server/document-templates/assets/DejaVuSans.ttf"] },
   reactCompiler: true,
   poweredByHeader: false,
   async headers() {

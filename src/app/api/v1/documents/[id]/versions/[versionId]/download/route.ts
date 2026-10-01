@@ -4,7 +4,6 @@ import { getCurrentSession } from "@/server/auth/session";
 import { rejectLimitedFileRead } from "@/server/request-limits/file-read";
 import { createDocumentDownloadResponse } from "@/server/documents/download-response";
 import { DocumentNotFoundError, getDocumentVersionDownload } from "@/server/documents/repository";
-import { resolveCenterDocumentScope } from "@/server/organizations/center-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +12,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   if (!member) return Response.json({ error: "authentication_required" }, { status: 401 });
   try {
     const { id, versionId } = await context.params;
-    const document = await getDocumentVersionDownload(await resolveCenterDocumentScope(member, id) ?? member, id, versionId);
+    const document = await getDocumentVersionDownload(member, id, versionId);
     const limited = await rejectLimitedFileRead(member, "document_download");
     if (limited) return limited;
     return createDocumentDownloadResponse(document, "documents.version_download");

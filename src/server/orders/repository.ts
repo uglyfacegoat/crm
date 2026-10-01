@@ -38,6 +38,7 @@ const orderDetailRowSchema = orderListRowSchema.extend({
   price_pending: z.boolean(),
   client_id: uuidSchema,
   object_id: uuidSchema.nullable(),
+  object_area_square_meters: z.string().nullable().optional(),
   client_contact_id: uuidSchema.nullable(),
   contact_name_snapshot: z.string().nullable(),
   contact_phone_snapshot: z.string().nullable(),
@@ -72,7 +73,7 @@ const expenseRowSchema = z.object({
   note: z.string().nullable(),
 });
 const optionRowSchema = z.object({ id: uuidSchema, name: z.string() });
-const objectOptionRowSchema = optionRowSchema.extend({ client_id: uuidSchema, address: z.string() });
+const objectOptionRowSchema = optionRowSchema.extend({ client_id: uuidSchema, address: z.string(), area_square_meters: z.string().nullable() });
 const contactOptionRowSchema = optionRowSchema.extend({ client_id: uuidSchema, phone: z.string(), is_primary: z.boolean() });
 const masterOptionRowSchema = optionRowSchema.extend({ phone: z.string() });
 
@@ -190,14 +191,14 @@ export async function listOrderCreationOptions(member: AuthenticatedMember, focu
   const focused = focusedRows[0];
   const relatedClientId = focused?.id ?? clientRows[0]?.id ?? null;
   const [objectRows, contactRows] = relatedClientId ? await Promise.all([
-    sql`SELECT id, client_id, name, address FROM client_objects WHERE organization_id = ${member.organizationId} AND client_id = ${relatedClientId} ORDER BY name, id LIMIT 20`,
+    sql`SELECT id, client_id, name, address, area_square_meters::text FROM client_objects WHERE organization_id = ${member.organizationId} AND client_id = ${relatedClientId} ORDER BY name, id LIMIT 20`,
     sql`SELECT id, client_id, full_name AS name, phone, is_primary FROM client_contacts WHERE organization_id = ${member.organizationId} AND client_id = ${relatedClientId} ORDER BY is_primary DESC, full_name, id LIMIT 20`,
   ]) : [[], []];
   return {
     remote: true,
     catalogItems: catalogItems.filter((item) => item.active),
     clients: [...clientRows, ...(focused && !clientRows.some((row) => row.id === focused.id) ? [focused] : [])].map((row) => optionRowSchema.parse(row)),
-    objects: objectRows.map((row) => { const parsed = objectOptionRowSchema.parse(row); return { id: parsed.id, clientId: parsed.client_id, name: parsed.name, address: parsed.address }; }),
+    objects: objectRows.map((row) => { const parsed = objectOptionRowSchema.parse(row); return { id: parsed.id, clientId: parsed.client_id, name: parsed.name, address: parsed.address, areaSquareMeters: parsed.area_square_meters }; }),
     contacts: contactRows.map((row) => { const parsed = contactOptionRowSchema.parse(row); return { id: parsed.id, clientId: parsed.client_id, name: parsed.name, phone: parsed.phone, isPrimary: parsed.is_primary }; }),
     masters: masterRows.map((row) => masterOptionRowSchema.parse(row)),
   };
@@ -209,6 +210,7 @@ export async function getOrderDetail(member: AuthenticatedMember, orderId: strin
   const [orderRows, serviceRows, expenseRows, relatedContactRows, relatedObjectRows, relatedPhoneRows] = await Promise.all([
     sql`SELECT orders.id, orders.order_number, orders.client_id, orders.object_id, orders.client_contact_id,
       orders.client_name_snapshot, orders.object_name_snapshot, orders.object_address_snapshot,
+      (SELECT area_square_meters::text FROM client_objects WHERE organization_id = orders.organization_id AND id = orders.object_id) AS object_area_square_meters,
       orders.contact_name_snapshot, orders.contact_phone_snapshot, orders.status, orders.status_reason,
       orders.currency, orders.agreed_total_minor, orders.price_pending, orders.invoiced_total_minor, orders.paid_total_minor,
       orders.assigned_master_id, orders.master_name_snapshot, orders.master_phone_snapshot,
@@ -254,6 +256,7 @@ export async function getOrderDetail(member: AuthenticatedMember, orderId: strin
     relatedPhones: relatedPhoneRows.map((row) => { const item = z.object({ id: uuidSchema, label: z.string(), phone: z.string(), contact_name: z.string().nullable() }).parse(row); return { id: item.id, label: item.label, phone: item.phone, contactName: item.contact_name }; }),
     clientId: order.client_id,
     objectId: order.object_id,
+    objectAreaSquareMeters: order.object_area_square_meters ?? null,
     contactId: order.client_contact_id,
     contactName: order.contact_name_snapshot ?? "Не указан",
     contactPhone: order.contact_phone_snapshot || "Не указан",
@@ -357,11 +360,7 @@ export async function createOrder(member: AuthenticatedMember, input: CreateOrde
       if (service.catalogItemId) {
         const linked = await transaction`SELECT ci.kind, ci.unit FROM catalog_items ci
           WHERE ci.organization_id = ${member.organizationId} AND ci.id = ${service.catalogItemId} AND ci.active
-            AND (ci.name = ${service.name} OR EXISTS (
-              SELECT 1 FROM object_service_rates rate WHERE rate.organization_id = ci.organization_id
-                AND rate.object_id = ${input.objectId} AND rate.catalog_item_id = ci.id
-                AND rate.line_kind = 'contract' AND rate.name = ${service.name}
-            ))`;
+            AND ci.name = ${service.name}`;
         if (!linked.length) throw new OrderReferenceError("catalog");
         kind = z.enum(["service", "product"]).parse(linked[0].kind);
         unit = z.string().parse(linked[0].unit);
@@ -444,11 +443,7 @@ export async function updateOrder(member: AuthenticatedMember, input: UpdateOrde
       } else if (service.catalogItemId) {
         const linked = await transaction`SELECT ci.kind, ci.unit FROM catalog_items ci
           WHERE ci.organization_id = ${member.organizationId} AND ci.id = ${service.catalogItemId} AND ci.active
-            AND (ci.name = ${service.name} OR EXISTS (
-              SELECT 1 FROM object_service_rates rate WHERE rate.organization_id = ci.organization_id
-                AND rate.object_id = ${existing.object_id} AND rate.catalog_item_id = ci.id
-                AND rate.line_kind = 'contract' AND rate.name = ${service.name}
-            ))`;
+            AND ci.name = ${service.name}`;
         if (!linked.length) throw new OrderReferenceError("catalog");
         kind = z.enum(["service", "product"]).parse(linked[0].kind);
         unit = z.string().parse(linked[0].unit);

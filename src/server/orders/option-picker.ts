@@ -5,7 +5,7 @@ import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 
-const itemRow = z.object({ id: z.string().uuid(), name: z.string(), detail: z.string().nullable(), client_id: z.string().uuid().nullable(), is_primary: z.boolean().nullable() });
+const itemRow = z.object({ id: z.string().uuid(), name: z.string(), detail: z.string().nullable(), client_id: z.string().uuid().nullable(), is_primary: z.boolean().nullable(), area_square_meters: z.string().nullable().optional() });
 
 export async function searchOrderPicker(member: AuthenticatedMember, query: OrderPickerQuery): Promise<OrderPickerResult> {
   requirePermission(member, "orders.write");
@@ -22,7 +22,7 @@ export async function searchOrderPicker(member: AuthenticatedMember, query: Orde
     `;
   } else if (query.type === "objects") {
     rows = await sql`
-      SELECT id, name, address AS detail, client_id, NULL::boolean AS is_primary
+      SELECT id, name, address AS detail, client_id, NULL::boolean AS is_primary, area_square_meters::text
       FROM client_objects WHERE organization_id = ${member.organizationId} AND client_id = ${scopedClientId}
         AND (${query.q} = '' OR crm_search_matches(concat_ws(' ', name, address), ${query.q}))
       ORDER BY name, id LIMIT ${limit}
@@ -45,7 +45,7 @@ export async function searchOrderPicker(member: AuthenticatedMember, query: Orde
   return {
     items: rows.slice(0, ORDER_PICKER_PAGE_SIZE).map((row) => {
       const item = itemRow.parse(row);
-      return { id: item.id, name: item.name, ...(item.detail ? { detail: item.detail } : {}),
+      return { id: item.id, name: item.name, ...(item.area_square_meters !== undefined ? { areaSquareMeters: item.area_square_meters } : {}), ...(item.detail ? { detail: item.detail } : {}),
         ...(item.client_id ? { clientId: item.client_id } : {}), ...(item.is_primary !== null ? { isPrimary: item.is_primary } : {}) };
     }),
     hasMore: rows.length > ORDER_PICKER_PAGE_SIZE,

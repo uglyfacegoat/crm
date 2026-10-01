@@ -99,7 +99,7 @@ function PermissionChoice({
   const options = permissionChoiceOptions.map((option) => option.value === "inherit"
     ? { ...option, label: `По роли — ${inheritedAllowed ? "разрешено" : "запрещено"}` }
     : option);
-  return <div className="w-44 min-w-0 shrink-0"><OrderPicker label={label} hideLabel value={value}
+  return <div className="w-44 min-w-0 shrink-0"><OrderPicker searchable={false} label={label} hideLabel value={value}
     onChange={(next) => onChange(next as typeof value)} options={options} placeholder="По роли" /></div>;
 }
 
@@ -221,7 +221,7 @@ function RoleAndMasterFields({
   return (
     <>
       <OrderField label="Роль" required errors={errors.role}>
-        <CustomSelect
+        <CustomSelect searchable={false}
           name="role"
           value={role}
           onChange={(value) => onRoleChange(value as AssignableOrganizationRole)}
@@ -697,7 +697,7 @@ export function MemberAdminPanel({
               className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-subtle)]"
             />
           </label>
-          <CustomSelect
+          <CustomSelect searchable={false}
             value={status}
             onChange={(value) => { setStatus(value as typeof status); setPage(1); }}
             ariaLabel="Статус учётной записи"

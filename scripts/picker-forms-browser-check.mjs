@@ -49,6 +49,18 @@ async function viewport(target, width) {
     return main.getBoundingClientRect().left >= sidebar.getBoundingClientRect().right - 1;
   });
 }
+async function unclippedPicker(menu, label) {
+  const popup = menu.locator(':scope > [data-floating-layer]');
+  await popup.waitFor({ state: 'visible' });
+  await popup.page().waitForFunction(() => [...document.querySelectorAll('[data-floating-layer]:popover-open')].every(el => {
+    const box = el.getBoundingClientRect();
+    return box.left >= 10 && box.top >= 10 && box.right <= innerWidth - 10 && box.bottom <= innerHeight - 10;
+  }));
+  assert.ok(await popup.evaluate(el => {
+    const box = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(box.left + box.width / 2, box.top + Math.min(20, box.height / 2)));
+  }), `Picker is covered or clipped: ${label}`);
+}
 async function fit(target, dialog, width) {
   await viewport(target, width);
   assert.equal(await target.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Page overflow at ${width}`);
@@ -116,7 +128,10 @@ try {
     const summary = scope.locator(`summary[aria-label="${label}"]`);
     await summary.click();
     const menu = summary.locator('..');
-    await menu.getByRole('textbox').fill(search);
+    await unclippedPicker(menu, label);
+    const fixed = ['Стартовый статус', 'Повтор', 'Статус', 'Тип связи', 'Заказы: Создавать, копировать и изменять'].includes(label);
+    assert.equal(await menu.getByRole('textbox').count(), fixed ? 0 : 1);
+    if (!fixed) await menu.getByRole('textbox').fill(search);
     const choice = menu.getByRole('button', { name: option, exact: true });
     const selectedLabel = await choice.locator('span').first().innerText();
     await choice.click();
@@ -147,9 +162,10 @@ try {
     await fit(page, dialog, width);
     await dialog.locator('summary[aria-label="Повтор"]').click();
     const menu = dialog.locator('summary[aria-label="Повтор"]').locator('..');
-    assert.ok(await menu.getByRole('textbox').isVisible());
+    await unclippedPicker(menu, `Повтор at ${width}`);
+    assert.equal(await menu.getByRole('textbox').count(), 0);
     assert.equal(await menu.evaluate(el => el.scrollWidth > el.clientWidth + 1), false);
-    await menu.getByRole('textbox').press('Escape');
+    await dialog.locator('summary[aria-label="Повтор"]').press('Escape');
     assert.ok(await dialog.isVisible(), 'Escape closes the list, not the dialog');
   }
   await dialog.getByRole('button', { name: 'Создать договор', exact: true }).click();
@@ -178,65 +194,13 @@ try {
   assert.equal((await sql`SELECT relation_type FROM contract_relations WHERE organization_id = ${principal.organization_id} AND contract_a_id IN (${contract.id}, ${related.id}) AND contract_b_id IN (${contract.id}, ${related.id})`)[0].relation_type, 'supplement');
   console.log('Contract selectors: draft, weekly schedule, status update and supplement link persisted.');
 
-  await sql`INSERT INTO object_service_profiles (organization_id, object_id, area_square_meters) VALUES (${principal.organization_id}, ${object.id}, 100)`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, name, billing_basis, quantity, unit_price_minor, position)
-    VALUES (${principal.organization_id}, ${object.id}, 'Picker service', 'area', 1, 50, 1)`;
-  let releaseProfiles;
-  const profileGate = new Promise((resolveGate) => { releaseProfiles = resolveGate; });
-  let delayedProfile = false;
-  await page.route('**/api/v1/services/profiles?q=*&page=0', async (route) => {
-    if (delayedProfile) return route.continue();
-    delayedProfile = true;
-    const response = await route.fetch();
-    await profileGate;
-    await route.fulfill({ response });
-  });
-  await page.goto(`${base}/services`);
-  await page.getByRole('tab', { name: /Условия по объектам/ }).click();
-  const section = page.getByRole('region', { name: 'Условия объекта' });
-  await section.getByRole('heading', { name: 'Picker object', exact: true }).waitFor();
-  for (const [basis, search, label, priceLabel, quantity, expectedMinor] of [
-    ['quantity', 'штуку', 'За штуку / количество', 'Цена за единицу, ₽', '3', 150],
-    ['fixed', 'Фикс', 'Фиксированная сумма', 'Сумма, ₽', null, 50],
-    ['area', 'м²', 'За м²', 'Цена за м², ₽', null, 5000],
-  ]) {
-    await choose(section, 'Расчёт', search, label);
-    await section.getByLabel(priceLabel, { exact: false }).fill('0,50');
-    if (quantity) {
-      await section.getByLabel('Количество', { exact: true }).fill(quantity);
-      releaseProfiles();
-      await page.waitForLoadState('networkidle');
-      assert.equal(await section.getByLabel('Количество', { exact: true }).inputValue(), quantity, 'A delayed response for the same object version must preserve edits');
-    }
-    const expectedTotal = { 150: '1,50 ₽', 50: '0,50 ₽', 5000: '50 ₽' }[expectedMinor];
-    await section.getByText(`Итого: ${expectedTotal}`, { exact: true }).waitFor();
-    await section.getByRole('button', { name: 'Сохранить условия', exact: true }).click();
-    await saved(async () => (await sql`SELECT billing_basis FROM object_service_rates WHERE object_id = ${object.id}`)[0]?.billing_basis === basis);
-    await section.getByRole('status').waitFor();
-    const [storedRate] = await sql`SELECT billing_basis, quantity::text, unit_price_minor FROM object_service_rates WHERE object_id = ${object.id}`;
-    assert.equal(storedRate.billing_basis, basis); assert.equal(Number(storedRate.unit_price_minor), 50);
-    if (quantity) assert.equal(Number(storedRate.quantity), Number(quantity));
-    await page.reload();
-    await page.getByRole('tab', { name: /Условия по объектам/ }).click();
-    assert.match(await section.locator('summary[aria-label="Расчёт"]').innerText(), new RegExp(label));
-  }
-  for (const width of [390, 768, 1440]) {
-    await viewport(page, width);
-    await section.locator('summary[aria-label="Расчёт"]').click();
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Service menu overflow at ${width}`);
-    await section.locator('summary[aria-label="Расчёт"]').locator('..').getByRole('textbox').press('Escape');
-  }
   const [reader] = await sql`SELECT id FROM organization_members WHERE email = ${accounts.coordinator.email}`;
   await sql`INSERT INTO member_permission_overrides (organization_id, member_id, permission, allowed)
     VALUES (${principal.organization_id}, ${reader.id}, 'orders.write', false)`;
   const readerPage = await browser.newPage({ viewport: { width: 390, height: 900 } });
   await login(readerPage, accounts.coordinator);
   await readerPage.goto(`${base}/services`);
-  await readerPage.getByRole('tab', { name: /Условия по объектам/ }).click();
-  const readonlyPicker = readerPage.getByRole('region', { name: 'Условия объекта' }).locator('summary[aria-label="Расчёт"]');
-  assert.equal(await readonlyPicker.getAttribute('aria-disabled'), 'true');
-  await readonlyPicker.click();
-  assert.equal(await readonlyPicker.locator('..').getAttribute('open'), null);
+  assert.equal(await readerPage.getByRole('button', {name: 'Добавить услугу', exact: true}).count(), 0);
   await page.goto(`${base}/settings/users/${reader.id}`);
   const roleChoice = page.getByRole('button', { name: 'Роль сотрудника', exact: true });
   const roleBefore = await page.locator('input[name="role"]').inputValue();
@@ -247,30 +211,33 @@ try {
     await viewport(page, width);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Settings overflow at ${width}`);
     await roleChoice.scrollIntoViewIfNeeded();
+    await unclippedPicker(roleChoice.locator('..'), `Роль сотрудника at ${width}`);
     await page.screenshot({ path: `artifacts/picker-forms/settings-${width}.png` });
   }
-  const roleSearch = page.getByRole('textbox', { name: 'Поиск: Роль сотрудника', exact: true });
-  await roleSearch.fill('Координатор');
-  assert.equal(await page.getByRole('listbox', { name: 'Роль сотрудника' }).getByRole('option').count(), 1);
-  await preventAccidentalSubmit(roleSearch);
-  await roleSearch.press('Enter');
-  assert.equal(await submitCount(roleSearch), 0, 'Enter in role search must not submit access form');
-  await roleSearch.press('ArrowDown');
-  assert.equal(await page.getByRole('option', { name: /Координатор CRM/ }).evaluate(el => el === document.activeElement), true);
+  const roleMenu = page.getByRole('listbox', { name: 'Роль сотрудника' });
+  assert.equal(await roleChoice.locator('..').getByRole('textbox').count(), 0, 'Fixed roles do not need search');
+  await preventAccidentalSubmit(roleChoice);
+  await roleChoice.press('ArrowDown');
+  await page.keyboard.press('End');
+  assert.equal(await roleMenu.getByRole('option').last().evaluate(el => el === document.activeElement), true);
+  assert.equal(await page.locator('input[name="role"]').inputValue(), roleBefore, 'Arrow navigation does not commit a role');
+  await page.keyboard.press('Escape');
+  assert.equal(await roleChoice.evaluate(el => el === document.activeElement), true);
+  await roleChoice.click();
+  await roleMenu.getByRole('option', { name: /Координатор CRM/ }).focus();
   await page.keyboard.press('Enter');
+  assert.equal(await submitCount(roleChoice), 0, 'Choosing a role must not submit access form');
   assert.equal(await roleChoice.evaluate(el => el === document.activeElement), true);
   // Remove the probe before submitting the actual permission change below.
   await page.reload();
 
   assert.equal(await page.locator('input[name="role"]').inputValue(), roleBefore);
-  await roleChoice.click();
-  await roleSearch.fill('Такой роли не существует');
-  await page.getByText('Поиск не дал результатов', { exact: true }).waitFor();
-  await roleSearch.press('Escape');
+  await roleChoice.press('ArrowUp');
+  await roleMenu.waitFor();
+  assert.equal(await roleMenu.getByRole('option').last().evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Escape');
   assert.equal(await roleChoice.getAttribute('aria-expanded'), 'false');
-  await roleChoice.click();
-  assert.equal(await roleSearch.inputValue(), '');
-  await roleSearch.press('Escape');
+  assert.equal(await roleChoice.evaluate(el => el === document.activeElement), true);
   const permission = page.locator('summary[aria-label="Заказы: Создавать, копировать и изменять"]');
   assert.match(await permission.innerText(), /Запретить/);
   await choose(page, 'Заказы: Создавать, копировать и изменять', 'Разреш', 'Разрешить');
@@ -280,12 +247,8 @@ try {
   assert.equal((await readerPage.request.get(`${base}/api/v1/auth/session`)).status(), 401);
   await login(readerPage, accounts.coordinator);
   await readerPage.goto(`${base}/services`);
-  await readerPage.getByRole('tab', { name: /Условия по объектам/ }).click();
-  assert.equal(await readonlyPicker.getAttribute('aria-disabled'), 'false');
-  await readonlyPicker.click();
-  assert.notEqual(await readonlyPicker.locator('..').getAttribute('open'), null);
-  await readonlyPicker.locator('..').getByRole('textbox').press('Escape');
-  console.log('Permission selector: search, explicit allow persisted, old session revoked, new session can edit services.');
+  await readerPage.getByRole('button', {name: 'Добавить услугу', exact: true}).waitFor();
+  console.log('Permission selector: compact fixed choices, explicit allow persisted, old session revoked, new session can edit services.');
   async function directory(query) {
     const response = await page.request.get(`${base}/api/v1/settings/members?${new URLSearchParams(query)}`);
     assert.equal(response.status(), 200);
@@ -318,7 +281,6 @@ try {
   assert.equal((await page.goto(`${base}/settings/users/${deepMember.id}`)).status(), 200);
   await page.getByRole('heading', { name: 'Яна Глубокая', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Роль сотрудника', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Поиск: Роль сотрудника', exact: true }).fill('Мастер');
   await page.getByRole('option', { name: 'Уровень 3 · Мастер', exact: true }).click();
   await choose(page, 'Карточка мастера', '79995550011', 'Яков Глубокий +79995550011');
   await page.getByRole('button', { name: 'Сохранить доступ', exact: true }).click();
@@ -493,7 +455,6 @@ try {
   await memberDialog.locator('input[name="email"]').fill('new-master@arrival.invalid');
   await memberDialog.locator('input[name="password"]').fill(randomBytes(24).toString('hex'));
   await memberDialog.getByRole('button', { name: 'Роль сотрудника', exact: true }).click();
-  await memberDialog.getByRole('textbox', { name: 'Поиск: Роль сотрудника', exact: true }).fill('Мастер');
   await memberDialog.getByRole('option', { name: 'Уровень 3 · Мастер', exact: true }).click();
   await choose(memberDialog, 'Карточка мастера', '79000000529', 'Directory master 529 +79000000529');
   await memberDialog.getByRole('button', { name: 'Создать сотрудника', exact: true }).click();

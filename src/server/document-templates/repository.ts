@@ -4,7 +4,7 @@ import { hasPermission, requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import type { CreateDocumentTemplateInput, UpdateDocumentTemplateStatusInput } from "./schemas";
-import type { DocumentTemplateDownload, DocumentTemplateListItem } from "./types";
+import type { DocumentTemplateDownload, DocumentTemplateListItem, OrderGenerationTemplate } from "./types";
 
 const templateRowSchema = z.object({
   id: z.string().uuid(),
@@ -21,6 +21,9 @@ const templateRowSchema = z.object({
   uploaded_at: z.coerce.date(),
   uploaded_by: z.string(),
   version: z.number().int().positive(),
+  generation_kind: z.enum(["pdf_form", "docx_placeholders"]).nullable().optional(),
+  generation_fields: z.array(z.string()).optional(),
+  generation_defaults: z.record(z.string(), z.string()).optional(),
 });
 
 const downloadRowSchema = z.object({
@@ -57,6 +60,9 @@ function mapTemplate(value: unknown): DocumentTemplateListItem {
     uploadedAt: template.uploaded_at.toISOString(),
     uploadedBy: template.uploaded_by,
     version: template.version,
+    generationKind: template.generation_kind ?? null,
+    generationFields: (template.generation_fields ?? []) as DocumentTemplateListItem["generationFields"],
+    generationDefaults: template.generation_defaults ?? {},
   };
 }
 
@@ -67,6 +73,7 @@ export async function listDocumentTemplates(member: AuthenticatedMember): Promis
   const rows = await sql`SELECT document_templates.id, document_templates.title, document_templates.description,
       document_templates.template_kind, document_templates.active, document_templates.version,
       document_template_versions.original_filename, document_template_versions.mime_type,
+      document_template_versions.generation_kind, document_template_versions.generation_fields, document_template_versions.generation_defaults,
       document_template_versions.extension, document_template_versions.size_bytes, document_template_versions.sha256,
       document_template_versions.version_number, document_template_versions.created_at AS uploaded_at,
       organization_members.display_name AS uploaded_by
@@ -91,7 +98,7 @@ export async function documentTemplateExists(member: AuthenticatedMember, templa
 
 export async function createDocumentTemplate(
   member: AuthenticatedMember,
-  input: CreateDocumentTemplateInput & { filename: string; mimeType: string; extension: "pdf" | "docx"; sizeBytes: number; sha256: string; storageKey: string },
+  input: CreateDocumentTemplateInput & { filename: string; mimeType: string; extension: "pdf" | "docx"; sizeBytes: number; sha256: string; storageKey: string; generationKind?: "pdf_form" | "docx_placeholders" | null; generationFields?: string[]; generationDefaults?: Record<string, string> },
 ) {
   requirePermission(member, "document_templates.write");
   const sql = getDatabase();
@@ -102,9 +109,9 @@ export async function createDocumentTemplate(
       (id, organization_id, title, description, template_kind, created_by)
       VALUES (${input.idempotencyKey}, ${member.organizationId}, ${input.title}, ${input.description}, ${input.kind}, ${member.memberId})`;
     const [createdVersion] = await transaction`INSERT INTO document_template_versions
-      (organization_id, template_id, version_number, original_filename, storage_key, mime_type, extension, size_bytes, sha256, uploaded_by)
+      (organization_id, template_id, version_number, original_filename, storage_key, mime_type, extension, size_bytes, sha256, uploaded_by, generation_kind, generation_fields, generation_defaults)
       VALUES (${member.organizationId}, ${input.idempotencyKey}, 1, ${input.filename}, ${input.storageKey}, ${input.mimeType},
-        ${input.extension}, ${input.sizeBytes}, ${input.sha256}, ${member.memberId}) RETURNING id`;
+        ${input.extension}, ${input.sizeBytes}, ${input.sha256}, ${member.memberId}, ${input.generationKind ?? null}, ${input.generationFields ?? []}, ${transaction.json(input.generationDefaults ?? {})}) RETURNING id`;
     const versionId = z.object({ id: z.string().uuid() }).parse(createdVersion).id;
     await transaction`UPDATE document_templates SET current_version_id = ${versionId}
       WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
@@ -152,4 +159,20 @@ export async function getDocumentTemplateDownload(member: AuthenticatedMember, t
   await sql`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id)
     VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document_template.downloaded', 'document_template', ${template.id})`;
   return { id: template.id, filename: template.original_filename, mimeType: template.mime_type, sizeBytes: template.size_bytes, sha256: template.sha256, storageKey: template.storage_key };
+}
+
+
+export async function listOrderGenerationTemplates(member: AuthenticatedMember): Promise<OrderGenerationTemplate[]> {
+  requirePermission(member, "orders.read");
+  requirePermission(member, "documents.read");
+  requirePermission(member, "documents.write");
+  const rows = await getDatabase()`SELECT templates.id, templates.title, templates.version, versions.extension,
+      versions.generation_kind, versions.generation_fields, versions.generation_defaults
+    FROM document_templates templates JOIN document_template_versions versions
+      ON versions.organization_id = templates.organization_id AND versions.id = templates.current_version_id
+    WHERE templates.organization_id = ${member.organizationId} AND templates.active
+    ORDER BY (versions.generation_kind IS NOT NULL) DESC, templates.title, templates.id`;
+  return rows.map(row => ({ id: row.id as string, title: row.title as string, version: row.version as number,
+    extension: row.extension as "pdf" | "docx", generationKind: row.generation_kind as OrderGenerationTemplate["generationKind"],
+    generationFields: row.generation_fields as OrderGenerationTemplate["generationFields"], generationDefaults: row.generation_defaults as Record<string, string> }));
 }

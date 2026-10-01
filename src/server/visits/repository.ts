@@ -6,7 +6,7 @@ import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
 import { generateVisitRecurrenceDates } from "@/lib/visits/recurrence";
 import type { VisitDispatchCard } from "@/lib/visits/dispatch-card";
-import { minorUnitsToSafeNumber } from "@/server/orders/money";
+import { calculateServiceLineTotalMinor, formatQuantityForDatabase, parseMoneyToMinorUnits, parseQuantityToMilliunits, minorUnitsToSafeNumber } from "@/server/orders/money";
 import type { CompleteVisitInput, CreateVisitInput, CreateVisitSeriesInput, RescheduleVisitInput, StartVisitInput, UpdateVisitInput, UploadVisitEvidenceInput } from "./schemas";
 import { buildVisitHistoryFeed, type VisitHistoryFeed } from "./history";
 import { visitStatusLabels, type ServiceVisit } from "./types";
@@ -36,6 +36,7 @@ const visitRowSchema = z.object({
   master_phone_snapshot: z.string().nullable(),
   master_region: z.string().nullable().optional().default(null),
   service_summary: z.string().nullable().optional().default(null),
+  service_lines_snapshot: z.array(z.object({ name: z.string(), quantity: z.string(), unit: z.string(), note: z.string().nullable() })).nullable().optional(),
   cancellation_reason: z.string().nullable(),
   notes: z.string().nullable(),
   completion_notes: z.string().nullable(),
@@ -61,6 +62,7 @@ const dispatchCardRowSchema = z.object({
   status: z.enum(["planned", "confirmed", "in_progress", "completed", "cancelled"]),
   assigned_master_id: uuidSchema.nullable(),
   order_master_id: uuidSchema.nullable(),
+  has_visit_configuration: z.boolean().default(false),
   master_name_snapshot: z.string().nullable(),
   master_phone_snapshot: z.string().nullable(),
   master_payment_snapshot_minor: z.union([z.null(), z.string().regex(/^\d+$/), z.bigint(), z.number().int().nonnegative()]),
@@ -71,6 +73,10 @@ const dispatchCardRowSchema = z.object({
     note: z.string().nullable(),
   })),
 });
+
+export class VisitSeriesSelectionError extends Error {
+  constructor(message: string) { super(message); this.name = "VisitSeriesSelectionError"; }
+}
 
 export class VisitNotFoundError extends Error {
   constructor() { super("Service visit was not found."); this.name = "VisitNotFoundError"; }
@@ -154,7 +160,8 @@ function mapVisit(row: unknown): ServiceVisit {
     master: visit.master_name_snapshot,
     masterPhone: visit.master_phone_snapshot,
     masterRegion: visit.master_region,
-    serviceSummary: visit.service_summary ?? "",
+    serviceSummary: visit.service_lines_snapshot?.map((line) => line.name).join(", ") ?? visit.service_summary ?? "",
+    serviceLines: visit.service_lines_snapshot ?? null,
     cancellationReason: visit.cancellation_reason,
     notes: visit.notes,
     completionNotes: visit.completion_notes,
@@ -178,7 +185,7 @@ export async function listOrderVisits(member: AuthenticatedMember, orderId: stri
     service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     (service_visits.status IN ('planned', 'confirmed') AND service_visits.scheduled_start_at >= now()) AS is_copyable,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
-    service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
+    service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes, service_visits.service_lines_snapshot,
     service_visits.completion_notes, service_visits.completion_document_id,
     completion_documents.title AS completion_document_title, service_visits.completed_at, service_visits.version,
     masters.service_region AS master_region, coalesce(services.service_summary, '') AS service_summary
@@ -233,7 +240,7 @@ export async function listVisits(member: AuthenticatedMember, rangeStart: string
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
     service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
-    service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
+    service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes, service_visits.service_lines_snapshot,
     service_visits.completion_notes, service_visits.completion_document_id,
     completion_documents.title AS completion_document_title, service_visits.completed_at, service_visits.version,
     masters.service_region AS master_region, coalesce(services.service_summary, '') AS service_summary
@@ -265,7 +272,7 @@ export async function listAssignedMasterVisits(member: AuthenticatedMember): Pro
     service_visits.client_name_snapshot, service_visits.object_name_snapshot, service_visits.object_address_snapshot,
     service_visits.scheduled_start_at, service_visits.scheduled_end_at, service_visits.arrival_mode, organizations.timezone,
     service_visits.status, service_visits.assigned_master_id, service_visits.master_name_snapshot,
-    service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes,
+    service_visits.master_phone_snapshot, service_visits.cancellation_reason, service_visits.notes, service_visits.service_lines_snapshot,
     service_visits.completion_notes, service_visits.completion_document_id,
     completion_documents.title AS completion_document_title, service_visits.completed_at, service_visits.version
     FROM service_visits
@@ -293,8 +300,10 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
     service_visits.scheduled_start_at, service_visits.scheduled_end_at, organizations.timezone,
     service_visits.status, service_visits.assigned_master_id, orders.assigned_master_id AS order_master_id,
     service_visits.master_name_snapshot, service_visits.master_phone_snapshot,
-    orders.master_payment_snapshot_minor, service_visits.notes,
-    coalesce(services.items, '[]'::json) AS services
+    (service_visits.service_lines_snapshot IS NOT NULL OR service_visits.master_payment_snapshot_minor IS NOT NULL) AS has_visit_configuration,
+    CASE WHEN service_visits.service_lines_snapshot IS NOT NULL OR service_visits.master_payment_snapshot_minor IS NOT NULL
+      THEN service_visits.master_payment_snapshot_minor ELSE orders.master_payment_snapshot_minor END AS master_payment_snapshot_minor, service_visits.notes,
+    coalesce(service_visits.service_lines_snapshot::json, services.items, '[]'::json) AS services
     FROM service_visits
     JOIN organizations ON organizations.id = service_visits.organization_id
     JOIN client_objects objects ON objects.organization_id = service_visits.organization_id AND objects.id = service_visits.object_id
@@ -315,7 +324,7 @@ export async function getVisitDispatchCard(member: AuthenticatedMember, visitId:
   if (!rows.length) throw new VisitNotFoundError();
   const row = dispatchCardRowSchema.parse(rows[0]);
   const canViewMasterPayment = hasPermission(member, "finance.read") || member.role === "master" || member.role === "foreman";
-  const masterPaymentMatchesVisit = row.assigned_master_id !== null && row.assigned_master_id === row.order_master_id;
+  const masterPaymentMatchesVisit = row.assigned_master_id !== null && (row.has_visit_configuration || row.assigned_master_id === row.order_master_id);
   return {
     visitId: row.id,
     orderId: row.order_id,
@@ -417,10 +426,13 @@ export async function createVisit(member: AuthenticatedMember, input: CreateVisi
 
 export async function createVisitSeries(member: AuthenticatedMember, input: CreateVisitSeriesInput) {
   requirePermission(member, "visits.write");
+  if (input.dateOverrides?.some(entry => entry.masterPayment !== undefined)) requirePermission(member, "finance.write");
+  if (input.dateOverrides?.some(entry => entry.serviceIds !== undefined || entry.serviceChanges?.length || entry.extraServices?.length)) requirePermission(member, "orders.write");
   const arrivalMode = input.arrivalMode ?? "window";
   const endTime = arrivalMode === "window" ? input.endTime ?? null : null;
   const localDates = input.scheduleMode === "dates" ? [...input.selectedDates].sort()
     : generateVisitRecurrenceDates(input.startsOn, input.endsOn, input.frequencyUnit, input.frequencyInterval);
+  if (input.dateOverrides?.some(entry => !localDates.includes(entry.date))) throw new VisitSeriesSelectionError("Настройки даты не входят в серию.");
   const sql = getDatabase();
   try {
     return await sql.begin(async (transaction) => {
@@ -438,28 +450,65 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
         return { seriesId: uuidSchema.parse(existingRequest.entity_id), visitCount: z.number().int().positive().parse(existingSeries?.visit_count) };
       }
 
-      const [order] = await transaction`SELECT id, object_id, order_number, client_name_snapshot, object_name_snapshot, object_address_snapshot
-        FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}`;
+      const [order] = await transaction`SELECT id, version, object_id, order_number, client_name_snapshot, object_name_snapshot, object_address_snapshot
+        FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId} FOR UPDATE`;
       if (!order) throw new VisitReferenceError("order");
       if (!order.object_id) throw new VisitReferenceError("object");
+      if (input.expectedOrderVersion !== undefined && input.expectedOrderVersion !== order.version) throw new VisitVersionConflictError();
       const orderNumber = z.string().parse(order.order_number);
-      const masterRows = input.assignedMasterId
-        ? await transaction`SELECT id, full_name, phone FROM masters
-          WHERE organization_id = ${member.organizationId} AND id = ${input.assignedMasterId} AND active AND operational_status = 'working'`
-        : [];
-      if (input.assignedMasterId && !masterRows.length) throw new VisitReferenceError("master");
-      const master = masterRows[0] ?? null;
-      const datePayload = localDates.map((localDate) => ({ local_date: localDate }));
+      const sourceServices = await transaction`SELECT id, catalog_item_id, service_name_snapshot, item_kind_snapshot,
+        unit_snapshot, quantity::text, unit_price_minor, line_total_minor, price_pending, note FROM order_services
+        WHERE organization_id = ${member.organizationId} AND order_id = ${input.orderId} ORDER BY position`;
+      const sourceIds = new Set(sourceServices.map(row => String(row.id)));
+      if ((input.dateOverrides ?? []).some(entry => [...(entry.serviceIds ?? []), ...(entry.serviceChanges ?? []).map(row => row.id)].some(id => !sourceIds.has(id)))) throw new VisitSeriesSelectionError("Одна из услуг больше не относится к этому заказу.");
+      const catalogIds = [...new Set((input.dateOverrides ?? []).flatMap(entry => (entry.extraServices ?? []).flatMap(row => row.catalogItemId ? [row.catalogItemId] : [])))];
+      const catalogRows = catalogIds.length ? await transaction`SELECT id, name, kind, unit FROM catalog_items
+        WHERE organization_id = ${member.organizationId} AND active AND id IN ${transaction(catalogIds)}` : [];
+      if ((input.dateOverrides ?? []).some(entry => entry.extraServices?.some(row => row.catalogItemId && !catalogRows.some(item => item.id === row.catalogItemId && item.name === row.name && item.kind === row.kind && item.unit === row.unit)))) throw new VisitSeriesSelectionError("Позиция каталога изменилась или недоступна. Выберите её заново.");
+      const configuration = localDates.map(date => {
+        const entry = input.dateOverrides?.find(row => row.date === date);
+        const masterId = entry?.assignedMasterId !== undefined ? entry.assignedMasterId : input.assignedMasterId;
+        const mode = entry?.arrivalMode ?? arrivalMode;
+        const hasComposition = entry?.serviceIds !== undefined || Boolean(entry?.serviceChanges?.length || entry?.extraServices?.length);
+        const selected = new Set(entry?.serviceIds ?? sourceServices.map(row => String(row.id)));
+        const services = sourceServices.filter(row => selected.has(String(row.id))).map(row => {
+          const change = entry?.serviceChanges?.find(item => item.id === row.id);
+          const quantity = parseQuantityToMilliunits(change?.quantity ?? row.quantity);
+          const pricePending = change ? change.unitPrice === "" : row.price_pending;
+          const price = pricePending ? 0n : change ? parseMoneyToMinorUnits(change.unitPrice) : BigInt(row.unit_price_minor);
+          return { catalogItemId: row.catalog_item_id, name: row.service_name_snapshot, kind: row.item_kind_snapshot,
+            unit: row.unit_snapshot, quantity: formatQuantityForDatabase(quantity), unitPriceMinor: minorUnitsToSafeNumber(price),
+            lineTotalMinor: minorUnitsToSafeNumber(calculateServiceLineTotalMinor(price, quantity)), pricePending, note: row.note };
+        });
+        for (const extra of entry?.extraServices ?? []) {
+          const quantity = parseQuantityToMilliunits(String(extra.quantity));
+          const pricePending = extra.unitPrice === "";
+          const price = pricePending ? 0n : parseMoneyToMinorUnits(extra.unitPrice);
+          services.push({ catalogItemId: extra.catalogItemId ?? null, name: extra.name, kind: extra.kind,
+            unit: extra.unit, quantity: formatQuantityForDatabase(quantity), unitPriceMinor: minorUnitsToSafeNumber(price),
+            lineTotalMinor: minorUnitsToSafeNumber(calculateServiceLineTotalMinor(price, quantity)), pricePending, note: null });
+        }
+        if (entry?.masterPayment && !masterId) throw new VisitSeriesSelectionError("Для выплаты выберите мастера.");
+        return { local_date: date, local_time: entry?.startTime ?? input.localTime, arrival_mode: mode,
+          end_time: mode === "window" ? entry?.endTime ?? endTime : null, master_id: masterId,
+          notes: entry?.visitNotes !== undefined ? entry.visitNotes : input.notes,
+          services: hasComposition ? services : null,
+          master_payment: entry?.masterPayment ? parseMoneyToMinorUnits(entry.masterPayment).toString() : null };
+      });
+      const masterIds = [...new Set(configuration.flatMap(row => row.master_id ? [row.master_id] : []))];
+      const masterRows = masterIds.length ? await transaction`SELECT id, full_name, phone FROM masters
+        WHERE organization_id = ${member.organizationId} AND id IN ${transaction(masterIds)} AND active AND operational_status = 'working'` : [];
+      if (masterRows.length !== masterIds.length) throw new VisitReferenceError("master");
       const rangeRows = await transaction`SELECT occurrence.local_date,
-        ((occurrence.local_date || ' ' || ${input.localTime})::timestamp AT TIME ZONE organizations.timezone) AS start_at,
-        CASE WHEN ${endTime}::text IS NOT NULL THEN
-          (((occurrence.local_date::date + CASE WHEN ${endTime}::time < ${input.localTime}::time THEN 1 ELSE 0 END)::text || ' ' || ${endTime})::timestamp AT TIME ZONE organizations.timezone)
-        ELSE ((occurrence.local_date || ' ' || ${input.localTime})::timestamp AT TIME ZONE organizations.timezone) + make_interval(mins => ${input.durationMinutes}) END AS end_at
-        FROM organizations
-        CROSS JOIN jsonb_to_recordset(${transaction.json(datePayload)}::jsonb) AS occurrence(local_date text)
-        WHERE organizations.id = ${member.organizationId}
-        ORDER BY occurrence.local_date`;
-      const ranges = rangeRows.map((row) => datedTimestampRangeSchema.parse(row));
+        ((occurrence.local_date || ' ' || occurrence.local_time)::timestamp AT TIME ZONE organizations.timezone) AS start_at,
+        CASE WHEN occurrence.end_time IS NOT NULL THEN
+          (((occurrence.local_date::date + CASE WHEN occurrence.end_time::time < occurrence.local_time::time THEN 1 ELSE 0 END)::text || ' ' || occurrence.end_time)::timestamp AT TIME ZONE organizations.timezone)
+        ELSE ((occurrence.local_date || ' ' || occurrence.local_time)::timestamp AT TIME ZONE organizations.timezone) + make_interval(mins => ${input.durationMinutes}) END AS end_at
+        FROM organizations CROSS JOIN jsonb_to_recordset(${transaction.json(configuration)}::jsonb)
+          AS occurrence(local_date text, local_time text, end_time text)
+        WHERE organizations.id = ${member.organizationId} ORDER BY occurrence.local_date`;
+      const ranges = rangeRows.map(row => datedTimestampRangeSchema.parse(row));
+      if (ranges.some(row => row.end_at.getTime() - row.start_at.getTime() < 15 * 60_000)) throw new VisitSeriesSelectionError("Интервал выезда должен быть не меньше 15 минут.");
       const [series] = await transaction`INSERT INTO service_visit_series (
         organization_id, order_id, object_id, assigned_master_id, frequency_unit, frequency_interval,
         starts_on, ends_on, local_time, duration_minutes, notes, selected_dates, created_by, updated_by
@@ -469,26 +518,29 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
         ${input.notes}, ${input.scheduleMode === "dates" ? transaction`ARRAY(SELECT value::date FROM jsonb_array_elements_text(${transaction.json(localDates)}::jsonb) AS value)` : null}, ${member.memberId}, ${member.memberId}
       ) RETURNING id`;
       const seriesId = uuidSchema.parse(series.id);
-      const visitPayload = ranges.map((range, index) => ({
-        occurrence_number: index + 1,
-        scheduled_start_at: range.start_at.toISOString(),
-        scheduled_end_at: range.end_at.toISOString(),
-      }));
+      const visitPayload = ranges.map((range, index) => {
+        const config = configuration.find(row => row.local_date === range.local_date)!;
+        const master = masterRows.find(row => row.id === config.master_id);
+        return { occurrence_number: index + 1, scheduled_start_at: range.start_at.toISOString(), scheduled_end_at: range.end_at.toISOString(),
+          assigned_master_id: config.master_id, master_name: master?.full_name ?? null, master_phone: master?.phone ?? null,
+          arrival_mode: config.arrival_mode, notes: config.notes, service_lines: config.services, master_payment: config.master_payment };
+      });
       await transaction`INSERT INTO service_visits (
         organization_id, order_id, object_id, assigned_master_id, series_id, occurrence_number,
         scheduled_start_at, scheduled_end_at, arrival_mode, status, client_name_snapshot, object_name_snapshot,
-        object_address_snapshot, master_name_snapshot, master_phone_snapshot, notes, created_by, updated_by
+        object_address_snapshot, master_name_snapshot, master_phone_snapshot, notes, service_lines_snapshot, master_payment_snapshot_minor, created_by, updated_by
       ) SELECT
-        ${member.organizationId}, ${input.orderId}, ${order.object_id}, ${input.assignedMasterId}, ${seriesId},
-        occurrence.occurrence_number, occurrence.scheduled_start_at, occurrence.scheduled_end_at, ${arrivalMode}, 'planned',
+        ${member.organizationId}, ${input.orderId}, ${order.object_id}, occurrence.assigned_master_id, ${seriesId},
+        occurrence.occurrence_number, occurrence.scheduled_start_at, occurrence.scheduled_end_at, occurrence.arrival_mode, 'planned',
         ${order.client_name_snapshot}, ${order.object_name_snapshot}, ${order.object_address_snapshot},
-        ${master?.full_name ?? null}, ${master?.phone ?? null}, ${input.notes}, ${member.memberId}, ${member.memberId}
-        FROM jsonb_to_recordset(${transaction.json(visitPayload)}::jsonb)
-          AS occurrence(occurrence_number smallint, scheduled_start_at timestamptz, scheduled_end_at timestamptz)`;
+        occurrence.master_name, occurrence.master_phone, occurrence.notes, occurrence.service_lines, occurrence.master_payment, ${member.memberId}, ${member.memberId}
+        FROM jsonb_to_recordset(${transaction.json(visitPayload)}::jsonb) AS occurrence(occurrence_number smallint,
+          scheduled_start_at timestamptz, scheduled_end_at timestamptz, assigned_master_id uuid, master_name text,
+          master_phone text, arrival_mode text, notes text, service_lines jsonb, master_payment bigint)`;
       await transaction`INSERT INTO service_visit_events (organization_id, visit_id, actor_id, event_type, after_state)
         SELECT organization_id, id, ${member.memberId}, 'created', jsonb_build_object(
           'seriesId', series_id, 'occurrenceNumber', occurrence_number, 'scheduledStartAt', scheduled_start_at,
-          'scheduledEndAt', scheduled_end_at, 'arrivalMode', arrival_mode, 'status', status, 'assignedMasterId', assigned_master_id, 'notes', notes
+          'scheduledEndAt', scheduled_end_at, 'arrivalMode', arrival_mode, 'status', status, 'assignedMasterId', assigned_master_id, 'notes', notes, 'serviceLines', service_lines_snapshot
         ) FROM service_visits WHERE organization_id = ${member.organizationId} AND series_id = ${seriesId}`;
       await transaction`INSERT INTO tasks (
         organization_id, title, description, priority, due_at, assigned_member_id, related_order_id, related_visit_id,
@@ -503,7 +555,7 @@ export async function createVisitSeries(member: AuthenticatedMember, input: Crea
         WHERE organization_id = ${member.organizationId} AND idempotency_key = ${input.idempotencyKey}`;
       await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
         VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'service_visit_series.create', 'service_visit_series',
-          ${seriesId}, ${transaction.json({ orderId: input.orderId, scheduleMode: input.scheduleMode, selectedDates: input.scheduleMode === "dates" ? localDates : undefined, frequencyUnit: input.frequencyUnit, frequencyInterval: input.frequencyInterval, startsOn: input.startsOn, endsOn: input.endsOn, localTime: input.localTime, arrivalMode, endTime, durationMinutes: input.durationMinutes, assignedMasterId: input.assignedMasterId, visitCount: ranges.length })})`;
+          ${seriesId}, ${transaction.json({ orderId: input.orderId, scheduleMode: input.scheduleMode, selectedDates: input.scheduleMode === "dates" ? localDates : undefined, frequencyUnit: input.frequencyUnit, frequencyInterval: input.frequencyInterval, startsOn: input.startsOn, endsOn: input.endsOn, localTime: input.localTime, arrivalMode, endTime, durationMinutes: input.durationMinutes, assignedMasterId: input.assignedMasterId, dateOverrides: input.dateOverrides, visitCount: ranges.length })})`;
       return { seriesId, visitCount: ranges.length };
     });
   } catch (error) {
@@ -562,6 +614,7 @@ export async function updateVisit(member: AuthenticatedMember, input: UpdateVisi
         version: input.expectedVersion,
       };
       const [updated] = await transaction`UPDATE service_visits SET scheduled_start_at = ${range.start_at}, scheduled_end_at = ${range.end_at}, arrival_mode = ${arrivalMode},
+        master_payment_snapshot_minor = CASE WHEN assigned_master_id IS DISTINCT FROM ${input.assignedMasterId}::uuid THEN NULL ELSE master_payment_snapshot_minor END,
         status = ${input.status}, assigned_master_id = ${input.assignedMasterId}, master_name_snapshot = ${master?.full_name ?? null},
         master_phone_snapshot = ${master?.phone ?? null}, cancellation_reason = ${input.status === "cancelled" ? input.cancellationReason : null},
         notes = ${input.notes}, version = version + 1, updated_by = ${member.memberId}, updated_at = now()

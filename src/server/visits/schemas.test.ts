@@ -72,3 +72,15 @@ test("explicit arrival windows require an end while legacy duration inputs remai
     assert.equal(schema.safeParse({ ...schedule, arrivalMode: "window", endTime: "00:30" }).success, true, "Night windows are valid");
   }
 });
+
+
+test("individual series settings validate date membership, windows and duplicates", () => {
+  const input = { idempotencyKey: "a9ca47eb-486d-4e5c-9fbc-c82e16616457", orderId: "69166619-057f-459d-861d-4fbcb4a144ab",
+    scheduleMode: "dates", selectedDates: ["2030-02-01", "2030-02-08"], startsOn: "2030-02-01", endsOn: "2030-02-08",
+    localTime: "10:00", arrivalMode: "fixed", durationMinutes: 60, frequencyUnit: "week", frequencyInterval: 1, assignedMasterId: "" };
+  const override = { date: "2030-02-08", arrivalMode: "window", startTime: "23:30", endTime: "00:30", serviceIds: [], visitNotes: "Особые условия" };
+  assert.equal(createVisitSeriesSchema.safeParse({ ...input, dateOverrides: [override] }).success, true);
+  assert.equal(createVisitSeriesSchema.safeParse({ ...input, dateOverrides: [override, override] }).success, false);
+  assert.equal(createVisitSeriesSchema.safeParse({ ...input, dateOverrides: [{ ...override, date: "2030-02-05" }] }).success, false);
+  assert.equal(createVisitSeriesSchema.safeParse({ ...input, dateOverrides: [{ ...override, endTime: "23:30" }] }).success, false);
+});

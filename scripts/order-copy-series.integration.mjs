@@ -182,6 +182,29 @@ test('selected-date order copies preserve chosen fields, group orders and roll b
   assert.equal(specialVisit.starts, '13:30:00');
   assert.equal(specialVisit.ends, '15:00:00');
   assert.equal(specialVisit.assigned_master_id, master.id);
+  const changedInput = copyOrderSchema.parse({ ...blankInput, idempotencyKey: randomUUID(),
+    copyDate: '2030-09-12', serviceIds: [firstService.id], dateOverrides: [{ date: '2030-09-12',
+      serviceChanges: [{ id: firstService.id, quantity: '12,5', unitPrice: '37,50' }],
+    }] });
+  const changedId = await copyOrder(member, changedInput);
+  const [changedLine] = await sql`SELECT quantity, unit_price_minor, line_total_minor FROM order_services WHERE order_id = ${changedId}`;
+  assert.equal(Number(changedLine.quantity), 12.5);
+  assert.equal(Number(changedLine.unit_price_minor), 3750);
+  assert.equal(Number(changedLine.line_total_minor), 46875);
+  const [changedOrder] = await sql`SELECT agreed_total_minor FROM orders WHERE id = ${changedId}`;
+  assert.equal(Number(changedOrder.agreed_total_minor), 46875);
+  const pendingChangedId = await copyOrder(member, copyOrderSchema.parse({ ...changedInput,
+    idempotencyKey: randomUUID(), copyDate: '2030-09-19', dateOverrides: [{ date: '2030-09-19',
+      serviceChanges: [{ id: firstService.id, quantity: '2', unitPrice: '' }],
+    }] }));
+  assert.equal((await sql`SELECT price_pending FROM orders WHERE id = ${pendingChangedId}`)[0].price_pending, true);
+  await assert.rejects(copyOrder(member, copyOrderSchema.parse({ ...changedInput, idempotencyKey: randomUUID(),
+    dateOverrides: [{ date: changedInput.copyDate, serviceChanges: [{ id: randomUUID(), quantity: '1', unitPrice: '10' }] }],
+  })), /не относится/);
+  const visitsDenied = { ...member, permissionOverrides: { 'visits.write': false } };
+  await assert.rejects(copyOrder(visitsDenied, copyOrderSchema.parse({ ...changedInput,
+    idempotencyKey: randomUUID(), dateOverrides: [{ date: changedInput.copyDate, arrivalMode: 'fixed', startTime: '10:00' }],
+  })), AuthorizationError);
   const overnight = copyOrderSchema.parse({ ...input, idempotencyKey: randomUUID(), copyDate: '2030-05-12',
     copyDates: [], dateOverrides: [{ date: '2030-05-12', startTime: '23:30', endTime: '01:00' }] });
   const overnightId = await copyOrder(member, overnight);
@@ -247,12 +270,6 @@ test('selected-date order copies preserve chosen fields, group orders and roll b
       dateOverrides: [{ date, extraServices: [{ ...extraCatalogLine, ...changes }] }],
     })), /справочнике/);
   }
-  await sql`INSERT INTO object_service_profiles (organization_id, object_id) VALUES (${org.id}, ${object.id})`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, catalog_item_id, name, line_kind, billing_basis, unit_price_minor, position)
-    VALUES (${org.id}, ${object.id}, ${catalog.id}, 'Contract inspection', 'contract', 'area', 75, 1)`;
-  await sql`INSERT INTO object_service_profiles (organization_id, object_id) VALUES (${org.id}, ${secondObject.id})`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, catalog_item_id, name, line_kind, billing_basis, unit_price_minor, position)
-    VALUES (${org.id}, ${secondObject.id}, ${catalog.id}, 'Other object inspection', 'contract', 'area', 90, 1)`;
   const otherObjectDate = '2030-08-16';
   await assert.rejects(copyOrder(member, copyOrderSchema.parse({ ...pendingCatalogCopy,
     idempotencyKey: randomUUID(), copyDate: otherObjectDate,
@@ -261,12 +278,12 @@ test('selected-date order copies preserve chosen fields, group orders and roll b
   const contractDate = '2030-08-09';
   const contractCopyId = await copyOrder(member, copyOrderSchema.parse({ ...pendingCatalogCopy,
     idempotencyKey: randomUUID(), copyDate: contractDate,
-    dateOverrides: [{ date: contractDate, extraServices: [{ ...extraCatalogLine, name: 'Contract inspection', unitPrice: '0.75' }] }],
+    dateOverrides: [{ date: contractDate, extraServices: [{ ...extraCatalogLine, name: extraCatalogLine.name, unitPrice: '0.75' }] }],
   }));
   const [contractCopyLine] = await sql`SELECT catalog_item_id, service_name_snapshot, unit_snapshot, line_total_minor
     FROM order_services WHERE order_id = ${contractCopyId}`;
   assert.equal(contractCopyLine.catalog_item_id, catalog.id);
-  assert.equal(contractCopyLine.service_name_snapshot, 'Contract inspection');
+  assert.equal(contractCopyLine.service_name_snapshot, extraCatalogLine.name);
   assert.equal(contractCopyLine.unit_snapshot, 'м²');
   assert.equal(Number(contractCopyLine.line_total_minor), 1875);
   const coordinatorEdit = { orderId: source.id, expectedVersion: 1, status: 'new', statusReason: '',

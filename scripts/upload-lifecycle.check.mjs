@@ -24,7 +24,7 @@ const functions = Object.fromEntries([
   "createChatChannel", "createDirectChat", "markChatChannelRead", "toggleChatReaction", "toggleChatChannelPin", "updateChatChannelMembers",
 ].map((name) => [name, mock.fn()]));
 const errors = Object.fromEntries([
-  "VisitDuplicateError", "VisitClosingDocumentRequiredError", "VisitImmutableError", "VisitNotFoundError", "VisitReferenceError",
+  "VisitSeriesSelectionError", "VisitDuplicateError", "VisitClosingDocumentRequiredError", "VisitImmutableError", "VisitNotFoundError", "VisitReferenceError",
   "VisitRescheduleReasonRequiredError", "VisitScheduleConflictError", "VisitScheduleUnchangedError", "VisitStateTransitionError", "VisitVersionConflictError",
   "DocumentTemplateNotFoundError", "DocumentTemplateVersionConflictError",
   "ChatChannelConflictError", "ChatDirectConversationError", "ChatEntityUnavailableError", "ChatChannelNotFoundError",
@@ -33,6 +33,10 @@ const errors = Object.fromEntries([
 for (const domain of ["visits", "document-templates", "chat"]) {
   mock.module(new URL(`server/${domain}/repository.ts`, root), { namedExports: { ...functions, ...errors } });
 }
+mock.module(new URL("server/document-templates/renderer.ts", root), { namedExports: {
+  DocumentTemplateGenerationError: class extends Error {},
+  inspectGenerationTemplate: async () => ({ generationKind: null, generationFields: [], generationDefaults: {} }),
+} });
 const revalidatePath = mock.fn();
 const writeDocumentFile = mock.fn();
 const removeDocumentFile = mock.fn();

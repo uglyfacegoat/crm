@@ -1,5 +1,6 @@
 "use client";
 
+import { FloatingLayer } from "@/components/ui/floating-layer";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -660,9 +661,9 @@ function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
         />
       </button>
       {open ? (
-        <div
+        <FloatingLayer anchorRef={menuRef} anchorSelector=":scope > button" width={256} align="end"
           role="menu"
-          className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-64 rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-2 shadow-[0_22px_60px_rgba(0,0,0,0.18)]"
+          className="rounded-[14px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-2 shadow-[0_22px_60px_rgba(0,0,0,0.18)]"
         >
           <p className="truncate px-2.5 py-2 text-[10px] text-[var(--muted)]">
             {currentUser.email}
@@ -690,7 +691,7 @@ function ProfileMenu({ currentUser }: { currentUser: ShellUser }) {
             className="focus-ring flex min-h-10 w-full items-center gap-2.5 rounded-[11px] px-2.5 text-left text-xs text-[var(--danger-ink)] hover:bg-[var(--danger-bg)]"
             iconClassName="size-4 shrink-0"
           />
-        </div>
+        </FloatingLayer>
       ) : null}
     </div>
   );

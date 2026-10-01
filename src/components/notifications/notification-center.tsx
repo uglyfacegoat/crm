@@ -1,5 +1,6 @@
 "use client";
 
+import { FloatingLayer } from "@/components/ui/floating-layer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, LoaderCircle, RefreshCw, X } from "lucide-react";
@@ -99,7 +100,7 @@ export function NotificationCenter() {
         {unreadCount ? <span className={`absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full px-1 text-[9px] font-bold leading-5 text-[var(--on-accent)] ring-2 ring-[var(--surface-raised)] ${snapshot?.criticalUnreadCount ? "bg-[var(--danger)]" : "bg-[var(--accent)]"}`}>{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
       </button>
       {open ? (
-        <div className="surface-panel fixed inset-x-2 top-[4.5rem] z-50 flex max-h-[min(34rem,calc(100dvh-6rem))] flex-col overflow-hidden bg-[var(--surface-raised)] shadow-[0_26px_80px_rgba(0,0,0,0.24)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[24rem]">
+        <FloatingLayer anchorRef={menuRef} anchorSelector=":scope > button" width={384} align="end" maxHeight={544} className="surface-panel flex flex-col bg-[var(--surface-raised)] shadow-[0_26px_80px_rgba(0,0,0,0.24)]">
           <header className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3">
             <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-[var(--text)]">Оперативная лента</p><p className="mt-0.5 text-[9px] uppercase tracking-[0.13em] text-[var(--muted)]">Выезды · задачи · документы</p></div>
             {unreadCount ? <button type="button" disabled={pendingId !== null} onClick={markAll} aria-label="Отметить все уведомления прочитанными" title="Прочитать всё" className="focus-ring grid size-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)] disabled:opacity-45">{pendingId === "all" ? <LoaderCircle className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}</button> : null}
@@ -112,7 +113,7 @@ export function NotificationCenter() {
             {snapshot && !snapshot.items.length ? <div className="grid min-h-52 place-items-center px-6 text-center"><div><span className="mx-auto grid size-10 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)]"><CheckCheck className="size-4" /></span><p className="mt-3 text-sm text-[var(--text-secondary)]">Всё спокойно</p><p className="mt-1 text-xs leading-5 text-[var(--muted)]">Новых оперативных событий нет.</p></div></div> : null}
           </div>
           <footer className="border-t border-[var(--line)] p-2"><Link href="/notifications" onClick={() => setOpen(false)} className="focus-ring flex min-h-10 items-center justify-center rounded-[11px] text-xs font-medium text-[var(--accent-ink)] hover:bg-[var(--accent-soft)]">Открыть центр уведомлений</Link></footer>
-        </div>
+        </FloatingLayer>
       ) : null}
     </div>
   );

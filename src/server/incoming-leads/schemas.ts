@@ -37,12 +37,12 @@ export const websiteLeadWebhookSchema = z.object({
 });
 
 export const incomingLeadListFilterSchema = z.object({
-  status: z.enum(["all", "new", "reviewing", "accepted", "rejected"]).catch("all"),
+  status: z.enum(["active", "all", "new", "reviewing", "accepted", "rejected"]).catch("active"),
   query: z.string().trim().max(200).catch(""),
 });
 
 export const incomingLeadPickerQuerySchema = z.object({
-  status: z.enum(["all", "new", "reviewing", "accepted", "rejected"]),
+  status: z.enum(["active", "all", "new", "reviewing", "accepted", "rejected"]),
   q: z.string().trim().max(100),
 });
 

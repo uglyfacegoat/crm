@@ -58,15 +58,14 @@ try {
     VALUES (${owner.organization_id}, 'Клиент для заметок', 'individual') RETURNING id`;
   const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address, area_square_meters)
     VALUES (${owner.organization_id}, ${client.id}, 'Озон Истра', 'Склад', 'Московская область, Истра', 24198.87) RETURNING id`;
-  await sql`INSERT INTO object_service_profiles (organization_id, object_id, area_square_meters, visits_per_month,
-    service_schedule, contract_total_minor) VALUES (${owner.organization_id}, ${object.id}, 24198.87, 2, 'Первая и третья неделя', 1839114)`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, name, line_kind, billing_basis, unit_price_minor, position)
-    VALUES (${owner.organization_id}, ${object.id}, 'Дезинфекция', 'contract', 'area', 7, 1),
-      (${owner.organization_id}, ${object.id}, 'Дератизация', 'contract', 'area', 23, 2)`;
   const [order] = await sql`INSERT INTO orders (organization_id, client_id, object_id, order_number, status, currency,
     client_name_snapshot, object_name_snapshot, object_address_snapshot)
     VALUES (${owner.organization_id}, ${client.id}, ${object.id}, 'NOTE-001', 'new', 'RUB',
       'Клиент для заметок', 'Озон Истра', 'Московская область, Истра') RETURNING id`;
+  await sql`INSERT INTO order_services (organization_id, order_id, service_name_snapshot, unit_snapshot, quantity, unit_price_minor, line_total_minor, position)
+    VALUES (${owner.organization_id}, ${order.id}, 'Дезинфекция', 'м²', 24198.87, 7, 169392, 1),
+      (${owner.organization_id}, ${order.id}, 'Дератизация', 'м²', 24198.87, 23, 556574, 2)`;
+  await sql`UPDATE orders SET agreed_total_minor=1839114 WHERE id=${order.id}`;
   await sql`INSERT INTO clients (organization_id, legal_name, updated_at)
     SELECT ${owner.organization_id}, 'Масштаб заметок ' || n, now() - n * interval '1 day' FROM generate_series(1, 67) n`;
   const [lizaMember] = await sql`SELECT id FROM organization_members WHERE email = ${accounts.liza.email}`;
@@ -290,15 +289,17 @@ try {
   assert.equal(await orderPanel.getByRole("textbox", { name: "Услуга 2" }).inputValue(), "Дератизация");
   assert.equal(await orderPanel.getByRole("textbox", { name: "Цена за м² для услуги 2" }).inputValue(), "0,23");
   assert.equal(await orderPanel.getByRole("textbox", { name: "Общий чек" }).inputValue(), "18391,14");
-  assert.equal(await orderPanel.getByRole("textbox", { name: "Обслуживание" }).inputValue(), "Первая и третья неделя");
+  assert.equal(await orderPanel.getByRole("textbox", { name: "Обслуживание" }).inputValue(), "");
   await orderPanel.getByRole("button", { name: "Закрыть редактор" }).click();
-  await orderPanel.getByRole("link", { name: "Календарь заказа" }).click();
+  assert.equal(await orderPanel.getByRole("link", { name: "Календарь заказа" }).count(), 0);
+  assert.equal(await orderPanel.getByRole("link", { name: "Задачи заказа" }).count(), 0);
+  await lizaPage.goto(`${baseUrl}/calendar?order=${order.id}`);
   await lizaPage.waitForURL((current) => current.pathname === "/calendar" && current.searchParams.get("order") === order.id);
   await lizaPage.getByRole("status").filter({ hasText: "Календарь заказа NOTE-001" }).waitFor();
   await lizaPage.getByRole("link", { name: "Весь календарь" }).click();
   await lizaPage.waitForURL((current) => current.pathname === "/calendar" && !current.searchParams.has("order"));
   await lizaPage.goto(`${baseUrl}/orders/${order.id}`);
-  await lizaPage.getByRole("region", { name: "Личные заметки" }).getByRole("link", { name: "Задачи заказа" }).click();
+  await lizaPage.goto(`${baseUrl}/tasks?order=${order.id}`);
   await lizaPage.waitForURL((current) => current.pathname === "/tasks" && current.searchParams.get("order") === order.id);
   await lizaPage.getByRole("status").filter({ hasText: "Задачи заказа NOTE-001" }).waitFor();
   await lizaPage.getByText("Задача этого заказа").waitFor();

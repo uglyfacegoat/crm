@@ -17,12 +17,14 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   createVisitAction,
   rescheduleVisitAction,
 } from "@/app/(workspace)/calendar/actions";
 import { OrderPicker } from "@/components/orders/order-form-parts";
+import { FloatingLayer } from "@/components/ui/floating-layer";
+import { useDismissableLayer } from "@/components/ui/use-dismissable-layer";
 import { Dialog } from "@/components/ui/dialog";
 import { VisitArrivalModePicker } from "@/components/visits/visit-form-parts";
 import { VisitDispatchCardButton } from "@/components/visits/visit-dispatch-card";
@@ -838,6 +840,9 @@ export function CalendarWorkspace({
   currentOrganizationId?: string;
   canWrite: boolean;
 }) {
+  const filtersRef = useRef<HTMLDetailsElement>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  useDismissableLayer(filtersRef, filtersOpen, () => { filtersRef.current?.removeAttribute("open"); setFiltersOpen(false); });
   const [calendarVisits, setCalendarVisits] = useState(visits);
   const [availableOrders, setAvailableOrders] = useState(unassignedOrders);
   const [view, setView] = useState<CalendarView>(initialView);
@@ -1321,7 +1326,7 @@ export function CalendarWorkspace({
             placeholder="Номер, клиент, адрес, мастер или услуга"
           />
         </label>
-        <details className="group relative">
+        <details ref={filtersRef} className="group relative" onToggle={event => setFiltersOpen(event.currentTarget.open)}>
           <summary className="focus-ring flex h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-raised)] hover:text-[var(--text)] [&::-webkit-details-marker]:hidden">
             <SlidersHorizontal className="size-4 text-[var(--accent)]" />
             Фильтры
@@ -1331,7 +1336,7 @@ export function CalendarWorkspace({
               </span>
             ) : null}
           </summary>
-          <div className="absolute right-0 z-40 mt-2 w-[min(44rem,calc(100vw-2rem))] rounded-[16px] border border-[var(--line)] bg-[var(--surface-raised)] p-4 shadow-[var(--shadow-panel)] sm:p-5">
+          {filtersOpen ? <FloatingLayer anchorRef={filtersRef} anchorSelector=":scope > summary" width={704} align="end" maxHeight={640} className="rounded-[16px] border border-[var(--line)] bg-[var(--surface-raised)] p-4 shadow-[var(--shadow-panel)] sm:p-5">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div data-calendar-filter="master">
                 <OrderPicker
@@ -1378,7 +1383,7 @@ export function CalendarWorkspace({
                 />
               </div>
               <div data-calendar-filter="status">
-                <OrderPicker
+                <OrderPicker searchable={false}
                   label="Статус"
                   value={status}
                   onChange={setStatus}
@@ -1413,7 +1418,7 @@ export function CalendarWorkspace({
                 Сбросить
               </button>
             </div>
-          </div>
+          </FloatingLayer> : null}
         </details>
         <div className="flex h-11 items-center justify-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3">
           <span className="text-[10px] text-[var(--muted)]">

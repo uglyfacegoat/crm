@@ -1,5 +1,8 @@
 import "server-only";
+import type postgres from "postgres";
 import { z } from "zod";
+import { DOCUMENT_PAGE_SIZE, documentListQuerySchema, type DocumentListPage, type DocumentListQuery } from "@/lib/document-list";
+import { readableOrganizationIds } from "@/server/organizations/read-scope";
 import { requirePermission } from "@/server/auth/permissions";
 import type { AuthenticatedMember } from "@/server/auth/types";
 import { getDatabase } from "@/server/database";
@@ -43,6 +46,7 @@ const documentVersionRowSchema = z.object({
   current: z.boolean(),
 });
 const documentRowSchema = z.object({
+  organization_id: uuidSchema.optional(), organization_name: z.string().optional(), organization_timezone: z.string().optional(),
   id: uuidSchema,
   folder_id: uuidSchema.nullable(),
   contract_id: uuidSchema.nullable(),
@@ -104,6 +108,7 @@ const contractOptionSchema = z.object({
   object_name: z.string(),
 });
 const documentFolderRowSchema = z.object({
+  organization_id: uuidSchema.optional(), organization_name: z.string().optional(),
   id: uuidSchema,
   parent_folder_id: uuidSchema.nullable(),
   name: z.string(),
@@ -138,6 +143,7 @@ const exportFileSchema = downloadSchema.extend({
   ]),
 });
 const archiveBranchRowSchema = z.object({
+  organization_name: z.string().optional(),
   client_id: uuidSchema,
   client_name: z.string(),
   object_id: uuidSchema,
@@ -241,6 +247,7 @@ function mapDocument(row: unknown): DocumentListItem {
   const document = documentRowSchema.parse(row);
   return {
     id: document.id,
+    organizationId: document.organization_id, organizationName: document.organization_name, organizationTimezone: document.organization_timezone,
     folderId: document.folder_id,
     contractId: document.contract_id,
     title: document.title,
@@ -269,6 +276,96 @@ function mapDocument(row: unknown): DocumentListItem {
     favorite: document.favorite,
     versions: document.versions.map(mapDocumentVersion),
   };
+}
+
+function documentReadBase(member: AuthenticatedMember, organizationIds: string[], includeHistory = false) {
+  const sql = getDatabase();
+  return sql`    SELECT documents.organization_id, organizations.name AS organization_name, organizations.timezone AS organization_timezone, documents.id, documents.folder_id, documents.contract_id, documents.title, documents.category, documents.description,
+      documents.client_id, clients.legal_name AS client_name,
+      coalesce(documents.object_id, documents.order_id) AS object_id,
+      coalesce(client_objects.name, 'Без объекта') AS object_name,
+      coalesce(client_objects.address, '') AS object_address,
+      documents.order_id, orders.order_number,
+      documents.visit_id, service_visits.scheduled_start_at AS visit_scheduled_start_at,
+      document_versions.original_filename, document_versions.mime_type, document_versions.extension,
+      document_versions.size_bytes, document_versions.sha256, document_versions.version_number, documents.version AS record_version,
+      document_versions.created_at AS uploaded_at, organization_members.display_name AS uploaded_by,
+      (document_favorites.member_id IS NOT NULL) AS favorite, ${includeHistory ? sql`(
+      SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'id', history.id, 'version_number', history.version_number, 'original_filename', history.original_filename,
+        'mime_type', history.mime_type, 'extension', history.extension, 'size_bytes', history.size_bytes,
+        'sha256', history.sha256, 'change_note', history.change_note, 'uploaded_at', history.created_at,
+        'uploaded_by', uploaders.display_name, 'current', history.id = documents.current_version_id
+      ) ORDER BY history.version_number DESC), '[]'::jsonb) AS versions
+      FROM document_versions history
+      JOIN organization_members uploaders ON uploaders.organization_id = history.organization_id AND uploaders.id = history.uploaded_by
+      WHERE history.organization_id = documents.organization_id AND history.document_id = documents.id
+)
+` : sql`'[]'::jsonb`} AS versions
+    FROM documents
+    JOIN organizations ON organizations.id = documents.organization_id
+    JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
+    LEFT JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
+    JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
+    JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.id = documents.current_version_id
+    JOIN organization_members ON organization_members.organization_id = documents.organization_id AND organization_members.id = document_versions.uploaded_by
+    LEFT JOIN service_visits ON service_visits.organization_id = documents.organization_id AND service_visits.id = documents.visit_id
+    LEFT JOIN document_favorites ON document_favorites.organization_id = documents.organization_id
+      AND document_favorites.document_id = documents.id AND document_favorites.member_id = ${member.memberId}
+    WHERE documents.organization_id IN ${sql(organizationIds)} AND documents.archived_at IS NULL`;
+}
+
+export async function listDocumentPage(member: AuthenticatedMember, input: DocumentListQuery): Promise<DocumentListPage> {
+  requirePermission(member, "documents.read");
+  const query = documentListQuerySchema.parse(input);
+  const sql = getDatabase();
+  const organizationIds = query.scope === "own" ? [member.organizationId] : await readableOrganizationIds(member);
+  const [result] = await sql`WITH base AS (${documentReadBase(member, organizationIds)}), selected_scope AS (
+    SELECT * FROM base WHERE (${query.clientId}::uuid IS NULL OR client_id = ${query.clientId}::uuid)
+      AND (${query.objectId}::uuid IS NULL OR object_id = ${query.objectId}::uuid)
+      AND (${query.orderId}::uuid IS NULL OR order_id = ${query.orderId}::uuid)
+      AND (${query.folderId}::uuid IS NULL OR folder_id = ${query.folderId}::uuid)
+      AND (NOT ${query.rootOnly} OR folder_id IS NULL)
+      AND (${query.archiveCategory}::text IS NULL OR category = ${query.archiveCategory}::text)
+      AND (NOT ${query.favoriteOnly} OR favorite)
+  ), filtered AS (
+    SELECT * FROM selected_scope WHERE (${query.q} = '' OR crm_search_matches(concat_ws(' ', title, description,
+      original_filename, client_name, order_number, object_name, object_address, uploaded_by, organization_name,
+      CASE category WHEN 'contract' THEN 'Договоры' WHEN 'act' THEN 'Акты' WHEN 'visit_card' THEN 'Выезды'
+        WHEN 'invoice' THEN 'Счета' WHEN 'receipt' THEN 'Чеки' WHEN 'photo' THEN 'Фото' ELSE 'Прочее' END), ${query.q}))
+      AND (${query.category} = 'all' OR category = ${query.category})
+      AND (${query.favorite} = 'all' OR (${query.favorite} = 'favorite' AND favorite) OR (${query.favorite} = 'plain' AND NOT favorite))
+      AND (${query.dateFrom}::date IS NULL OR (uploaded_at AT TIME ZONE organization_timezone)::date >= ${query.dateFrom}::date)
+      AND (${query.dateTo}::date IS NULL OR (uploaded_at AT TIME ZONE organization_timezone)::date <= ${query.dateTo}::date)
+  ), totals AS (SELECT count(*)::int total FROM filtered), paging AS (
+    SELECT total, least(${query.page}, greatest(1, ceil(total::numeric / ${DOCUMENT_PAGE_SIZE})::int)) page FROM totals
+  ), selected AS (
+    SELECT *, row_number() OVER (ORDER BY
+      CASE WHEN ${query.sort} = 'oldest' THEN uploaded_at END ASC,
+      CASE WHEN ${query.sort} = 'newest' THEN uploaded_at END DESC,
+      CASE WHEN ${query.sort} = 'size-desc' THEN size_bytes END DESC,
+      CASE WHEN ${query.sort} = 'size-asc' THEN size_bytes END ASC, id) AS position
+    FROM filtered ORDER BY position LIMIT ${DOCUMENT_PAGE_SIZE} OFFSET (SELECT (page - 1) * ${DOCUMENT_PAGE_SIZE} FROM paging)
+  ) SELECT paging.total, paging.page, (SELECT count(*)::int FROM selected_scope) AS scope_total,
+    coalesce((SELECT jsonb_agg(to_jsonb(selected) ORDER BY position) FROM selected), '[]'::jsonb) AS items FROM paging`;
+  const parsed = z.object({ total: z.number().int(), page: z.number().int(), scope_total: z.number().int(), items: z.array(z.unknown()) }).parse(result);
+  return { items: parsed.items.map(mapDocument), total: parsed.total, scopeTotal: parsed.scope_total, page: parsed.page, pageSize: DOCUMENT_PAGE_SIZE };
+}
+
+export async function getDocumentDetail(member: AuthenticatedMember, documentId: string): Promise<DocumentListItem> {
+  requirePermission(member, "documents.read");
+  if (!uuidSchema.safeParse(documentId).success) throw new DocumentNotFoundError();
+  const organizationIds = await readableOrganizationIds(member);
+  const sql = getDatabase();
+  const [row] = await sql`SELECT * FROM (${documentReadBase(member, organizationIds, true)}) accessible WHERE id = ${documentId}`;
+  if (!row) throw new DocumentNotFoundError();
+  return mapDocument(row);
+}
+
+export async function getDocumentPanel(member: AuthenticatedMember, documentId: string) {
+  const document = await getDocumentDetail(member, documentId);
+  const related = await listDocumentPage(member, documentListQuerySchema.parse({ clientId: document.clientId }));
+  return { document, related: related.items.filter(item => item.id !== document.id).slice(0, 8), relatedTotal: Math.max(0, related.total - 1) };
 }
 
 export async function listDocuments(
@@ -332,12 +429,14 @@ export async function listDocuments(
 
 export async function getDocumentArchiveTree(
   member: AuthenticatedMember,
+  includeGrantedCompanies = false,
 ): Promise<DocumentArchiveTree> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
+  const organizationIds = includeGrantedCompanies ? await readableOrganizationIds(member) : [member.organizationId];
   const rows = await sql`
     SELECT
-      documents.client_id,
+      organizations.name AS organization_name, documents.client_id,
       clients.legal_name AS client_name,
       coalesce(documents.object_id, documents.order_id) AS object_id,
       coalesce(client_objects.name, 'Без объекта') AS object_name,
@@ -346,12 +445,12 @@ export async function getDocumentArchiveTree(
       orders.order_number,
       documents.category,
       count(*) AS document_count
-    FROM documents
+    FROM documents JOIN organizations ON organizations.id = documents.organization_id
     JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
     LEFT JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
     JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
-    WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
-    GROUP BY documents.client_id, clients.legal_name, documents.object_id, client_objects.name,
+    WHERE documents.organization_id IN ${sql(organizationIds)} AND documents.archived_at IS NULL
+    GROUP BY organizations.name, documents.client_id, clients.legal_name, documents.object_id, client_objects.name,
       client_objects.address, documents.order_id, orders.order_number, orders.created_at, documents.category
     ORDER BY lower(clients.legal_name), lower(coalesce(client_objects.name, 'Без объекта')), orders.created_at DESC,
       CASE documents.category
@@ -364,6 +463,7 @@ export async function getDocumentArchiveTree(
     return {
       clientId: branch.client_id,
       clientName: branch.client_name,
+      organizationName: branch.organization_name,
       objectId: branch.object_id,
       objectName: branch.object_name,
       objectAddress: branch.object_address,
@@ -552,11 +652,14 @@ export async function createDocument(
     sizeBytes: number;
     sha256: string;
     storageKey: string;
+    generatedTemplateVersionId?: string;
+    generationInputHash?: string;
   },
+  connection?: postgres.TransactionSql,
 ) {
   requirePermission(member, "documents.write");
   const sql = getDatabase();
-  return sql.begin(async (transaction) => {
+  const persist = async (transaction: postgres.TransactionSql) => {
     const orderRows =
       await transaction`SELECT client_id, object_id FROM orders WHERE organization_id = ${member.organizationId} AND id = ${input.orderId}`;
     if (!orderRows.length) throw new DocumentReferenceError("order");
@@ -579,10 +682,10 @@ export async function createDocument(
     if (existingRows.length) return input.idempotencyKey;
 
     await transaction`INSERT INTO documents (
-      id, organization_id, client_id, object_id, order_id, visit_id, contract_id, title, category, description, created_by
+      id, organization_id, client_id, object_id, order_id, visit_id, contract_id, title, category, description, created_by, generated_template_version_id, generation_input_hash
     ) VALUES (
       ${input.idempotencyKey}, ${member.organizationId}, ${order.client_id}, ${order.object_id}, ${input.orderId}, ${input.visitId}, ${input.contractId},
-      ${input.title}, ${input.category}, ${input.description}, ${member.memberId}
+      ${input.title}, ${input.category}, ${input.description}, ${member.memberId}, ${input.generatedTemplateVersionId ?? null}, ${input.generationInputHash ?? null}
     )`;
     const versionRows = await transaction`INSERT INTO document_versions (
       organization_id, document_id, version_number, original_filename, storage_key, mime_type, extension,
@@ -595,7 +698,7 @@ export async function createDocument(
     await transaction`UPDATE documents SET current_version_id = ${versionId} WHERE organization_id = ${member.organizationId} AND id = ${input.idempotencyKey}`;
     await transaction`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id, changes)
       VALUES (${member.organizationId}, ${member.memberId}, ${member.sessionId}, 'document.created', 'document', ${input.idempotencyKey},
-        ${transaction.json({ orderId: input.orderId, visitId: input.visitId, contractId: input.contractId, category: input.category, filename: input.filename, sizeBytes: input.sizeBytes, sha256: input.sha256 })})`;
+        ${transaction.json({ orderId: input.orderId, visitId: input.visitId, contractId: input.contractId, category: input.category, filename: input.filename, sizeBytes: input.sizeBytes, sha256: input.sha256, generatedTemplateVersionId: input.generatedTemplateVersionId ?? null })})`;
     await transaction`INSERT INTO notifications (
         organization_id, recipient_member_id, kind, severity, title, body, source_type, source_id,
         target_type, target_id, event_key, occurred_at
@@ -612,7 +715,8 @@ export async function createDocument(
       WHERE documents.organization_id = ${member.organizationId} AND documents.id = ${input.idempotencyKey}
       ON CONFLICT (organization_id, recipient_member_id, event_key) DO NOTHING`;
     return input.idempotencyKey;
-  });
+  };
+  return connection ? persist(connection) : sql.begin(persist);
 }
 
 export async function setDocumentFavorite(
@@ -774,13 +878,14 @@ export async function getDocumentDownload(
 ): Promise<DocumentDownload> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const rows =
     await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
       document_versions.original_filename, document_versions.mime_type,
       document_versions.size_bytes, document_versions.sha256, document_versions.storage_key
     FROM documents
     JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.id = documents.current_version_id
-    WHERE documents.organization_id = ${member.organizationId} AND documents.id = ${documentId} AND documents.archived_at IS NULL`;
+    WHERE documents.organization_id IN ${sql(organizationIds)} AND documents.id = ${documentId} AND documents.archived_at IS NULL`;
   if (!rows.length) throw new DocumentNotFoundError();
   const document = downloadSchema.parse(rows[0]);
   await sql`INSERT INTO audit_events (organization_id, actor_id, auth_session_id, action, entity_type, entity_id)
@@ -803,13 +908,14 @@ export async function getDocumentVersionDownload(
 ): Promise<DocumentDownload> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const rows =
     await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
       document_versions.original_filename, document_versions.mime_type, document_versions.size_bytes,
       document_versions.sha256, document_versions.storage_key
     FROM documents
     JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.document_id = documents.id
-    WHERE documents.organization_id = ${member.organizationId} AND documents.id = ${documentId}
+    WHERE documents.organization_id IN ${sql(organizationIds)} AND documents.id = ${documentId}
       AND document_versions.id = ${versionId} AND documents.archived_at IS NULL`;
   if (!rows.length) throw new DocumentNotFoundError();
   const document = downloadSchema.parse(rows[0]);
@@ -833,6 +939,7 @@ export async function getDocumentBatchExport(
 ): Promise<DocumentExportFile[]> {
   requirePermission(member, "documents.read");
   const sql = getDatabase();
+  const organizationIds = await readableOrganizationIds(member);
   const rows =
     await sql`SELECT documents.id AS document_id, document_versions.id AS version_id,
       document_versions.original_filename, document_versions.mime_type, document_versions.size_bytes,
@@ -844,7 +951,7 @@ export async function getDocumentBatchExport(
     JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
     LEFT JOIN client_objects ON client_objects.organization_id = documents.organization_id AND client_objects.id = documents.object_id
     JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
-    WHERE documents.organization_id = ${member.organizationId} AND documents.id = ANY(${documentIds}::uuid[])
+    WHERE documents.organization_id IN ${sql(organizationIds)} AND documents.id = ANY(${documentIds}::uuid[])
       AND documents.archived_at IS NULL
     ORDER BY lower(clients.legal_name), lower(coalesce(client_objects.name, 'Без объекта')), orders.order_number, lower(document_versions.original_filename)`;
   if (rows.length !== documentIds.length) throw new DocumentNotFoundError();
@@ -882,21 +989,26 @@ export async function recordDocumentBatchExport(
 
 export async function listDocumentFolders(
   member: AuthenticatedMember,
+  includeGrantedCompanies = false,
 ): Promise<DocumentFolder[]> {
   requirePermission(member, "documents.read");
+  const organizationIds = includeGrantedCompanies ? await readableOrganizationIds(member) : [member.organizationId];
+  const sql = getDatabase();
   const rows =
-    await getDatabase()`SELECT folders.id, folders.parent_folder_id, folders.name, folders.updated_at,
+    await getDatabase()`SELECT folders.organization_id, organizations.name AS organization_name, folders.id, folders.parent_folder_id, folders.name, folders.updated_at,
       count(documents.id)::integer AS document_count
     FROM document_folders folders
+    JOIN organizations ON organizations.id = folders.organization_id
     LEFT JOIN documents ON documents.organization_id = folders.organization_id
       AND documents.folder_id = folders.id AND documents.archived_at IS NULL
-    WHERE folders.organization_id = ${member.organizationId}
-    GROUP BY folders.id
+    WHERE folders.organization_id IN ${sql(organizationIds)}
+    GROUP BY folders.id, organizations.name
     ORDER BY lower(folders.name), folders.id`;
   return rows.map((value) => {
     const row = documentFolderRowSchema.parse(value);
     return {
       id: row.id,
+      organizationId: row.organization_id, organizationName: row.organization_name,
       parentFolderId: row.parent_folder_id,
       name: row.name,
       documentCount: row.document_count,

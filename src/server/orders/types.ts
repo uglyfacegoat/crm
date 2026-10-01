@@ -50,6 +50,7 @@ export type OrderExpense = {
 };
 
 export type OrderDetail = OrderListItem & {
+  objectAreaSquareMeters?: string | null;
   pricePending?: boolean;
   relatedContacts?: Array<{ id: string; name: string; phone: string; email: string | null; position: string | null }>;
   relatedObjects?: Array<{ id: string; name: string; address: string }>;
@@ -82,7 +83,7 @@ export type OrderCreationOptions = {
   remote?: boolean;
   catalogItems?: import("@/server/catalog/repository").CatalogItem[];
   clients: Array<{ id: string; name: string }>;
-  objects: Array<{ id: string; clientId: string; name: string; address: string }>;
+  objects: Array<{ id: string; clientId: string; name: string; address: string; areaSquareMeters?: string | null }>;
   contacts: Array<{ id: string; clientId: string; name: string; phone: string; isPrimary: boolean }>;
   masters: Array<{ id: string; name: string; phone: string }>;
 };

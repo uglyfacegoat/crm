@@ -1,9 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { formatPhoneInput } from "@/lib/phone-input";
+
+const subscribeToClient = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 export function Dialog({
   open,
@@ -22,6 +26,7 @@ export function Dialog({
   bodyClassName?: string;
   children: React.ReactNode;
 }) {
+  const mounted = useSyncExternalStore(subscribeToClient, clientSnapshot, serverSnapshot);
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -32,7 +37,7 @@ export function Dialog({
   }, [onClose]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !mounted) return;
     const returnFocusTo =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -74,9 +79,9 @@ export function Dialog({
       document.removeEventListener("keydown", handleKeyDown);
       if (returnFocusTo?.isConnected) returnFocusTo.focus();
     };
-  }, [open]);
+  }, [open, mounted]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
   return createPortal(
     <div
       className="crm-dialog-backdrop fixed inset-x-0 z-[70] flex items-center justify-center overflow-hidden bg-black/76"

@@ -32,7 +32,6 @@ import type { OrderPickerResult } from "@/lib/order-picker";
 import { formatPhoneInput } from "@/lib/phone-input";
 import type { IncomingLeadPrefill } from "@/server/incoming-leads/types";
 import type { OrderCreationOptions } from "@/server/orders/types";
-import type { ObjectServiceProfile } from "@/server/catalog/object-service-profiles";
 
 type ClientMode = "existing" | "new";
 type ReferenceMode = "existing" | "new";
@@ -270,6 +269,8 @@ export function QuickOrderWorkspace({
   prefill,
   canScheduleVisit = true,
   canWriteFinance = false,
+  embedded = false,
+  onCompleted,
 }: {
   options: OrderCreationOptions;
   idempotencyKey: string;
@@ -277,6 +278,8 @@ export function QuickOrderWorkspace({
   prefill?: IncomingLeadPrefill;
   canScheduleVisit?: boolean;
   canWriteFinance?: boolean;
+  embedded?: boolean;
+  onCompleted?: (result: NonNullable<QuickOrderState["result"]>) => void;
 }) {
   const workflowSteps = canScheduleVisit ? steps : [...steps.slice(0, 3), { id: "quick-visit-section", title: "Проверка", description: "Проверьте заказ перед сохранением" }];
   const suggestedClientId =
@@ -362,7 +365,6 @@ export function QuickOrderWorkspace({
   const [unitPrice, setUnitPrice] = useState("");
   const [catalogItemId, setCatalogItemId] = useState<string | null>(null);
   const [extraOrderItems, setExtraOrderItems] = useState<ExtraOrderItem[]>([]);
-  const [contractProfile, setContractProfile] = useState<ObjectServiceProfile | null>(null);
   const [masterId, setMasterId] = useState("");
   const [selectedMasterRecord, setSelectedMasterRecord] = useState<OrderCreationOptions["masters"][number] | null>(null);
   const [masterPayment, setMasterPayment] = useState("");
@@ -374,31 +376,7 @@ export function QuickOrderWorkspace({
   const [arrivalMode, setArrivalMode] = useState<"fixed" | "window">("fixed");
   const [visitNotes, setVisitNotes] = useState("");
 
-  useEffect(() => {
-    if (objectMode !== "existing" || !objectId) { const timer = window.setTimeout(() => setContractProfile(null), 0); return () => window.clearTimeout(timer); }
-    const controller = new AbortController();
-    fetch(`/api/v1/services/object/${objectId}`, { signal: controller.signal, cache: "no-store" })
-      .then(async (response) => response.ok ? (await response.json() as { data: ObjectServiceProfile }).data : null)
-      .then((profile) => { if (!controller.signal.aborted) setContractProfile(profile); })
-      .catch(() => { if (!controller.signal.aborted) setContractProfile(null); });
-    return () => controller.abort();
-  }, [objectId, objectMode]);
 
-  function applyContractServices() {
-    if (!contractProfile) return;
-    const rows = contractProfile.rates.filter((rate) => rate.lineKind === "contract").map((rate) => {
-      return { catalogItemId: rate.catalogItemId,
-        name: rate.name,
-        quantity: rate.billingBasis === "area" ? (contractProfile.areaSquareMeters ?? contractProfile.objectAreaSquareMeters ?? "") : rate.billingBasis === "quantity" ? rate.quantity || "1" : "1",
-        unitPrice: rate.unitPriceMinor === null ? "" : (rate.unitPriceMinor / 100).toFixed(2) };
-    });
-    if (!rows.length) return;
-    setCatalogItemId(rows[0].catalogItemId);
-    setServiceName(rows[0].name);
-    setQuantity(rows[0].quantity);
-    setUnitPrice(rows[0].unitPrice);
-    setExtraOrderItems(rows.slice(1).map((row) => ({ ...row, id: crypto.randomUUID() })));
-  }
 
   useEffect(() => {
     if (!options.remote || clientMode !== "existing") return;
@@ -439,7 +417,7 @@ export function QuickOrderWorkspace({
         const objectsPayload = await objectsResponse.json() as { data: OrderPickerResult };
         const contactsPayload = await contactsResponse.json() as { data: OrderPickerResult };
         if (controller.signal.aborted) return;
-        const objects = objectsPayload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, address: item.detail ?? "" }));
+        const objects = objectsPayload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, address: item.detail ?? "", areaSquareMeters: item.areaSquareMeters }));
         const contacts = contactsPayload.data.items.map((item) => ({ id: item.id, clientId, name: item.name, phone: item.detail ?? "", isPrimary: item.isPrimary ?? false }));
         setRelatedOptions({ objects, contacts });
         setContactMatches(contacts);
@@ -496,6 +474,7 @@ export function QuickOrderWorkspace({
   const contactEmailValid = isValidOptionalEmail(contactEmail);
 
   function selectClient(nextClientId: string) {
+    if (options.remote && nextClientId === clientId) return;
     if (nextClientId !== clientId) {
       setExtraContacts([]);
       setExtraPhones([]);
@@ -535,6 +514,7 @@ export function QuickOrderWorkspace({
     clientMode === "existing" && availableContacts.length ? contactMode : "new";
   const effectiveObjectMode =
     clientMode === "existing" && availableObjects.length ? objectMode : "new";
+  const objectArea = effectiveObjectMode === "new" ? newObject.areaSquareMeters : selectedObject?.areaSquareMeters;
   const hasNewObject = effectiveObjectMode === "new" && Boolean(newObject.name.trim() || newObject.address.trim() || newObject.areaSquareMeters.trim() || newObject.floorCount.trim() || newObject.onsiteContact.trim() || newObject.accessInstructions.trim() || newObject.parkingNotes.trim() || newObject.restrictions.trim());
   const extraObjectRows = extraObjects.filter((item) => item.name.trim() || item.address.trim() || item.areaSquareMeters.trim() || item.floorCount.trim() || item.onsiteContact.trim());
   const validObject = (item: typeof emptyObject) => Boolean(item.name.trim().length >= 2 || item.address.trim().length >= 5) && (!item.address.trim() || item.address.trim().length >= 5) && (!item.areaSquareMeters.trim() || /^\d{1,10}(?:[.,]\d{1,2})?$/.test(item.areaSquareMeters.trim())) && (!item.floorCount.trim() || /^\d{1,3}$/.test(item.floorCount.trim()));
@@ -626,6 +606,10 @@ export function QuickOrderWorkspace({
   useEffect(() => {
     document.getElementById(activeSectionId)?.querySelector("h2")?.focus();
   }, [activeSectionId]);
+
+  useEffect(() => {
+    if (state.status === "success" && state.result) onCompleted?.(state.result);
+  }, [state, onCompleted]);
 
   if (state.status === "success" && state.result) {
     return (
@@ -730,7 +714,7 @@ export function QuickOrderWorkspace({
             Для создания заказа достаточно имени или названия заказчика. Остальные данные можно добавить позже.
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        {!embedded ? <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <Link
             href={prefill ? "/inbox" : "/orders"}
             aria-label="Закрыть оформление"
@@ -738,7 +722,7 @@ export function QuickOrderWorkspace({
           >
             <X className="size-5" />
           </Link>
-        </div>
+        </div> : null}
       </header>
 
       <nav aria-label="Маршрут оформления" className="border-b border-[var(--line)] pb-3">
@@ -787,7 +771,7 @@ export function QuickOrderWorkspace({
         </ol>
       </nav>
 
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16.5rem]">
+      <div className={`grid min-w-0 items-start gap-4 ${embedded ? "" : "xl:grid-cols-[minmax(0,1fr)_16.5rem]"}`}>
         <div className="surface-panel relative min-w-0 overflow-hidden">
           <section
             id="quick-client-section"
@@ -981,7 +965,7 @@ export function QuickOrderWorkspace({
                   </div>
                 ) : (
                   <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                    <OrderPicker
+                    <OrderPicker searchable={false}
                       label="Тип клиента"
                       required
                       value={clientKind}
@@ -1121,7 +1105,7 @@ export function QuickOrderWorkspace({
                     required
                     value={objectId}
                     onChange={setObjectId}
-                    onSelected={(option) => setSelectedObjectRecord({ id: option.value, clientId, name: option.label, address: option.detail ?? "" })}
+                    onSelected={(option) => setSelectedObjectRecord({ id: option.value, clientId, name: option.label, address: option.detail ?? "", areaSquareMeters: option.areaSquareMeters })}
                     placeholder="Выберите объект"
                     options={availableObjects.map((object) => ({
                       value: object.id,
@@ -1141,7 +1125,7 @@ export function QuickOrderWorkspace({
                       <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
                         {selectedObject.address}
                       </p>
-                      {contractProfile?.rates.some((rate) => rate.lineKind === "contract") ? <div className="mt-4 border-t border-[var(--line)] pt-4"><p className="text-xs text-[var(--muted)]">По договору: {contractProfile.rates.filter((rate) => rate.lineKind === "contract").map((rate) => rate.name).join(" · ")}</p><button type="button" onClick={applyContractServices} className="focus-ring mt-3 min-h-10 rounded-xl border border-[var(--line)] bg-white px-3 text-xs font-semibold">Подставить услуги и цены по договору</button></div> : null}
+
                     </div>
                   ) : null}
                 </div>
@@ -1171,11 +1155,11 @@ export function QuickOrderWorkspace({
               description="Зафиксируйте работу, стоимость и исполнителя. Финансовые значения сохранятся снимком."
             />
             <div className="mb-4 flex flex-wrap items-end gap-3">
-              <div className="min-w-60 flex-1"><ServiceChoice value={catalogItemId ?? ""} items={options.catalogItems ?? []} profile={contractProfile} onChange={(value, selectedItem) => {
+              <div className="min-w-60 flex-1"><ServiceChoice value={catalogItemId ?? ""} items={options.catalogItems ?? []} onChange={(value, selectedItem) => {
                 const item = selectedItem ?? options.catalogItems?.find((candidate) => candidate.id === value);
                 setCatalogItemId(item?.id ?? null);
                 if (!item) return;
-                const choice = resolveServiceChoice(item, contractProfile);
+                const choice = resolveServiceChoice(item, objectArea);
                 setCatalogItemId(choice.catalogItemId);
                 setServiceName(choice.name);
                 setQuantity(choice.quantity);
@@ -1212,7 +1196,7 @@ export function QuickOrderWorkspace({
                     placeholder="Уточняется"
                 />
               </OrderField>
-              {options.catalogItems?.find((item) => item.id === catalogItemId)?.priceMode === "variable" && !unitPrice && <p className="text-xs text-[var(--muted)] sm:col-span-4">Для этой позиции цена уточняется. Если у объекта сохранена ставка, она подставится при выборе.</p>}
+              {options.catalogItems?.find((item) => item.id === catalogItemId)?.priceMode === "variable" && !unitPrice && <p className="text-xs text-[var(--muted)] sm:col-span-4">Укажите индивидуальную цену этой позиции в заказе.</p>}
               <div className="self-end pb-3">
                 <p className="mb-3 text-xs text-[var(--muted)]">Сумма</p>
                 <output className="text-lg font-semibold text-[var(--text)]">
@@ -1223,9 +1207,9 @@ export function QuickOrderWorkspace({
             <div className="mt-4 space-y-3">
               {extraOrderItems.map((item, index) => <div key={item.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-3">
                 <div className="mb-3 flex items-center justify-between"><span className="text-sm font-medium">Дополнительная позиция {index + 1}</span><button type="button" onClick={() => setExtraOrderItems((current) => current.filter((candidate) => candidate.id !== item.id))} className="text-sm text-[var(--muted)]">Удалить</button></div>
-                <div className="mb-3"><ServiceChoice label={`Позиция из каталога ${index + 2}`} value={item.catalogItemId ?? ""} items={options.catalogItems ?? []} profile={contractProfile} onChange={(value, selectedItem) => {
+                <div className="mb-3"><ServiceChoice label={`Позиция из каталога ${index + 2}`} value={item.catalogItemId ?? ""} items={options.catalogItems ?? []} onChange={(value, selectedItem) => {
                   const selected = selectedItem ?? options.catalogItems?.find((candidate) => candidate.id === value);
-                  setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? selected ? { ...candidate, ...resolveServiceChoice(selected, contractProfile) } : { ...candidate, catalogItemId: null } : candidate));
+                  setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? selected ? { ...candidate, ...resolveServiceChoice(selected, objectArea) } : { ...candidate, catalogItemId: null } : candidate));
                 }} /></div>
                 <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_6rem_8rem]"><input aria-label={`Название позиции ${index + 2}`} value={item.name} onChange={(event) => setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, name: event.target.value, catalogItemId: null } : candidate))} placeholder="Название" className={orderInputClass} /><input aria-label={`Количество позиции ${index + 2}`} value={item.quantity} onChange={(event) => setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, quantity: event.target.value } : candidate))} inputMode="decimal" placeholder="Кол-во" className={orderInputClass} /><input aria-label={`Цена позиции ${index + 2}`} value={item.unitPrice} onChange={(event) => setExtraOrderItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, unitPrice: event.target.value } : candidate))} inputMode="decimal" placeholder="Цена, ₽" className={orderInputClass} /></div>
               </div>)}
@@ -1450,7 +1434,7 @@ export function QuickOrderWorkspace({
         <aside
           data-testid="quick-order-summary"
           aria-label="Черновик заказа"
-          className="surface-panel hidden p-5 xl:sticky xl:top-[calc(var(--header-height)+1rem)] xl:block"
+          className={embedded ? "hidden" : "surface-panel hidden p-5 xl:sticky xl:top-[calc(var(--header-height)+1rem)] xl:block"}
         >
           <div className="min-w-0">
             <div className="flex items-start justify-between gap-3">

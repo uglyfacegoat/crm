@@ -149,7 +149,7 @@ export async function getIncomingLeadSnapshot(member: AuthenticatedMember, filte
         LIMIT 1
       ) possible_client ON true
       WHERE website_leads.organization_id = ${member.organizationId}
-        AND (${selectedId}::uuid = website_leads.id OR ((${filter.status} = 'all' OR website_leads.moderation_status = ${filter.status})
+        AND (${selectedId}::uuid = website_leads.id OR ((${filter.status} = 'all' OR (${filter.status} = 'active' AND website_leads.moderation_status IN ('new', 'reviewing')) OR website_leads.moderation_status = ${filter.status})
         AND (${filter.query} = '' OR crm_search_matches(concat_ws(' ', website_leads.contact_name, website_leads.phone, website_leads.email,
           website_leads.service_interest, websites.name, websites.domain, website_leads.utm_source), ${filter.query}))
         ))
@@ -176,7 +176,7 @@ export async function searchIncomingLeadOptions(member: AuthenticatedMember, fil
     FROM website_leads
     JOIN websites ON websites.organization_id = website_leads.organization_id AND websites.id = website_leads.website_id
     WHERE website_leads.organization_id = ${member.organizationId}
-      AND (${filter.status} = 'all' OR website_leads.moderation_status = ${filter.status})
+      AND (${filter.status} = 'all' OR (${filter.status} = 'active' AND website_leads.moderation_status IN ('new', 'reviewing')) OR website_leads.moderation_status = ${filter.status})
       AND (${filter.query} = '' OR crm_search_matches(concat_ws(' ', website_leads.contact_name,
         website_leads.phone, website_leads.email, website_leads.service_interest,
         websites.name, websites.domain, website_leads.utm_source), ${filter.query}))

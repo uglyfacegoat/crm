@@ -103,7 +103,7 @@ function CreateOrganizationForm({
           required
           errors={state.fieldErrors.timezone}
         >
-          <CustomSelect
+          <CustomSelect searchable={false}
             name="timezone"
             value={timezone}
             onChange={setTimezone}

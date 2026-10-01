@@ -174,7 +174,7 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
   if (hasPermission(member, "documents.read")) {
     searches.push(sql`
       SELECT documents.id, 'document' AS entity_type, documents.title AS title,
-        clients.legal_name || ' · заказ №' || orders.order_number AS subtitle,
+        organizations.name || ' · ' || clients.legal_name || ' · заказ №' || orders.order_number AS subtitle,
         document_versions.original_filename AS detail,
         '/documents?client=' || documents.client_id::text || '&object=' || coalesce(documents.object_id, documents.order_id)::text || '&order=' || documents.order_id::text || '&document=' || documents.id::text AS href,
         CASE
@@ -188,11 +188,11 @@ export async function searchGlobal(member: AuthenticatedMember, query: string): 
           WHEN lower(document_versions.original_filename) LIKE ${prefixPattern} ESCAPE '\' THEN 80
           ELSE 60
         END AS score
-      FROM documents
+      FROM documents JOIN organizations ON organizations.id = documents.organization_id
       JOIN document_versions ON document_versions.organization_id = documents.organization_id AND document_versions.id = documents.current_version_id
       JOIN clients ON clients.organization_id = documents.organization_id AND clients.id = documents.client_id
       JOIN orders ON orders.organization_id = documents.organization_id AND orders.id = documents.order_id
-      WHERE documents.organization_id = ${member.organizationId} AND documents.archived_at IS NULL
+      WHERE documents.organization_id IN ${sql(organizationIds)} AND documents.archived_at IS NULL
         AND crm_search_matches(concat_ws(' ', documents.title, documents.description, document_versions.original_filename), ${query})
       ORDER BY score DESC, documents.updated_at DESC
       LIMIT 5

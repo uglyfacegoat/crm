@@ -16,7 +16,6 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const parsed = catalogPickerQuerySchema.safeParse({
       q: url.searchParams.get("q") ?? undefined,
-      objectId: url.searchParams.get("objectId") ?? undefined,
       id: url.searchParams.get("id") ?? undefined,
       organizationId: url.searchParams.get("organizationId") ?? undefined,
     });

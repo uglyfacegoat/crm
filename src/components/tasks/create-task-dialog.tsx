@@ -157,7 +157,7 @@ function CreateTaskForm({
         </fieldset>
         <div>
           <input type="hidden" name="priority" value={priority} />
-          <OrderPicker label="Приоритет" value={priority} onChange={setPriority}
+          <OrderPicker searchable={false} label="Приоритет" value={priority} onChange={setPriority}
             options={[{ value: "low", label: "Низкий" }, { value: "normal", label: "Обычный" },
               { value: "high", label: "Высокий" }, { value: "critical", label: "Критичный" }]}
             placeholder="Выберите приоритет" errors={state.fieldErrors.priority} />

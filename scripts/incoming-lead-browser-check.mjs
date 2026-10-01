@@ -113,24 +113,23 @@ try {
   await page.getByRole("button", { name: "Войти в CRM", exact: true }).click();
   await page.waitForURL((current) => current.pathname === "/");
   await page.goto(`${baseUrl}/inbox`);
-  const picker = page.getByRole("region", { name: "Выбор входящей заявки" });
-  await picker.getByText("Показано 250 из 270").waitFor();
-  assert.equal(await page.getByText("Очень старая заявка").count(), 0);
-  await picker.locator('summary[aria-label="Обращение"]').click();
-  await picker.getByPlaceholder("Имя, телефон, сайт или услуга").fill("Очень старая");
-  await picker.getByRole("button", { name: /Очень старая заявка/ }).click();
-  await page.waitForURL((current) => current.pathname === "/inbox" && current.searchParams.get("lead") === oldLead.id);
-  await page.getByRole("heading", { name: "Очень старая заявка" }).waitFor();
-  await page.getByText("Дезинфекция склада", { exact: true }).waitFor();
+  await page.getByText("Показано 24 из 270").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Открыть заявку Очень старая заявка", exact: true }).count(), 0);
+  await page.getByRole("textbox", { name: "Поиск во входящих заявках" }).fill("Очень старая");
+  await page.getByRole("button", { name: "Найти", exact: true }).click();
+  await page.getByRole("button", { name: "Открыть заявку Очень старая заявка", exact: true }).click();
+  await page.getByRole("dialog", { name: "Заявка", exact: true }).getByRole("heading", { name: "Очень старая заявка" }).waitFor();
+  await page.getByText("Дезинфекция склада", { exact: true }).last().waitFor();
   const hiddenResponse = await page.request.get(`${baseUrl}/api/v1/inbox/options?status=all&q=${encodeURIComponent("Секретная")}`);
   assert.equal(hiddenResponse.status(), 200);
   assert.equal((await hiddenResponse.json()).data.items.length, 0);
 
-  await page.getByRole("link", { name: "Уточнить и принять" }).click();
-  await page.waitForURL((current) => current.pathname === "/quick-order" && current.searchParams.get("sourceLead") === oldLead.id);
+  await page.getByRole("button", { name: "Уточнить и принять", exact: true }).click();
   await page.getByRole("heading", { name: "Уточнить и принять заявку" }).waitFor();
   for (let step = 0; step < 3; step++) await page.getByTestId("quick-next").click();
   await page.getByTestId("quick-submit").click();
+  await page.getByRole("dialog", { name: "Оформление заявки", exact: true }).waitFor({ state: "hidden" });
+  await page.goto(`${baseUrl}/quick-order?sourceLead=${oldLead.id}`);
   await page.waitForURL((current) => /^\/orders\/[^/]+$/.test(current.pathname));
   const [accepted] = await sql`SELECT moderation_status FROM website_leads WHERE id = ${oldLead.id}`;
   assert.equal(accepted.moderation_status, "accepted");
@@ -161,8 +160,8 @@ try {
   await page.goto(`${baseUrl}/inbox?lead=${oldLead.id}`);
   await page.getByRole("heading", { name: "Очень старая заявка" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false);
-  await page.getByRole("button", { name: "Все обращения" }).click();
-  await picker.locator('summary[aria-label="Обращение"]').waitFor();
+  await page.getByRole("dialog", { name: "Заявка", exact: true }).getByRole("button", { name: "Закрыть окно", exact: true }).click();
+  await page.getByRole("region", { name: "Карточки входящих заявок" }).waitFor();
   await page.goto(`${baseUrl}/quick-order?sourceLead=${privateLead.id}`);
   await page.getByText("Страница не найдена", { exact: true }).waitFor();
 
@@ -264,10 +263,7 @@ try {
 
   const [catalog] = await sql`INSERT INTO catalog_items (organization_id, kind, name, unit, price_mode, default_price_minor)
     VALUES (${owner.organization_id}, 'service', 'Обработка по площади', 'м²', 'fixed', 100) RETURNING id`;
-  await sql`INSERT INTO object_service_profiles (organization_id, object_id, area_square_meters)
-    VALUES (${owner.organization_id}, ${multiOrder.object_id}, 125.50)`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, catalog_item_id, name, line_kind, billing_basis, unit_price_minor, position)
-    VALUES (${owner.organization_id}, ${multiOrder.object_id}, ${catalog.id}, 'Обработка склада по договору', 'contract', 'area', 75, 1)`;
+  await sql`UPDATE client_objects SET area_square_meters=125.50 WHERE id=${multiOrder.object_id}`;
   await page.goto(`${baseUrl}/quick-order`);
   const existingClientSection = page.locator("#quick-client-section");
   await existingClientSection.getByRole("button", { name: "Из CRM" }).click();
@@ -277,17 +273,13 @@ try {
   const contractObjectSection = page.locator("#quick-object-section");
   await contractObjectSection.locator('summary[aria-label="Объект"]').click();
   await contractObjectSection.getByRole("button", { name: /Склад приёмки/ }).click();
-  await contractObjectSection.getByRole("button", { name: "Подставить услуги и цены по договору" }).waitFor();
-  await contractObjectSection.getByRole("button", { name: "Подставить услуги и цены по договору" }).click();
   await page.getByTestId("quick-next").click();
   const workSection = page.locator("#quick-work-section");
-  assert.equal(await workSection.getByTestId("quick-service-name").inputValue(), "Обработка склада по договору");
   await workSection.locator('summary[aria-label="Из перечня товаров и услуг"]').click();
   await workSection.getByPlaceholder("Название услуги или товара").fill("Обработка по площади");
-  await workSection.getByRole("button", { name: /Обработка склада по договору.*Каталог: Обработка по площади/ }).waitFor();
-  await workSection.getByPlaceholder("Название услуги или товара").fill("Обработка склада по договору");
-  await workSection.getByRole("button", { name: /Обработка склада по договору.*Каталог: Обработка по площади/ }).click();
-  assert.equal(await workSection.getByTestId("quick-service-name").inputValue(), "Обработка склада по договору");
+  await workSection.getByRole("button", { name: /Обработка по площади/ }).click();
+  assert.equal(await workSection.getByTestId("quick-unit-price").inputValue(), "1.00");
+  await workSection.getByTestId("quick-unit-price").fill("0.75");
   assert.equal(await workSection.getByRole("textbox", { name: "Количество" }).inputValue(), "125.50");
   assert.equal(await workSection.getByTestId("quick-unit-price").inputValue(), "0.75");
   await page.getByTestId("quick-next").click();
@@ -302,7 +294,7 @@ try {
   assert.equal(contractOrder.price_pending, false);
   const [contractLine] = await sql`SELECT catalog_item_id, service_name_snapshot, unit_snapshot, unit_price_minor, quantity FROM order_services WHERE organization_id = ${owner.organization_id} AND order_id = ${contractOrderId}`;
   assert.equal(contractLine.catalog_item_id, catalog.id);
-  assert.equal(contractLine.service_name_snapshot, "Обработка склада по договору");
+  assert.equal(contractLine.service_name_snapshot, "Обработка по площади");
   assert.equal(contractLine.unit_snapshot, "м²");
   assert.equal(Number(contractLine.unit_price_minor), 75);
   assert.equal(Number(contractLine.quantity), 125.5);
@@ -315,7 +307,7 @@ try {
     master_phone_snapshot = '+70000000044', master_payment_snapshot_minor = 456700 WHERE id = ${contractOrderId}`;
   await colleaguePage.setViewportSize({ width: 390, height: 844 });
   await colleaguePage.goto(`${baseUrl}/orders/${contractOrderId}`);
-  await colleaguePage.getByRole("button", { name: "Копия", exact: true }).waitFor();
+  await colleaguePage.getByRole("button", { name: "Копия и серия", exact: true }).waitFor();
   assert.equal(await colleaguePage.getByRole("button", { name: "Расход", exact: true }).count(), 0);
   assert.equal(await colleaguePage.getByText("Прямые расходы").count(), 0);
   assert.equal((await colleaguePage.content()).includes("Топливо"), false, "The coordinator must not receive expense details in the page payload");
@@ -330,14 +322,13 @@ try {
   const [coordinatorEditedOrder] = await sql`SELECT status, master_payment_snapshot_minor FROM orders WHERE id = ${contractOrderId}`;
   assert.equal(coordinatorEditedOrder.status, "approval");
   assert.equal(Number(coordinatorEditedOrder.master_payment_snapshot_minor), 456700);
-  await colleaguePage.getByRole("button", { name: "Копия", exact: true }).click();
-  const coordinatorCopyDialog = colleaguePage.getByRole("dialog", { name: /Копия заказа/ });
+  await colleaguePage.getByRole("button", { name: "Копия и серия", exact: true }).click();
+  const coordinatorCopyDialog = colleaguePage.getByRole("dialog", { name: "Копия и серия", exact: true });
   assert.equal(await coordinatorCopyDialog.getByText("Прямые расходы").count(), 0);
   assert.equal(await coordinatorCopyDialog.getByText("Расходы этой копии").count(), 0);
   assert.equal(await coordinatorCopyDialog.getByText("Мастер и выплата").count(), 0);
   assert.equal(await coordinatorCopyDialog.getByText("Выплата мастеру, ₽").count(), 0);
-  await coordinatorCopyDialog.locator("label").filter({ hasText: "Проверочный мастер выплат" }).last().click();
-  assert.equal(await coordinatorCopyDialog.locator('input[name="copyMaster"]').inputValue(), "true");
+  assert.equal(await coordinatorCopyDialog.locator('summary[aria-label="Мастер"]').innerText(), "Проверочный мастер выплат");
   const coordinatorCopyDate = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
   await coordinatorCopyDialog.locator('input[aria-label="Дата в формате ДД.ММ.ГГГГ"]').fill(`${coordinatorCopyDate.slice(8, 10)}.${coordinatorCopyDate.slice(5, 7)}.${coordinatorCopyDate.slice(0, 4)}`);
   await coordinatorCopyDialog.getByRole("button", { name: "Создать копию" }).click();
@@ -357,10 +348,10 @@ try {
     VALUES (${owner.organization_id}, 'Другой мастер серии', '+70000000045', '+70000000045', 'Москва', 'Центр') RETURNING id`;
   await page.reload();
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole("button", { name: "Копия", exact: true }).click();
-  const copyDialog = page.getByRole("dialog", { name: /Копия заказа/ });
-  await copyDialog.locator("label").filter({ hasText: "Топливо" }).last().click();
-  assert.deepEqual(JSON.parse(await copyDialog.locator('input[name="expenseIds"]').inputValue()).length, 1);
+  await page.getByRole("button", { name: "Копия и серия", exact: true }).click();
+  const copyDialog = page.getByRole("dialog", { name: "Копия и серия", exact: true });
+  await copyDialog.getByRole("button", { name: /^Перенести расходы/ }).click();
+  await copyDialog.locator("label").filter({ hasText: "Топливо" }).click();
   await copyDialog.getByRole("button", { name: "Выбрать даты" }).click();
   await copyDialog.getByRole("button", { name: "Следующий месяц" }).click();
   const calendar = copyDialog.locator('button[aria-label="Следующий месяц"]').locator("xpath=../..");
@@ -368,68 +359,63 @@ try {
   const copyDates = JSON.parse(await copyDialog.locator('input[name="copyDates"]').inputValue());
   assert.equal(copyDates.length, 5);
   const dateLabel = (date) => new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
-  await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
-  await copyDialog.getByRole("button", { name: dateLabel(copyDates[0]) }).click();
-  await copyDialog.getByRole("button", { name: "Точное время" }).click();
+  const openCopyExpenses = async () => {
+    const toggle = copyDialog.getByRole("button", { name: /^Перенести расходы/ });
+    if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  };
+  const selectCopyDate = async (index) => {
+    const button = copyDialog.getByRole("button", { name: `Настроить заказ на ${dateLabel(copyDates[index])}`, exact: true });
+    if (!await button.count()) await copyDialog.getByRole("button", { name: index < 4 ? "Предыдущие даты" : "Следующие даты", exact: true }).click();
+    await button.click();
+  };
+  const addCopyCatalog = async (name) => {
+    await copyDialog.locator('summary[aria-label="Добавить из справочника"]').click();
+    await copyDialog.getByPlaceholder("Название услуги или товара").fill(name);
+    await copyDialog.getByRole("button", { name: new RegExp(name) }).click();
+  };
+  await selectCopyDate(0);
+  await copyDialog.getByLabel("Запланировать выезд", { exact: true }).check();
+  await copyDialog.getByRole("button", { name: "Точное время", exact: true }).click();
   await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("09:15");
-  await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
-  await copyDialog.getByRole("button", { name: dateLabel(copyDates[1]) }).click();
-  await copyDialog.getByRole("button", { name: "Интервал", exact: true }).click();
+  await selectCopyDate(1);
+  await copyDialog.getByLabel("Запланировать выезд", { exact: true }).check();
+  await copyDialog.getByRole("button", { name: "Интервал приезда", exact: true }).click();
   await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("23:30");
   await copyDialog.locator('[data-form-name="overrideEndTime"]').fill("00:30");
-  await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
-  await copyDialog.getByRole("button", { name: dateLabel(copyDates[0]) }).click();
-  assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').inputValue(), "09:15");
-  assert.equal(await copyDialog.locator('[data-form-name="overrideEndTime"]').count(), 0);
-  await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
-  await copyDialog.getByRole("button", { name: dateLabel(copyDates[1]) }).click();
-  assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').inputValue(), "23:30");
-  assert.equal(await copyDialog.locator('[data-form-name="overrideEndTime"]').inputValue(), "00:30");
-  await copyDialog.locator("label").filter({ hasText: "Топливо" }).first().click();
-  await copyDialog.locator("label").filter({ hasText: "Материалы" }).first().click();
-  await copyDialog.getByPlaceholder("Условия только для этой даты").fill("Особая заметка второй даты");
-  await copyDialog.getByRole("button", { name: "+ Добавить" }).click();
-  await copyDialog.locator('summary[aria-label="Из перечня товаров и услуг"]').click();
-  await copyDialog.getByPlaceholder("Название услуги или товара").fill("Обработка по площади");
-  await copyDialog.getByRole("button", { name: /Обработка по площади/ }).click();
+  await openCopyExpenses();
+  await copyDialog.locator("label").filter({ hasText: "Топливо" }).click();
+  await copyDialog.locator("label").filter({ hasText: "Материалы" }).click();
+  await copyDialog.getByLabel("Заметка заказа", { exact: true }).fill("Особая заметка второй даты");
+  await addCopyCatalog("Обработка по площади");
   await page.setViewportSize({ width: 390, height: 844 });
-  await copyDialog.getByRole("button", { name: "+ Добавить" }).click();
-  await copyDialog.locator('summary[aria-label="Из перечня товаров и услуг"]').last().click();
-  await copyDialog.getByPlaceholder("Название услуги или товара").last().fill("Янтарная услуга Ёж");
-  await copyDialog.getByRole("button", { name: /Янтарная услуга Ёж/ }).click();
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false, "Copy dialog overflows at 390px");
-  const selectCopyDate = async (index) => {
-    await copyDialog.locator('summary[aria-label="Настроить дату"]').click();
-    await copyDialog.getByRole("button", { name: dateLabel(copyDates[index]) }).click();
-  };
+  await addCopyCatalog("Янтарная услуга Ёж");
   await selectCopyDate(2);
-  await copyDialog.locator('summary[aria-label="Мастер на эту дату"]').click();
+  await copyDialog.locator('summary[aria-label="Мастер"]').click();
   await copyDialog.getByRole("button", { name: /Другой мастер серии/ }).click();
   await copyDialog.getByLabel("Выплата мастеру, ₽", { exact: true }).fill("1234,50");
-  await copyDialog.getByRole("button", { name: "Точное время" }).click();
+  await copyDialog.getByLabel("Запланировать выезд", { exact: true }).check();
+  await copyDialog.getByRole("button", { name: "Точное время", exact: true }).click();
   await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("12:45");
-  await copyDialog.getByPlaceholder("Условия только для этой даты").fill("Условия третьей даты");
-  await copyDialog.getByRole("button", { name: "+ Добавить" }).click();
-  await copyDialog.locator('summary[aria-label="Из перечня товаров и услуг"]').click();
-  await copyDialog.getByPlaceholder("Название услуги или товара").fill("Янтарная услуга Ёж");
-  await copyDialog.getByRole("button", { name: /Янтарная услуга Ёж/ }).click();
-  await copyDialog.getByLabel("Количество", { exact: true }).fill("3");
+  await copyDialog.getByLabel("Заметка заказа", { exact: true }).fill("Условия третьей даты");
+  await addCopyCatalog("Янтарная услуга Ёж");
+  await copyDialog.getByLabel("Количество позиции 2", { exact: true }).fill("3");
   await selectCopyDate(3);
-  await copyDialog.locator('summary[aria-label="Мастер на эту дату"]').click();
+  await copyDialog.locator('summary[aria-label="Мастер"]').click();
   await copyDialog.getByRole("button", { name: "Без мастера", exact: true }).click();
-  await copyDialog.getByRole("button", { name: "Интервал", exact: true }).click();
+  await copyDialog.getByLabel("Запланировать выезд", { exact: true }).check();
+  await copyDialog.getByRole("button", { name: "Интервал приезда", exact: true }).click();
   await copyDialog.locator('[data-form-name="overrideStartTime"]').fill("10:00");
   await copyDialog.locator('[data-form-name="overrideEndTime"]').fill("11:30");
-  await copyDialog.locator("label").filter({ hasText: "Топливо" }).first().click();
-  await copyDialog.getByPlaceholder("Условия только для этой даты").fill("");
+  await openCopyExpenses();
+  await copyDialog.locator("label").filter({ hasText: "Топливо" }).click();
+  await copyDialog.getByLabel("Заметка заказа", { exact: true }).fill("");
   await selectCopyDate(4);
-  assert.equal(await copyDialog.getByPlaceholder("Условия только для этой даты").inputValue(), "");
+  assert.equal(await copyDialog.getByLabel("Заметка заказа", { exact: true }).inputValue(), "");
   assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').count(), 0);
-  assert.equal(await copyDialog.getByLabel("Количество", { exact: true }).count(), 0);
   await selectCopyDate(2);
-  assert.equal(await copyDialog.getByLabel("Количество", { exact: true }).inputValue(), "3");
+  assert.equal(await copyDialog.getByLabel("Количество позиции 2", { exact: true }).inputValue(), "3");
   assert.equal(await copyDialog.locator('[data-form-name="overrideStartTime"]').inputValue(), "12:45");
-  assert.equal(await copyDialog.getByPlaceholder("Условия только для этой даты").inputValue(), "Условия третьей даты");
+  assert.equal(await copyDialog.getByLabel("Заметка заказа", { exact: true }).inputValue(), "Условия третьей даты");
   for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `Five-date dialog overflow at ${width}px`);
@@ -443,11 +429,11 @@ try {
       AND audit.changes->>'sourceOrderId' = ${contractOrderId} AND audit.changes->>'seriesSize' = '5'
     ORDER BY audit.changes->>'copyDate'`;
   assert.deepEqual(copies.map((copy) => copy.copy_date), copyDates);
-  assert.equal(copies[0].notes, null);
+  assert.equal(copies[0].notes || null, null);
   assert.equal(copies[1].notes, "Особая заметка второй даты");
   assert.equal(Number(copies[0].agreed_total_minor), 9413);
-  assert.equal(Number(copies[1].agreed_total_minor), 19076);
-  assert.deepEqual(copies.slice(2).map(copy => copy.notes), ["Условия третьей даты", null, null]);
+  assert.equal(Number(copies[1].agreed_total_minor), 22213);
+  assert.deepEqual(copies.slice(2).map(copy => copy.notes || null), ["Условия третьей даты", null, null]);
   assert.deepEqual(copies.slice(2).map(copy => Number(copy.agreed_total_minor)), [10163, 9413, 9413]);
   assert.equal(copies[2].assigned_master_id, alternateMaster.id);
   assert.equal(Number(copies[2].master_payment_snapshot_minor), 123450);
@@ -501,8 +487,8 @@ try {
     [copies[1].id, 1, 250], [copies[2].id, 3, 750],
   ].sort());
   await page.goto(`${baseUrl}/orders/${contractOrderId}`);
-  await page.getByRole("button", { name: "Копия", exact: true }).click();
-  const repeatDialog = page.getByRole("dialog", { name: /Копия заказа/ });
+  await page.getByRole("button", { name: "Копия и серия", exact: true }).click();
+  const repeatDialog = page.getByRole("dialog", { name: "Копия и серия", exact: true });
   await repeatDialog.getByRole("button", { name: "По интервалу" }).click();
   const repeatStart = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
   const repeatEnd = new Date(Date.parse(`${repeatStart}T00:00:00Z`) + 14 * 86_400_000).toISOString().slice(0, 10);
@@ -513,10 +499,9 @@ try {
   await repeatDialog.getByRole("button", { name: "Каждые N недель" }).click();
   const repeatDates = JSON.parse(await repeatDialog.locator('input[name="copyDates"]').inputValue());
   assert.equal(repeatDates.length, 3);
-  await repeatDialog.locator('summary[aria-label="Настроить дату"]').click();
-  await repeatDialog.getByRole("button", { name: dateLabel(repeatDates[1]) }).click();
-  await repeatDialog.getByPlaceholder("Условия только для этой даты").fill("Примечание только второй недели");
-  await repeatDialog.getByRole("button", { name: "Создать 3 заказов" }).click();
+  await repeatDialog.getByRole("button", { name: `Настроить заказ на ${dateLabel(repeatDates[1])}` }).click();
+  await repeatDialog.getByLabel("Заметка заказа", { exact: true }).fill("Примечание только второй недели");
+  await repeatDialog.getByRole("button", { name: "Создать 3 заказа" }).click();
   await page.waitForURL((current) => /^\/orders\/[^/]+$/.test(current.pathname) && current.pathname !== `/orders/${contractOrderId}`);
   const repeatedCopies = await sql`SELECT copied.notes, audit.changes->>'copyDate' AS copy_date
     FROM audit_events audit JOIN orders copied ON copied.organization_id = audit.organization_id AND copied.id = audit.entity_id
@@ -525,7 +510,7 @@ try {
       AND audit.changes->>'copyDate' >= ${repeatStart} AND audit.changes->>'copyDate' <= ${repeatEnd}
     ORDER BY audit.changes->>'copyDate'`;
   assert.deepEqual(repeatedCopies.map((copy) => copy.copy_date), repeatDates);
-  assert.deepEqual(repeatedCopies.map((copy) => copy.notes), [null, "Примечание только второй недели", null]);
+  assert.deepEqual(repeatedCopies.map((copy) => copy.notes || null), [null, "Примечание только второй недели", null]);
   const [variableCatalog] = await sql`INSERT INTO catalog_items (organization_id, kind, name, unit, price_mode)
     VALUES (${owner.organization_id}, 'service', 'ТЕСТ · Цена уточняется', 'усл.', 'variable') RETURNING id`;
   await page.goto(`${baseUrl}/quick-order`);
@@ -559,8 +544,6 @@ try {
   assert.equal(Number(pendingLine.line_total_minor), 0);
   const [secondContractCatalog] = await sql`INSERT INTO catalog_items (organization_id, kind, name, unit, price_mode, default_price_minor)
     VALUES (${owner.organization_id}, 'service', 'Контроль склада', 'м²', 'fixed', 200) RETURNING id`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, catalog_item_id, name, line_kind, billing_basis, unit_price_minor, position)
-    VALUES (${owner.organization_id}, ${multiOrder.object_id}, ${secondContractCatalog.id}, 'Контроль по договору', 'contract', 'area', 50, 2)`;
   await page.goto(`${baseUrl}/quick-order`);
   const twoRateClientSection = page.locator("#quick-client-section");
   await twoRateClientSection.getByRole("button", { name: "Из CRM" }).click();
@@ -570,11 +553,17 @@ try {
   const twoRateObjectSection = page.locator("#quick-object-section");
   await twoRateObjectSection.locator('summary[aria-label="Объект"]').click();
   await twoRateObjectSection.getByRole("button", { name: /Склад приёмки/ }).click();
-  await twoRateObjectSection.getByRole("button", { name: "Подставить услуги и цены по договору" }).click();
   await page.getByTestId("quick-next").click();
   const twoRateWorkSection = page.locator("#quick-work-section");
-  assert.equal(await twoRateWorkSection.getByTestId("quick-service-name").inputValue(), "Обработка склада по договору");
-  assert.equal(await twoRateWorkSection.getByRole("textbox", { name: "Название позиции 2" }).inputValue(), "Контроль по договору");
+  await twoRateWorkSection.locator('summary[aria-label="Из перечня товаров и услуг"]').click();
+  await twoRateWorkSection.getByPlaceholder("Название услуги или товара").last().fill("Обработка по площади");
+  await twoRateWorkSection.getByRole("button", { name: /Обработка по площади/ }).click();
+  await twoRateWorkSection.getByTestId("quick-unit-price").fill("0.75");
+  await twoRateWorkSection.getByRole("button", { name: "Добавить товар или услугу", exact: true }).click();
+  await twoRateWorkSection.locator('summary[aria-label="Позиция из каталога 2"]').click();
+  await twoRateWorkSection.getByPlaceholder("Название услуги или товара").last().fill("Контроль склада");
+  await twoRateWorkSection.getByRole("button", { name: /Контроль склада/ }).click();
+  await twoRateWorkSection.getByRole("textbox", {name: "Цена позиции 2"}).fill("0.50");
   await page.getByTestId("quick-next").click();
   await page.getByTestId("quick-submit").click();
   await page.getByTestId("quick-order-success").waitFor();
@@ -592,18 +581,18 @@ try {
   const editContractDialog = page.getByRole("dialog", { name: "Редактировать заказ" });
   const editSecondPicker = editContractDialog.locator('summary[aria-label="Из перечня товаров и услуг"]').nth(1).locator("xpath=..");
   await editSecondPicker.locator("summary").click();
-  await editSecondPicker.getByPlaceholder("Название услуги или товара").fill("Контроль по договору");
-  await editSecondPicker.getByRole("button", { name: /Контроль по договору.*Каталог: Контроль склада/ }).click();
+  await editSecondPicker.getByPlaceholder("Название услуги или товара").fill("Контроль склада");
+  await editSecondPicker.getByRole("button", { name: /Контроль склада/ }).click();
   await editContractDialog.getByLabel("Количество услуги 2").fill("100");
   await editContractDialog.getByRole("button", { name: "Сохранить изменения" }).click();
   await editContractDialog.waitFor({ state: "hidden" });
   const [editedContractOrder] = await sql`SELECT agreed_total_minor FROM orders WHERE organization_id = ${owner.organization_id} AND id = ${twoRateOrderId}`;
   const [editedSecondLine] = await sql`SELECT catalog_item_id, service_name_snapshot, line_total_minor FROM order_services
     WHERE organization_id = ${owner.organization_id} AND order_id = ${twoRateOrderId} AND position = 2`;
-  assert.equal(Number(editedContractOrder.agreed_total_minor), 14413);
+  assert.equal(Number(editedContractOrder.agreed_total_minor), 29413);
   assert.equal(editedSecondLine.catalog_item_id, secondContractCatalog.id);
-  assert.equal(editedSecondLine.service_name_snapshot, "Контроль по договору");
-  assert.equal(Number(editedSecondLine.line_total_minor), 5000);
+  assert.equal(editedSecondLine.service_name_snapshot, "Контроль склада");
+  assert.equal(Number(editedSecondLine.line_total_minor), 20000);
   await page.goto(`${baseUrl}/mail`);
   const firstMailPage = await page.request.get(`${baseUrl}/api/v1/mail/messages?folder=inbox&source=${officeMailbox.id}&page=0`);
   assert.equal(firstMailPage.status(), 200);
@@ -792,7 +781,7 @@ try {
   const remoteCatalogCard = page.locator("article").filter({ hasText: "Янтарная услуга Ёж" });
   await remoteCatalogCard.waitFor();
   assert.equal(await page.locator("article").count(), 1);
-  await remoteCatalogCard.getByRole("button", { name: "Изменить" }).click();
+  await remoteCatalogCard.getByRole("button", { name: /Изменить услугу/ }).click();
   const catalogDialog = page.getByRole("dialog", { name: "Изменить позицию" });
   await catalogDialog.getByLabel("Описание").fill("Проверено через серверный поиск");
   await catalogDialog.getByRole("button", { name: "Сохранить" }).click();
@@ -826,7 +815,7 @@ try {
   assert.equal(Number(historicalLine.unit_price_minor), 250);
   assert.equal(Number(historicalLine.line_total_minor), 500);
   assert.equal(historicalOrder.notes, "Историческая услуга сохранена");
-  console.log("Incoming lead browser passed: 270-item lead search, simultaneous regular orders from two accounts, multi-contact intake, contract rates, five independent dates with per-date master/payout, fixed/overnight/window time, catalog quantities, notes and expenses; weekly series, per-date catalog item beyond 1000, mail search and page beyond 500 with source isolation, mail queue, threaded replies and 37-message pagination, retry after lost response without duplicate delivery, catalog selection/editing beyond 1000 items, and historical order editing after catalog rename/archive.");
+  console.log("Incoming lead browser passed: 270-item lead search, simultaneous regular orders from two accounts, multi-contact intake, catalog prices and object area, five independent dates with per-date master/payout, fixed/overnight/window time, catalog quantities, notes and expenses; weekly series, per-date catalog item beyond 1000, mail search and page beyond 500 with source isolation, mail queue, threaded replies and 37-message pagination, retry after lost response without duplicate delivery, catalog selection/editing beyond 1000 items, and historical order editing after catalog rename/archive.");
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) { server.kill("SIGTERM"); await serverExit; }

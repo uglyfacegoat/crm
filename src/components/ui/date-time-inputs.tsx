@@ -1,5 +1,6 @@
 "use client";
 
+import { FloatingLayer } from "./floating-layer";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -86,11 +87,15 @@ export function DateInput({
   const days = useMemo(() => calendarDays(visibleMonth), [visibleMonth]);
 
   useEffect(() => {
+    if (!open) return;
     function close(event: PointerEvent) {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
     }
     function closeWithEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault(); event.stopImmediatePropagation(); setOpen(false);
+        containerRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      }
     }
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", closeWithEscape);
@@ -98,7 +103,7 @@ export function DateInput({
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("keydown", closeWithEscape);
     };
-  }, []);
+  }, [open]);
 
   function commit(nextValue: string) {
     setIsoValue(nextValue);
@@ -148,10 +153,11 @@ export function DateInput({
         </button>
       </div>
       {open ? (
-        <div
+        <FloatingLayer
+          anchorRef={containerRef} width={288} maxHeight={480}
           role="dialog"
           aria-label="Выбор даты"
-          className="fixed inset-x-3 top-1/2 z-[90] -translate-y-1/2 rounded-[16px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-3 sm:absolute sm:left-0 sm:right-auto sm:top-[3.35rem] sm:w-[18rem] sm:translate-y-0"
+          className="rounded-[16px] border border-[var(--line-strong)] bg-[var(--surface-raised)] p-3"
         >
           <header className="mb-3 flex items-center justify-between gap-2">
             <button
@@ -225,7 +231,7 @@ export function DateInput({
               );
             })}
           </div>
-        </div>
+        </FloatingLayer>
       ) : null}
     </div>
   );

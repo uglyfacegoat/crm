@@ -120,32 +120,26 @@ test("name-only orders and multiple contacts, numbers and objects persist and st
   const otherObjectId = client.objects.find((entry) => entry.name === 'Корпус Б').id;
   const [catalog] = await sql`INSERT INTO catalog_items (organization_id, kind, name, unit, price_mode, default_price_minor)
     VALUES (${a.organizationId}, 'service', 'Обработка', 'м²', 'fixed', 100) RETURNING id`;
-  await sql`INSERT INTO object_service_profiles (organization_id, object_id, area_square_meters)
-    VALUES (${a.organizationId}, ${contractObjectId}, 125.50)`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, catalog_item_id, name, line_kind, billing_basis, unit_price_minor, position)
-    VALUES (${a.organizationId}, ${contractObjectId}, ${catalog.id}, 'Обработка по договору', 'contract', 'area', 75, 1)`;
+  await sql`UPDATE client_objects SET area_square_meters=125.50 WHERE id=${contractObjectId}`;
   const contractInput = { client: { mode: 'existing', clientId: fullRow.client_id }, existingObjectIds: [contractObjectId],
-    services: [{ catalogItemId: catalog.id, name: 'Обработка по договору', quantity: '125,5', unitPrice: '0,75' }] };
+    services: [{ catalogItemId: catalog.id, name: 'Обработка', quantity: '125,5', unitPrice: '0,75' }] };
   const contractedId = await createFlexibleOrder(a, flexibleOrderSchema.parse({ ...contractInput, idempotencyKey: randomUUID() }));
   const [contractedLine] = await sql`SELECT catalog_item_id, service_name_snapshot, unit_snapshot, line_total_minor FROM order_services WHERE order_id = ${contractedId}`;
   assert.equal(contractedLine.catalog_item_id, catalog.id);
-  assert.equal(contractedLine.service_name_snapshot, 'Обработка по договору');
+  assert.equal(contractedLine.service_name_snapshot, 'Обработка');
   assert.equal(contractedLine.unit_snapshot, 'м²');
   assert.equal(Number(contractedLine.line_total_minor), 9413);
-  await assert.rejects(createFlexibleOrder(a, flexibleOrderSchema.parse({ ...contractInput, idempotencyKey: randomUUID(), existingObjectIds: [otherObjectId] })), FlexibleOrderReferenceError);
+  assert.equal((await getOrderDetail(a, contractedId)).objectAreaSquareMeters, '125.50');
   await assert.rejects(createFlexibleOrder(a, flexibleOrderSchema.parse({ ...contractInput, idempotencyKey: randomUUID(), services: [{ ...contractInput.services[0], name: 'Чужая услуга' }] })), FlexibleOrderReferenceError);
   await sql`UPDATE catalog_items SET name = 'Обработка — новое название' WHERE id = ${catalog.id}`;
   const [catalogVersion] = await sql`SELECT version FROM catalog_items WHERE id = ${catalog.id}`;
   assert.equal(await deleteCatalogItem(a, catalog.id, catalogVersion.version), 'archived');
-  const archivedContractId = await createFlexibleOrder(a, flexibleOrderSchema.parse({ ...contractInput, idempotencyKey: randomUUID() }));
-  const [archivedContractLine] = await sql`SELECT catalog_item_id, line_total_minor FROM order_services WHERE order_id = ${archivedContractId}`;
-  assert.equal(archivedContractLine.catalog_item_id, catalog.id);
-  assert.equal(Number(archivedContractLine.line_total_minor), 9413);
+  await assert.rejects(createFlexibleOrder(a, flexibleOrderSchema.parse({ ...contractInput, idempotencyKey: randomUUID() })), FlexibleOrderReferenceError);
   const contracted = await getOrderDetail(a, contractedId);
   await updateOrder(a, updateOrderSchema.parse({ orderId: contractedId, expectedVersion: 1, status: 'new',
     statusReason: '', assignedMasterId: '', masterPayment: '', notes: '', agreedTotal: '0',
-    services: [{ existingLineId: contracted.services[0].id, catalogItemId: catalog.id, name: 'Обработка по договору', quantity: '125,5', unitPrice: '0,75', note: '' }] }));
-  assert.equal((await getOrderDetail(a, contractedId)).services[0].name, 'Обработка по договору');
+    services: [{ existingLineId: contracted.services[0].id, catalogItemId: catalog.id, name: 'Обработка', quantity: '125,5', unitPrice: '0,75', note: '' }] }));
+  assert.equal((await getOrderDetail(a, contractedId)).services[0].name, 'Обработка');
   const windowOrder = flexibleOrderSchema.parse({ idempotencyKey: randomUUID(), client: { mode: 'existing', clientId: fullRow.client_id },
     existingObjectIds: [client.objects.find((entry) => entry.name === 'Корпус Б').id],
     visit: { localDate: '2026-10-07', localTime: '09:30', arrivalMode: 'window', endTime: '11:00' },

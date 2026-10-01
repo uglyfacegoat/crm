@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, Building2, ChevronDown, ChevronRight, ClipboardList, FileText, Folder, FolderRoot, MapPin, Star } from "lucide-react";
+import { OrderPicker } from "@/components/orders/order-form-parts";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -81,7 +82,7 @@ function ArchiveClientBranch({ client, selection, navigate, expansion }: BranchP
   return <div>
     <div className={`flex items-center rounded-[11px] ${selected && !selection.objectId ? "bg-[var(--surface-soft)]" : ""}`}>
       <ExpandButton expanded={open} label={client.name} onClick={() => expansion.toggle(key)} />
-      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId: client.id, objectId: null, orderId: null, category: null }); }} className="focus-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-2 text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)]"><Building2 className="size-3.5 shrink-0 text-[var(--accent)]" /><span className="truncate">{client.name}</span><Count value={client.documentCount} /></button>
+      <button type="button" onClick={() => { expansion.open(key); navigate({ clientId: client.id, objectId: null, orderId: null, category: null }); }} className="focus-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-2 text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)]"><Building2 className="size-3.5 shrink-0 text-[var(--accent)]" /><span className="min-w-0"><span className="block truncate">{client.name}</span>{client.organizationName ? <span className="block truncate text-[9px] text-[var(--muted)]">{client.organizationName}</span> : null}</span><Count value={client.documentCount} /></button>
     </div>
     {open ? <div className="ml-3 border-l border-[var(--line)] pl-2">{client.objects.map((object) => <ArchiveObjectBranch key={object.id} clientId={client.id} object={object} selection={selection} navigate={navigate} expansion={expansion} />)}</div> : null}
   </div>;
@@ -124,7 +125,7 @@ function ArchiveMobileNavigator({ archive, folders, selection, navigate }: { arc
   const selectedOrderId = order?.id ?? null;
   const selectedFolder = folders.find((candidate) => candidate.id === selection.folderId) ?? null;
   let children: ReactNode;
-  if (!client) children = <><MobileFolderButton icon={Star} title="Избранное" onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: true })} />{folders.filter((folder) => folder.parentFolderId === null).map((folder) => <MobileFolderButton key={folder.id} icon={Folder} title={folder.name} subtitle="Пользовательская папка" count={folder.documentCount} onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null, folderId: folder.id, favoriteOnly: false })} />)}{archive.clients.map((item) => <MobileFolderButton key={item.id} icon={Building2} title={item.name} subtitle={`${item.objects.length} объектов`} count={item.documentCount} onClick={() => navigate({ clientId: item.id, objectId: null, orderId: null, category: null })} />)}</>;
+  if (!client) children = <><MobileFolderButton icon={Star} title="Избранное" onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: true })} />{folders.filter((folder) => folder.parentFolderId === null).map((folder) => <MobileFolderButton key={folder.id} icon={Folder} title={folder.name} subtitle={folder.organizationName ?? "Пользовательская папка"} count={folder.documentCount} onClick={() => navigate({ clientId: null, objectId: null, orderId: null, category: null, folderId: folder.id, favoriteOnly: false })} />)}{archive.clients.map((item) => <MobileFolderButton key={item.id} icon={Building2} title={item.name} subtitle={`${item.organizationName ? item.organizationName + " · " : ""}${item.objects.length} объектов`} count={item.documentCount} onClick={() => navigate({ clientId: item.id, objectId: null, orderId: null, category: null })} />)}</>;
   else if (!object) children = client.objects.map((item) => <MobileFolderButton key={item.id} icon={MapPin} title={item.name} subtitle={item.address} count={item.documentCount} onClick={() => navigate({ clientId: selectedClientId, objectId: item.id, orderId: null, category: null })} />);
   else if (!order) children = object.orders.map((item) => <MobileFolderButton key={item.id} icon={ClipboardList} title={`Заказ №${item.number}`} subtitle={`${item.categories.length} категорий`} count={item.documentCount} onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: item.id, category: null })} />);
   else children = order.categories.map((item) => <MobileFolderButton key={item.category} icon={FileText} title={item.label} count={item.documentCount} onClick={() => navigate({ clientId: selectedClientId, objectId: selectedObjectId, orderId: selectedOrderId, category: item.category })} />);
@@ -141,7 +142,7 @@ function ArchiveMobileNavigator({ archive, folders, selection, navigate }: { arc
 
   return <nav aria-label="Навигация по архиву" className="lg:hidden">
     {atRoot ? <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="focus-ring flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[11px] px-2 text-left hover:bg-[var(--surface-soft)]"><FolderRoot className="size-4 shrink-0 text-[var(--accent)]" /><span className="min-w-0 flex-1 text-xs font-semibold text-[var(--text)]">Папки архива</span><Count value={archive.documentCount} /><ChevronDown className={`size-4 shrink-0 text-[var(--muted)] transition-transform ${expanded ? "rotate-180" : ""}`} /></button> : <div className="mb-3 flex min-w-0 items-center gap-2 px-1"><button type="button" onClick={() => navigate(parent)} className="focus-ring grid size-9 shrink-0 place-items-center rounded-[10px] border border-[var(--line)]" aria-label="На уровень выше"><ArrowLeft className="size-4" /></button><p className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text)]">{title}</p></div>}
-    {!category && !selection.favoriteOnly && !selectedFolder && (!atRoot || expanded) ? <div className={`grid gap-2 ${atRoot ? "mt-2" : ""}`}>{children}</div> : null}
+    {!category && !selection.favoriteOnly && !selectedFolder && (!atRoot || expanded) ? <div className={`grid max-h-[22rem] gap-2 overflow-y-auto overscroll-contain ${atRoot ? "mt-2" : ""}`}>{children}</div> : null}
   </nav>;
 }
 
@@ -159,7 +160,17 @@ export function DocumentArchiveNavigator({ archive, folders, selection }: { arch
     };
     router.push(selectionUrl(next), { scroll: false });
   };
-  return <><ArchiveDesktopTree archive={archive} folders={folders} selection={selection} navigate={navigate} /><ArchiveMobileNavigator archive={archive} folders={folders} selection={selection} navigate={navigate} /></>;
+  const options = [
+    ...folders.map(folder => ({ value: selectionUrl({ clientId: null, objectId: null, orderId: null, category: null, folderId: folder.id, favoriteOnly: false }), label: folder.name, description: folder.organizationName ?? "Папка" })),
+    ...archive.clients.flatMap(client => [
+      { value: selectionUrl({ clientId: client.id, objectId: null, orderId: null, category: null, folderId: null, favoriteOnly: false }), label: client.name, description: client.organizationName ?? "Заказчик" },
+      ...client.objects.flatMap(object => [
+        { value: selectionUrl({ clientId: client.id, objectId: object.id, orderId: null, category: null, folderId: null, favoriteOnly: false }), label: object.name, description: `${client.name} · ${object.address}` },
+        ...object.orders.map(order => ({ value: selectionUrl({ clientId: client.id, objectId: object.id, orderId: order.id, category: null, folderId: null, favoriteOnly: false }), label: `Заказ №${order.number}`, description: `${client.name} · ${object.name}` }))
+      ])
+    ])
+  ];
+  return <><div className="mb-3"><OrderPicker label="Найти папку или связь" hideLabel value="" onChange={url => router.push(url, { scroll: false })} options={options} placeholder="Найти папку или связь" searchPlaceholder="Клиент, объект, заказ или папка" /></div><ArchiveDesktopTree archive={archive} folders={folders} selection={selection} navigate={navigate} /><ArchiveMobileNavigator archive={archive} folders={folders} selection={selection} navigate={navigate} /></>;
 }
 
 export function getArchiveSelectionTitle(archive: DocumentArchiveTree, selection: DocumentArchiveSelection) {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { orderCopyDateOverrideSchema } from "../orders/schemas.ts";
 import { visitStatuses } from "./types.ts";
 
 const optionalUuid = z.union([z.literal(""), z.string().uuid()]).transform((value) => value || null);
@@ -32,6 +33,8 @@ export const createVisitSchema = z.object({
 export const createVisitSeriesSchema = z.object({
   idempotencyKey: z.string().uuid(),
   orderId: z.string().uuid(),
+  expectedOrderVersion: z.coerce.number().int().positive().optional(),
+  dateOverrides: z.array(orderCopyDateOverrideSchema.pick({ date: true, assignedMasterId: true, masterPayment: true, serviceIds: true, serviceChanges: true, extraServices: true, visitNotes: true, arrivalMode: true, startTime: true, endTime: true })).max(60).default([]),
   scheduleMode: z.enum(["interval", "dates"]).default("interval"),
   selectedDates: z.array(z.iso.date()).max(60).default([]),
   startsOn: z.iso.date("Укажите дату первого выезда"),
@@ -50,6 +53,12 @@ export const createVisitSeriesSchema = z.object({
     if (!value.selectedDates.length) context.addIssue({ code: "custom", path: ["selectedDates"], message: "Выберите хотя бы одну дату" });
     if (new Set(value.selectedDates).size !== value.selectedDates.length) context.addIssue({ code: "custom", path: ["selectedDates"], message: "Одна дата выбрана несколько раз" });
     if (value.selectedDates.some((date) => date < value.startsOn || date > value.endsOn)) context.addIssue({ code: "custom", path: ["selectedDates"], message: "Дата вне периода серии" });
+  }
+  if (new Set(value.dateOverrides.map(entry => entry.date)).size !== value.dateOverrides.length) context.addIssue({ code: "custom", path: ["dateOverrides"], message: "Настройки даты указаны дважды" });
+  for (const [index, override] of value.dateOverrides.entries()) {
+    if (override.date < value.startsOn || override.date > value.endsOn || value.scheduleMode === "dates" && !value.selectedDates.includes(override.date)) context.addIssue({ code: "custom", path: ["dateOverrides", index], message: "Дата не входит в серию" });
+    validateArrivalWindow({ arrivalMode: override.arrivalMode ?? value.arrivalMode, localTime: override.startTime ?? value.localTime, endTime: override.endTime ?? value.endTime }, context);
+    if (override.assignedMasterId === null && override.masterPayment) context.addIssue({ code: "custom", path: ["dateOverrides", index], message: "Для выплаты выберите мастера" });
   }
   const startsAt = Date.parse(`${value.startsOn}T00:00:00Z`);
   const endsAt = Date.parse(`${value.endsOn}T00:00:00Z`);

@@ -83,6 +83,7 @@ function dayDifference(targetDate: string, sourceDate: string) {
 
 export async function copyOrder(member: AuthenticatedMember, input: CopyOrderInput) {
   requirePermission(member, "orders.write");
+  if (input.visitIds.length || input.dateOverrides.some((override) => override.startTime)) requirePermission(member, "visits.write");
   const canWriteFinance = hasPermission(member, "finance.write");
   if (!canWriteFinance && (input.expenseIds.length || input.dateOverrides.some((override) => override.expenseIds?.length || override.masterPayment !== undefined))) {
     requirePermission(member, "finance.write");
@@ -127,16 +128,13 @@ export async function copyOrder(member: AuthenticatedMember, input: CopyOrderInp
         ORDER BY position`;
       const sourceServices = serviceRows.map((row) => serviceSchema.parse(row));
       const sourceServiceIds = new Set(sourceServices.map((service) => service.id));
-      if ([...input.serviceIds, ...input.dateOverrides.flatMap((item) => item.serviceIds ?? [])].some((id) => !sourceServiceIds.has(id))) {
+      if ([...input.serviceIds, ...input.dateOverrides.flatMap((item) => [...(item.serviceIds ?? []), ...(item.serviceChanges ?? []).map((change) => change.id)])].some((id) => !sourceServiceIds.has(id))) {
         throw new OrderCopySelectionError("Одна из выбранных услуг больше не относится к этому заказу.");
       }
       const addedCatalogIds = [...new Set(input.dateOverrides.flatMap((item) => (item.extraServices ?? []).flatMap((service) => service.catalogItemId ? [service.catalogItemId] : [])))];
       if (addedCatalogIds.length) {
-        const catalogRows = await transaction`SELECT items.id, items.kind, items.unit, items.name,
-            rate.name AS contract_name
+        const catalogRows = await transaction`SELECT items.id, items.kind, items.unit, items.name
           FROM catalog_items items
-          LEFT JOIN object_service_rates rate ON rate.organization_id = items.organization_id
-            AND rate.object_id = ${source.object_id} AND rate.catalog_item_id = items.id AND rate.line_kind = 'contract'
           WHERE items.organization_id = ${member.organizationId} AND items.active
             AND items.id IN ${transaction(addedCatalogIds)}`;
         const catalogItems = new Map<string, { kind: "service" | "product"; unit: string; names: Set<string> }>();
@@ -148,7 +146,6 @@ export async function copyOrder(member: AuthenticatedMember, input: CopyOrderInp
             names: new Set<string>(),
           };
           item.names.add(z.string().parse(row.name));
-          if (row.contract_name !== null) item.names.add(z.string().parse(row.contract_name));
           catalogItems.set(id, item);
         }
         if (input.dateOverrides.some((item) => (item.extraServices ?? []).some((service) => {
@@ -216,7 +213,15 @@ export async function copyOrder(member: AuthenticatedMember, input: CopyOrderInp
       for (const copyDate of copyDates) {
       const override = input.dateOverrides.find((item) => item.date === copyDate);
       const selectedServiceIds = new Set(override?.serviceIds ?? input.serviceIds);
-      const services = sourceServices.filter((service) => selectedServiceIds.has(service.id));
+      const services = sourceServices.filter((service) => selectedServiceIds.has(service.id)).map((service) => {
+        const change = override?.serviceChanges?.find((item) => item.id === service.id);
+        if (!change) return service;
+        const quantity = parseQuantityToMilliunits(change.quantity);
+        const pricePending = change.unitPrice === "";
+        const unitPrice = pricePending ? 0n : parseMoneyToMinorUnits(change.unitPrice);
+        return { ...service, quantity: formatQuantityForDatabase(quantity), price_pending: pricePending,
+          unit_price_minor: unitPrice.toString(), line_total_minor: calculateServiceLineTotalMinor(unitPrice, quantity).toString() };
+      });
       const selectedExpenseIds = new Set(override?.expenseIds ?? input.expenseIds);
       const expenses = sourceExpenses.filter((expense) => selectedExpenseIds.has(expense.id));
       const extraServices = (override?.extraServices ?? []).map((service) => {

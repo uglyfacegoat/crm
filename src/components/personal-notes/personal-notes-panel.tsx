@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { Check, Clipboard, Copy, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import {
   deletePersonalNoteAction, deletePersonalNoteTemplateAction, savePersonalNoteAction,
@@ -19,10 +18,9 @@ type Props = {
   initialTemplates: NotePage<NoteTemplate>;
   objectName?: string;
   lizaDefaults?: Partial<LizaNoteFields>;
-  relatedLinks?: { calendarHref?: string; tasksHref?: string };
 };
 
-export function PersonalNotesPanel({ target, initialNotes, initialTemplates, objectName, lizaDefaults, relatedLinks }: Props) {
+export function PersonalNotesPanel({ target, initialNotes, initialTemplates, objectName, lizaDefaults }: Props) {
   const loadNotes = useCallback((query: string, offset: number) => searchPersonalNotesAction(target, query, offset), [target]);
   const noteList = useNotePage(initialNotes, loadNotes);
   const templateList = useNotePage(initialTemplates, searchPersonalNoteTemplatesAction);
@@ -185,8 +183,6 @@ export function PersonalNotesPanel({ target, initialNotes, initialTemplates, obj
           <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Видны только вам · {target.kind === "dashboard" ? "сохраняются каждый день, пока вы их не измените" : "привязаны к этой карточке"}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {relatedLinks?.calendarHref ? <Link href={relatedLinks.calendarHref} className="focus-ring inline-flex min-h-10 items-center rounded-xl border border-[var(--line)] px-4 text-xs">Календарь заказа</Link> : null}
-          {relatedLinks?.tasksHref ? <Link href={relatedLinks.tasksHref} className="focus-ring inline-flex min-h-10 items-center rounded-xl border border-[var(--line)] px-4 text-xs">Задачи заказа</Link> : null}
           <button type="button" disabled={pending} onClick={() => beginNew()} className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-xl bg-[var(--text)] px-4 text-xs font-semibold text-[var(--surface)]"><Plus className="size-4" />Новая заметка</button>
           <button type="button" onClick={() => setShowTemplates(!showTemplates)} className="focus-ring min-h-10 rounded-xl border border-[var(--line)] px-4 text-xs">По шаблону</button>
         </div>

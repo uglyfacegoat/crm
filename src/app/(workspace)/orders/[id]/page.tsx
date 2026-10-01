@@ -10,6 +10,8 @@ import {
   ReceiptText,
   UserRound,
 } from "lucide-react";
+import { OrderDocumentGenerator } from "@/components/orders/order-document-generator";
+import { listOrderGenerationTemplates } from "@/server/document-templates/repository";
 import { OrderActions } from "@/components/orders/order-actions";
 import { UploadDocumentButton } from "@/components/documents/upload-document-dialog";
 import { UploadDocumentVersionButton } from "@/components/documents/upload-document-version-dialog";
@@ -26,7 +28,6 @@ import { hasPermission } from "@/server/auth/permissions";
 import { requireOfficeSession } from "@/server/auth/session";
 import { resolveCenterOrderScope } from "@/server/organizations/center-dashboard";
 import { searchPersonalNotes, searchPersonalNoteTemplates, type NoteTarget } from "@/server/personal-notes/repository";
-import { getObjectServiceProfile } from "@/server/catalog/object-service-profiles";
 import { getOrderDocumentUploadOptions, listOrderDocuments } from "@/server/documents/repository";
 import type { DocumentListItem, DocumentUploadOptions } from "@/server/documents/types";
 import {
@@ -179,6 +180,8 @@ export default async function OrderDetailPage({
     documentUploadOptions = await getOrderDocumentUploadOptions(orderMember, order.id);
   }
 
+  const generationTemplates = !preview && canWriteDocuments && canReadDocuments ? await listOrderGenerationTemplates(member) : [];
+
   const dispatchVisit =
     orderVisits.find(
       (visit) =>
@@ -193,25 +196,16 @@ export default async function OrderDetailPage({
       invoicedTotalMinor: 0, paidTotalMinor: 0, directExpensesMinor: 0,
       projectedOperatingContributionMinor: 0, realizedOperatingContributionMinor: 0, outstandingInvoiceMinor: 0 };
   const noteTarget: NoteTarget = { kind: "order", organizationId: orderMember.organizationId, id: order.id };
-  const noteCalendarDate = dispatchVisit ? new Intl.DateTimeFormat("en-CA", { timeZone: dispatchVisit.timezone,
-    year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(dispatchVisit.scheduledStartAt)) : null;
-  const relatedNoteLinks = viewingAcrossCompanies ? undefined : {
-    calendarHref: canReadVisits ? `/calendar?${noteCalendarDate ? `date=${noteCalendarDate}&` : ""}view=day&order=${order.id}` : undefined,
-    tasksHref: hasPermission(member, "tasks.read") ? `/tasks?order=${order.id}` : undefined,
-  };
   const [personalNotes, noteTemplates] = preview
     ? [{ items: [], total: 0, nextOffset: null }, { items: [], total: 0, nextOffset: null }]
     : await Promise.all([searchPersonalNotes(member, noteTarget), searchPersonalNoteTemplates(member)]);
-  const serviceProfile = !preview && order.objectId ? await getObjectServiceProfile(orderMember, order.objectId) : null;
-  const contractRates = serviceProfile?.rates.filter((rate) => rate.lineKind === "contract") ?? [];
   const lizaDefaults = {
     object: order.object,
-    area: (serviceProfile?.areaSquareMeters ?? serviceProfile?.objectAreaSquareMeters ?? "").replace(".", ","),
-    serviceRates: contractRates.length ? contractRates.map((rate) => ({ name: rate.name,
-      pricePerSquareMeter: rate.billingBasis === "area" && rate.unitPriceMinor !== null ? (rate.unitPriceMinor / 100).toFixed(2).replace(".", ",") : "" }))
-      : order.services.map((line) => ({ name: line.name, pricePerSquareMeter: "" })),
-    total: serviceProfile?.contractTotalMinor !== null && serviceProfile?.contractTotalMinor !== undefined ? (serviceProfile.contractTotalMinor / 100).toFixed(2).replace(".", ",") : order.agreedTotalMinor ? (order.agreedTotalMinor / 100).toFixed(2).replace(".", ",") : "",
-    maintenance: serviceProfile?.serviceSchedule || (serviceProfile?.visitsPerMonth ? `${serviceProfile.visitsPerMonth} раз(а) в месяц` : ""),
+    area: (order.objectAreaSquareMeters ?? "").replace(".", ","),
+    serviceRates: order.services.map((line) => ({ name: line.name,
+      pricePerSquareMeter: ["м²", "м2"].includes(line.unit ?? "") && !line.pricePending ? (line.unitPriceMinor / 100).toFixed(2).replace(".", ",") : "" })),
+    total: order.agreedTotalMinor ? (order.agreedTotalMinor / 100).toFixed(2).replace(".", ",") : "",
+    maintenance: "",
   };
   const primaryContact = order.relatedContacts?.find((contact) => contact.id === order.contactId);
   const extraContacts = order.relatedContacts?.filter((contact) => contact.id !== order.contactId) ?? [];
@@ -244,13 +238,14 @@ export default async function OrderDetailPage({
             visits={copyableVisits}
             canWrite={canWrite}
             canWriteFinance={canWriteFinance}
+            canScheduleVisit={canWriteVisits}
             dispatchVisitId={viewingAcrossCompanies ? null : dispatchVisit?.id ?? null}
           />
         </div>
       </header>
 
       <div className="mt-5">
-        <PersonalNotesPanel key={`${member.organizationId}:${member.memberId}:order:${order.id}`} target={noteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} objectName={order.object} lizaDefaults={lizaDefaults} relatedLinks={relatedNoteLinks} />
+        <PersonalNotesPanel key={`${member.organizationId}:${member.memberId}:order:${order.id}`} target={noteTarget} initialNotes={personalNotes} initialTemplates={noteTemplates} objectName={order.object} lizaDefaults={lizaDefaults} />
       </div>
 
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)]">
@@ -307,6 +302,8 @@ export default async function OrderDetailPage({
               }
             />
           ) : null}
+
+          {canWriteDocuments && canReadDocuments ? <OrderDocumentGenerator order={{ id: order.id, version: order.version, number: order.number, client: order.client, object: order.object, address: order.address, master: order.master, objectAreaSquareMeters: order.objectAreaSquareMeters, services: order.services }} templates={generationTemplates} visits={orderVisits} preview={preview} /> : null}
 
           <OrderRelationsSection
             orderId={order.id}

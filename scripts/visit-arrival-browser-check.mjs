@@ -130,18 +130,21 @@ try {
   assert.equal(reminder.due_at.toISOString(), new Date(moved.scheduled_start_at - 86400000).toISOString());
   assert.equal((await sql`SELECT count(*)::integer AS count FROM service_visit_events WHERE visit_id = ${visit.id} AND event_type = 'schedule_changed'`)[0].count, 3);
   await page.goto(`${base}/orders/${orders[0]}`);
-  await page.getByRole('button', { name: 'Создать серию выездов', exact: true }).click();
-  dialog = page.getByRole('dialog', { name: 'Серия выездов', exact: true });
+  await page.getByRole('button', { name: 'Копия и серия', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Копия и серия', exact: true });
+  await dialog.getByRole('button', { name: /^Серия выездов/ }).click();
+  const ordersBeforeSeries = (await sql`SELECT count(*)::integer AS count FROM orders WHERE organization_id = ${principal.organization_id}`)[0].count;
   await dialog.locator('[data-form-name="startsOn"]').fill('01.02.2030');
   await dialog.locator('[data-form-name="endsOn"]').fill('08.02.2030');
   await dialog.locator('summary[aria-label="Повторять"]').click();
   await dialog.getByRole('button', { name: 'Каждые N недель', exact: true }).click();
   await dialog.getByRole('button', { name: 'Интервал приезда', exact: true }).click();
-  await dialog.locator('[data-form-name="localTime"]').fill('22:30');
-  await dialog.locator('[data-form-name="endTime"]').fill('00:30');
-  await dialog.getByRole('button', { name: 'Создать 2 выездов', exact: true }).click();
+  await dialog.locator('[data-form-name="overrideStartTime"]').fill('22:30');
+  await dialog.locator('[data-form-name="overrideEndTime"]').fill('00:30');
+  await dialog.getByRole('button', { name: 'Добавить 2 выезда', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
-  const series = await sql`SELECT arrival_mode, scheduled_start_at, scheduled_end_at FROM service_visits WHERE order_id = ${orders[0]} AND series_id IS NOT NULL`;
+  const series = await sql`SELECT arrival_mode, scheduled_start_at, scheduled_end_at FROM service_visits WHERE organization_id = ${principal.organization_id} AND scheduled_start_at >= '2030-02-01' AND scheduled_start_at < '2030-02-09' AND order_id = ${orders[0]} AND series_id IS NOT NULL`;
+  assert.equal((await sql`SELECT count(*)::integer AS count FROM orders WHERE organization_id = ${principal.organization_id}`)[0].count, ordersBeforeSeries);
   assert.equal(series.length, 2); for (const entry of series) { assert.equal(entry.arrival_mode, 'window'); assert.equal((entry.scheduled_end_at - entry.scheduled_start_at) / 60000, 120); }
   const coordinatorPage = await browser.newPage(); coordinatorPage.on('pageerror', e => errors.push(e.message)); await login(coordinatorPage, accounts.coordinator);
   await coordinatorPage.goto(`${base}/orders/${orders[1]}`); await coordinatorPage.getByRole('button', { name: 'Добавить выезд', exact: true }).click();

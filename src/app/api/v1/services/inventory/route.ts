@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     const parsed = catalogInventoryQuerySchema.safeParse({
       q: url.searchParams.get("q") ?? undefined,
       filter: url.searchParams.get("filter") ?? undefined,
+      kind: url.searchParams.get("kind") ?? undefined,
       page: url.searchParams.get("page") ?? undefined,
     });
     if (!parsed.success) return Response.json({ error: { code: "validation_error", message: "Некорректные параметры списка." } }, { status: 400, headers });

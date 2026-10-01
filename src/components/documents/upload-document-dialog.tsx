@@ -152,7 +152,7 @@ function UploadDocumentForm({
           ]}
         />
         <div className="grid gap-4 sm:grid-cols-2">
-          <OrderPicker
+          <OrderPicker searchable={false}
             label="Категория"
             required
             value={category}

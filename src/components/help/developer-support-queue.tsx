@@ -68,7 +68,7 @@ function TicketStatusForm({ ticket }: { ticket: DeveloperSupportTicket }) {
     <form action={action} className="grid gap-2 sm:grid-cols-[minmax(9rem,1fr)_auto]">
       <input type="hidden" name="requestId" value={ticket.id} />
       <input type="hidden" name="expectedVersion" value={ticket.version} />
-      <CustomSelect
+      <CustomSelect searchable={false}
         name="status"
         value={status}
         onChange={(value) => setStatus(value as SupportRequestStatus)}

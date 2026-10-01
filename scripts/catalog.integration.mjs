@@ -94,10 +94,6 @@ test("catalog is organization-scoped, supports variable prices and preserves ord
     VALUES (${a.organizationId}, 'Договорный заказчик', 'legal_entity') RETURNING id`;
   const [object] = await sql`INSERT INTO client_objects (organization_id, client_id, name, object_type, address)
     VALUES (${a.organizationId}, ${client.id}, 'Договорный объект', 'Office', 'Адрес') RETURNING id`;
-  await sql`INSERT INTO object_service_profiles (organization_id, object_id)
-    VALUES (${a.organizationId}, ${object.id})`;
-  await sql`INSERT INTO object_service_rates (organization_id, object_id, catalog_item_id, name, line_kind, billing_basis, unit_price_minor, position)
-    VALUES (${a.organizationId}, ${object.id}, ${target.id}, 'Договорная янтарная обработка', 'contract', 'area', 23, 1)`;
   assert.equal((await listCatalogItems(a)).some((entry) => entry.id === target.id), false);
   const inventoryQuery = (input) => catalogInventoryQuerySchema.parse(input);
   const inventoryFirstPage = await searchCatalogInventory([a], inventoryQuery({}));
@@ -119,11 +115,10 @@ test("catalog is organization-scoped, supports variable prices and preserves ord
   assert.equal(firstPage.hasMore, true);
   const byCatalogName = await searchCatalogPicker(a, catalogPickerQuerySchema.parse({ q: 'янтарная' }));
   assert.deepEqual(byCatalogName.items.map((entry) => entry.id), [target.id]);
-  const byContractName = await searchCatalogPicker(a, catalogPickerQuerySchema.parse({ q: 'договорная янтарная', objectId: object.id }));
-  assert.deepEqual(byContractName.items.map((entry) => entry.id), [target.id]);
-  assert.equal(byContractName.items[0].name, 'Договорная янтарная обработка');
-  assert.equal(byContractName.items[0].catalogItem.defaultPriceMinor, 75);
-  assert.match(byContractName.items[0].detail, /0\.23 ₽\/м² · по договору/);
+  assert.equal(byCatalogName.items[0].name, 'Янтарная услуга Ёж');
+  assert.equal(byCatalogName.items[0].catalogItem.defaultPriceMinor, 75);
+  assert.match(byCatalogName.items[0].detail, /0\.75 ₽\/м²/);
+  assert.doesNotMatch(byCatalogName.items[0].detail, /по договору/);
   assert.equal((await searchCatalogPicker(a, catalogPickerQuerySchema.parse({ q: 'чужая' }))).items.length, 0);
   await sql`UPDATE catalog_items SET active = false WHERE organization_id = ${a.organizationId} AND id = ${target.id}`;
   assert.equal((await searchCatalogInventory([a], inventoryQuery({ q: 'янтарная' }))).items.length, 0);
