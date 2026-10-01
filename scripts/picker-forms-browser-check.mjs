@@ -469,8 +469,10 @@ try {
   await taskDialog.locator('input[name="title"]').fill('Picker priority task');
   const prioritySummary = taskDialog.locator('summary[aria-label="Приоритет"]');
   await prioritySummary.click();
+  await unclippedPicker(prioritySummary.locator('..'), 'Приоритет');
   const prioritySearch = prioritySummary.locator('..').getByRole('textbox');
-  await prioritySearch.fill('Крит'); await prioritySearch.press('ArrowDown');
+  assert.equal(await prioritySearch.count(), 0, 'Fixed priorities do not need search');
+  await prioritySummary.press('ArrowDown'); await page.keyboard.press('End');
   assert.equal(await prioritySummary.locator('..').getByRole('button', { name: 'Критичный', exact: true }).evaluate(el => el === document.activeElement), true);
   await page.keyboard.press('Enter');
   assert.equal(await taskDialog.locator('input[name="priority"]').inputValue(), 'critical');

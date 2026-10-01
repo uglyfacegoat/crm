@@ -439,7 +439,7 @@ try {
       const methodLabel = kind === "payment" ? "Наличные" : "Карта";
       await dialog.locator('summary[aria-label="Способ"]').click();
       const methodMenu = dialog.locator('summary[aria-label="Способ"]').locator("..");
-      await methodMenu.getByRole("textbox").fill(methodLabel.slice(0, 3));
+      assert.equal(await methodMenu.getByRole("textbox").count(), 0, "Fixed payment methods do not need search");
       await methodMenu.getByRole("button", { name: methodLabel, exact: true }).click();
       assert.equal(await dialog.locator('input[name="paymentMethod"]').inputValue(), method);
       const receiptBytes = pdfFixture(`Receipt ${kind} ${suffix}`);

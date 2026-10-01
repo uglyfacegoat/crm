@@ -220,7 +220,7 @@ try {
   assert.match(await financeReadChoice.innerText(), /По роли — разрешено/);
   await financeReadChoice.click();
   const permissionMenu = financeReadChoice.locator("..");
-  await permissionMenu.getByRole("textbox").fill("Запретить");
+  assert.equal(await permissionMenu.getByRole("textbox").count(), 0, "Fixed permission choices do not need search");
   await permissionMenu.getByRole("button", { name: "Запретить", exact: true }).click();
   await developerPage.waitForFunction(() => document.querySelector('input[name="permissionOverrides"]')?.value.includes('"finance.read":false'));
   await developerPage.getByRole("button", { name: "Сохранить доступ" }).click();
