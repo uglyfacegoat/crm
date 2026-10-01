@@ -61,5 +61,5 @@ test('order template generation fills Cyrillic, attaches one file, enforces scop
  const unrecognized=Buffer.from(zipSync({...parts,'word/document.xml':strToU8('<w:p><w:r><w:t>{{unknown_field}}</w:t></w:r></w:p>')}));assert.equal((await inspectGenerationTemplate(unrecognized,'docx')).generationKind,null);
  assert.equal((await sql`SELECT count(*)::integer AS count FROM documents WHERE order_id=${order.id}`)[0].count,1,'Rejected requests leave no partial documents');
  assert.equal((await sql`SELECT count(*)::integer AS count FROM file_write_operations`)[0].count,0,'Successful writes release their file leases');
- await writeFile('.codex-local/document-generation-20261001/generated-integration.pdf',output);
+ await writeFile(join(folder, 'generated-integration.pdf'), output);
 });
